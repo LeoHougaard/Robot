@@ -46,3 +46,4 @@ autoresearch/*.mp4
 *.tmp
 *.log
 *.pid
+.migration-backup/
