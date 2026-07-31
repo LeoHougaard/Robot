@@ -1,0 +1,88 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# This is an authored review scene. It references the generated/training asset
+# and may be edited without changing the Onshape Publisher export.
+def Xform "World"
+{
+    def Scope "Looks"
+    {
+        def Material "RobotOrange"
+        {
+            token outputs:surface.connect = </World/Looks/RobotOrange/PreviewSurface.outputs:surface>
+
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.9, 0.12, 0.015)
+                float inputs:metallic = 0.05
+                float inputs:roughness = 0.35
+                token outputs:surface
+            }
+        }
+
+        def Material "GroundDarkGray"
+        {
+            token outputs:surface.connect = </World/Looks/GroundDarkGray/PreviewSurface.outputs:surface>
+
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.055, 0.065, 0.08)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.8
+                token outputs:surface
+            }
+        }
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def Mesh "GroundPlane" (
+        prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+    )
+    {
+        uniform bool doubleSided = 1
+        float3[] extent = [(-5, -5, 0), (5, 5, 0)]
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        rel material:binding = </World/Looks/GroundDarkGray>
+        point3f[] points = [(-5, -5, 0), (5, -5, 0), (5, 5, 0), (-5, 5, 0)]
+        uniform token subdivisionScheme = "none"
+    }
+
+    def Xform "Robot" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+        prepend references = @../training/assets/simple_dog_training.usda@
+    )
+    {
+        rel material:binding = </World/Looks/RobotOrange> (
+            bindMaterialAs = "strongerThanDescendants"
+        )
+        double3 xformOp:translate = (0, 0, 0.24)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def DomeLight "DomeLight"
+    {
+        color3f inputs:color = (0.8, 0.85, 1)
+        float inputs:intensity = 650
+    }
+
+    def DistantLight "KeyLight"
+    {
+        float inputs:angle = 1
+        color3f inputs:color = (1, 0.92, 0.8)
+        float inputs:intensity = 1800
+        float3 xformOp:rotateXYZ = (315, 0, 35)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+}

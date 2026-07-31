@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "robot_id": "simple-dog",
+  "adapter": "simple_dog_v1",
+  "checkpoint": "/workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/2026-07-30_01-26-32/nn/simple_dog_velocity_direct.pth",
+  "terrain": "flat",
+  "max_minutes": 240,
+  "num_envs": 512,
+  "next_max_iterations": 1000,
+  "iteration_increment": 250,
+  "max_cycles": 3,
+  "poll_seconds": 30,
+  "video_length": 400,
+  "qwen_model": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+  "tuning": {}
+}

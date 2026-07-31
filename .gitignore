@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Editors and operating systems
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local credentials and configuration
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.token
+
+# Isaac Lab generated data
+training/logs/
+training/runs/
+training/diagnostics/
+training/assets/onshape/
+autoresearch/runs/
+autoresearch/escalations/
+autoresearch/review/
+
+# Generated rollout evidence
+autoresearch/*cycle*/
+autoresearch/*contact-sheet*
+autoresearch/*metrics.json
+autoresearch/*.mp4
+
+# Large training artifacts
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.engine
+*.npz
+
+# Temporary files
+*.tmp
+*.log
+*.pid

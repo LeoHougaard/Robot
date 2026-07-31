@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Parse Python sources
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          files = sorted(Path(".").rglob("*.py"))
+          for path in files:
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          print(f"Parsed {len(files)} Python files.")
+          PY
+
+      - name: Run deterministic autoresearch tests
+        run: python -m unittest discover -s autoresearch -p "test_*.py"
+
+      - name: Check Bash syntax
+        run: |
+          find . -type f -name "*.sh" -print0 |
+            xargs -0 -n1 bash -n

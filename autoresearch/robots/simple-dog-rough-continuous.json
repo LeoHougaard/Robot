@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "robot_id": "simple-dog-rough-continuous",
+  "adapter": "simple_dog_v1",
+  "checkpoint": "/workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/2026-07-30_20-37-41/nn/prepared_lr25e-6_after_target_691.pth",
+  "baseline_checkpoint": "/workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/2026-07-30_01-26-32/nn/simple_dog_velocity_direct_heightscan.pth",
+  "terrain": "rough",
+  "max_minutes": 360,
+  "num_envs": 128,
+  "next_max_iterations": 701,
+  "iteration_increment": 10,
+  "training_chunks_per_cycle": 1,
+  "max_cycles": 8,
+  "poll_seconds": 15,
+  "video_length": 300,
+  "qwen_model": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+  "tuning": {
+    "body_vel_reward_scale": 6.0,
+    "velocity_tracking_std": 0.1,
+    "yaw_rate_reward_scale": 0.5,
+    "gait_reward_scale": 1.0,
+    "feet_air_time_reward_scale": 0.5,
+    "foot_slip_penalty_scale": -0.5
+  }
+}

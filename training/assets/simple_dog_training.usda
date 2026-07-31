@@ -1,0 +1,298 @@
+#usda 1.0
+(
+    defaultPrim = "robot"
+    metersPerUnit = 1
+    upAxis = "Z"
+    subLayers = [
+        @../../assets/onshape/simple-8-joint-dog/robot.usda@
+    ]
+)
+
+# The Onshape Publisher marks the assembly with IsaacRobotAPI but does not
+# currently author the USD Physics articulation-root API required by Isaac Lab.
+# Keep that runtime training concern in this stronger layer so a re-export can
+# replace the generated base asset without losing authored fixes.
+over "robot" (
+    prepend apiSchemas = ["PhysicsArticulationRootAPI"]
+)
+{
+    over "joints"
+    {
+        # The Publisher export contains sentinel-sized limits because no
+        # mechanical limits were authored in Onshape. These simulation-safe
+        # limits center a +/-40 degree learning envelope on the calibrated
+        # free-standing pose. Joint state and drive targets are in degrees.
+        # Replace the limits with real hardware values if they are later
+        # defined in the CAD model.
+        over "_M1FJe8T6NDlY0LNLX"
+        {
+            float drive:angular:physics:targetPosition = 1.237464
+            float physics:lowerLimit = -38.762536
+            float physics:upperLimit = 41.237464
+            float state:angular:physics:position = 1.237464
+        }
+        over "_MX_hB5nqO3BDf8_Uf"
+        {
+            float drive:angular:physics:targetPosition = -1.359500
+            float physics:lowerLimit = -41.359500
+            float physics:upperLimit = 38.640500
+            float state:angular:physics:position = -1.359500
+        }
+        over "_M17lNIUcn80HD7Q0k"
+        {
+            float drive:angular:physics:targetPosition = -68.759999
+            float physics:lowerLimit = -108.759999
+            float physics:upperLimit = -28.759999
+            float state:angular:physics:position = -68.759999
+        }
+        over "_M9YA_lGt3xsD68dBn"
+        {
+            float drive:angular:physics:targetPosition = -29.875767
+            float physics:lowerLimit = -69.875767
+            float physics:upperLimit = 10.124233
+            float state:angular:physics:position = -29.875767
+        }
+        over "_MwP_D3xH5iroh0GMh"
+        {
+            float drive:angular:physics:targetPosition = 54.669029
+            float physics:lowerLimit = 14.669029
+            float physics:upperLimit = 94.669029
+            float state:angular:physics:position = 54.669029
+        }
+        over "_MbJy5CEqXTSl4WsxX"
+        {
+            float drive:angular:physics:targetPosition = 6.247937
+            float physics:lowerLimit = -33.752063
+            float physics:upperLimit = 46.247937
+            float state:angular:physics:position = 6.247937
+        }
+        over "_MSisryrVCS27na0VO"
+        {
+            float drive:angular:physics:targetPosition = 80.214090
+            float physics:lowerLimit = 40.214090
+            float physics:upperLimit = 120.214090
+            float state:angular:physics:position = 80.214090
+        }
+        over "_MD8PhymI8YJME2GAl"
+        {
+            float drive:angular:physics:targetPosition = 9.316749
+            float physics:lowerLimit = -30.683251
+            float physics:upperLimit = 49.316749
+            float state:angular:physics:position = 9.316749
+        }
+    }
+
+    # Isaac Sim's full streamed app can compose Publisher glTF references
+    # directly, but Isaac Lab's minimal app does not load that file-format
+    # plugin. Reference native USD conversions in this stronger training layer
+    # so visual and collision meshes exist during headless training.
+    over "links"
+    {
+        over "_M0BhnApLFcIwi9FiI"
+        {
+            over "visuals"
+            {
+                over "___meshes__M0BhnApLFcIwi9FiI_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_M0BhnApLFcIwi9FiI.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__M0BhnApLFcIwi9FiI_gltf"
+                {
+                    over "___meshes__M0BhnApLFcIwi9FiI_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_M0BhnApLFcIwi9FiI.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_M0GXc29ZQLKLZRigV"
+        {
+            over "visuals"
+            {
+                over "___meshes__M0GXc29ZQLKLZRigV_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_M0GXc29ZQLKLZRigV.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__M0GXc29ZQLKLZRigV_gltf"
+                {
+                    over "___meshes__M0GXc29ZQLKLZRigV_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_M0GXc29ZQLKLZRigV.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_MDzoh4cCiQOb3LDc6"
+        {
+            over "visuals"
+            {
+                over "___meshes__MDzoh4cCiQOb3LDc6_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MDzoh4cCiQOb3LDc6.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__MDzoh4cCiQOb3LDc6_gltf"
+                {
+                    over "___meshes__MDzoh4cCiQOb3LDc6_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MDzoh4cCiQOb3LDc6.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_MFFQ2p25_Tl8Qbl6J"
+        {
+            over "visuals"
+            {
+                over "___meshes__MFFQ2p25_Tl8Qbl6J_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MFFQ2p25_Tl8Qbl6J.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__MFFQ2p25_Tl8Qbl6J_gltf"
+                {
+                    over "___meshes__MFFQ2p25_Tl8Qbl6J_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MFFQ2p25_Tl8Qbl6J.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_MPiebr7IdhajYW6eO"
+        {
+            over "visuals"
+            {
+                over "___meshes__MPiebr7IdhajYW6eO_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MPiebr7IdhajYW6eO.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__MPiebr7IdhajYW6eO_gltf"
+                {
+                    over "___meshes__MPiebr7IdhajYW6eO_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MPiebr7IdhajYW6eO.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_MdQLAKl_Scf81bKbb"
+        {
+            over "visuals"
+            {
+                over "___meshes__MdQLAKl_Scf81bKbb_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MdQLAKl_Scf81bKbb.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__MdQLAKl_Scf81bKbb_gltf"
+                {
+                    over "___meshes__MdQLAKl_Scf81bKbb_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MdQLAKl_Scf81bKbb.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_MkA4XIXvGXiT_qjpE"
+        {
+            over "visuals"
+            {
+                over "___meshes__MkA4XIXvGXiT_qjpE_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MkA4XIXvGXiT_qjpE.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__MkA4XIXvGXiT_qjpE_gltf"
+                {
+                    over "___meshes__MkA4XIXvGXiT_qjpE_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MkA4XIXvGXiT_qjpE.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_Ml_IVwTR18YxKzP3h"
+        {
+            over "visuals"
+            {
+                over "___meshes__Ml_IVwTR18YxKzP3h_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_Ml_IVwTR18YxKzP3h.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__Ml_IVwTR18YxKzP3h_gltf"
+                {
+                    over "___meshes__Ml_IVwTR18YxKzP3h_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_Ml_IVwTR18YxKzP3h.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+
+        over "_MqjGc65gNtWvXfvxi"
+        {
+            over "visuals"
+            {
+                over "___meshes__MqjGc65gNtWvXfvxi_gltf" (
+                    references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MqjGc65gNtWvXfvxi.usd@]
+                )
+                {
+                }
+            }
+            over "collisions"
+            {
+                over "___meshes__MqjGc65gNtWvXfvxi_gltf"
+                {
+                    over "___meshes__MqjGc65gNtWvXfvxi_gltf" (
+                        references = [@../../assets/onshape/simple-8-joint-dog/usd_meshes/_MqjGc65gNtWvXfvxi.usd@]
+                    )
+                    {
+                    }
+                }
+            }
+        }
+    }
+}

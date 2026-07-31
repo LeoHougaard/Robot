@@ -1,0 +1,16 @@
+FROM nvcr.io/nvidia/isaac-lab:3.0.0-beta2-post1@sha256:07a349c0aa9cadbb33b82fc9428be334084f384db21b7b0bf9f3ff6c2ee876c9
+
+USER 0:0
+
+# The official image contains uid/gid 1000. Leo is uid 1001 on the GB10, so
+# direct --user 1001:1000 mapping needs a passwd entry for Python/native tools.
+# Only the generic cache parent needs group write; named volumes mounted below
+# it are initialized separately for uid 1001.
+RUN printf '%s\n' 'leo:x:1001:1000:Leo:/root:/bin/bash' >> /etc/passwd \
+    && chmod g+w /root/.cache
+
+LABEL com.leo.workload="isaac-gb10" \
+      com.leo.role="isaac-lab-runtime" \
+      com.leo.base-digest="sha256:07a349c0aa9cadbb33b82fc9428be334084f384db21b7b0bf9f3ff6c2ee876c9"
+
+USER 1000:1000
