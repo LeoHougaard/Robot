@@ -86,17 +86,19 @@ static constexpr uint8_t STS_ID_ADDR = 0x05;
 static constexpr uint8_t STS_MODE_ADDR = 0x21;
 static constexpr uint8_t STS_TORQUE_ENABLE_ADDR = 0x28;
 static constexpr uint8_t STS_ACC_ADDR = 0x29;
+static constexpr uint8_t STS_GOAL_POSITION_ADDR = 0x2A;
 static constexpr uint8_t STS_GOAL_SPEED_ADDR = 0x2E;
 static constexpr uint8_t STS_TORQUE_LIMIT_ADDR = 0x30;
 static constexpr uint8_t STS_LOCK_ADDR = 0x37;
 static constexpr uint8_t STS_PRESENT_POSITION_ADDR = 0x38;
 static constexpr uint8_t STS_PRESENT_STATE_BYTES = 4;
 static constexpr uint16_t STS_TORQUE_LIMIT_MAX = 1000;
+static constexpr uint16_t COMMISSIONING_TORQUE_LIMIT = 250;
 static constexpr uint8_t STS_MODE_SERVO = 0;
 static constexpr uint8_t STS_MODE_MOTOR = 1;
 static constexpr uint16_t POLICY_FRAME_TIMEOUT_MS = 120;
 static constexpr uint8_t POLICY_MAX_FEEDBACK_FAILURES = 3;
-static constexpr float POLICY_MAX_TARGET_STEP_DEG = 6.0f;
+static constexpr size_t USB_SERIAL_PACKET_BYTES = 64;
 
 struct ServoConfig {
   uint8_t id = 0;
@@ -109,6 +111,8 @@ struct ServoConfig {
   float lastAngle = 120;
   float measuredAngle = 120;
   bool hasMeasuredAngle = false;
+  uint8_t statusError = 0;
+  bool hasStatusError = false;
   bool monitorEnabled = true;
   uint16_t monitorIntervalMs = DEFAULT_MONITOR_INTERVAL_MS;
   uint32_t nextMonitorAt = 0;
@@ -116,7 +120,7 @@ struct ServoConfig {
   uint32_t lastVelocityAt = 0;
   bool motorMode = false;
   float motorSpeed = 0;
-  uint16_t torqueLimit = STS_TORQUE_LIMIT_MAX;
+  uint16_t torqueLimit = COMMISSIONING_TORQUE_LIMIT;
 };
 
 struct ProgramStep {
@@ -213,6 +217,7 @@ class ServoBusDriver {
 public:
   void begin() {
     bus = new HardwareSerial(SERVO_UART_NUM);
+    bus->setTxBufferSize(256);
     bus->begin(SERVO_BAUD, SERIAL_8N1, SERVO_RX_PIN, SERVO_TX_PIN);
   }
 
@@ -256,7 +261,30 @@ public:
     writePacket(0xFE, 0x83, params, offset);
   }
 
-  bool readPosition(uint8_t id, uint16_t &position) {
+  void syncPosition(const uint8_t *ids, const uint16_t *positions, uint8_t count) {
+    if (!bus || !ids || !positions || count == 0) return;
+    if (count > MAX_SERVOS) count = MAX_SERVOS;
+
+    // Acceleration and speed are configured while arming.  At policy rate we
+    // only need the two position bytes, reducing the 12-servo broadcast from
+    // 104 bytes to 44 bytes without changing the commanded trajectory.
+    uint8_t params[2 + (3 * MAX_SERVOS)];
+    uint8_t offset = 0;
+    params[offset++] = STS_GOAL_POSITION_ADDR;
+    params[offset++] = 2;
+    for (uint8_t i = 0; i < count; i++) {
+      params[offset++] = ids[i];
+      params[offset++] = lowByte(positions[i]);
+      params[offset++] = highByte(positions[i]);
+    }
+
+    clearRx();
+    writePacket(0xFE, 0x83, params, offset);
+  }
+
+  void discardPendingResponses() { clearRx(); }
+
+  bool readPosition(uint8_t id, uint16_t &position, uint8_t &statusError) {
     if (!bus) return false;
 
     clearRx();
@@ -265,9 +293,14 @@ public:
     writePacket(id, 0x02, params, sizeof(params));
 
     uint8_t response[8];
-    if (!readResponse(id, response, sizeof(response), 20)) return false;
+    if (!readResponse(id, response, sizeof(response), 20, statusError)) return false;
     position = response[5] | (static_cast<uint16_t>(response[6]) << 8);
     return true;
+  }
+
+  bool readPosition(uint8_t id, uint16_t &position) {
+    uint8_t ignoredStatus = 0;
+    return readPosition(id, position, ignoredStatus);
   }
 
   bool syncReadPositionSpeed(
@@ -275,9 +308,10 @@ public:
     uint8_t count,
     uint16_t *positions,
     int16_t *speeds,
-    bool *received
+    bool *received,
+    uint8_t *statusErrors
   ) {
-    if (!bus || !ids || !positions || !speeds || !received || count == 0) return false;
+    if (!bus || !ids || !positions || !speeds || !received || !statusErrors || count == 0) return false;
     if (count > MAX_SERVOS) count = MAX_SERVOS;
 
     uint8_t params[2 + MAX_SERVOS];
@@ -286,6 +320,7 @@ public:
     for (uint8_t i = 0; i < count; i++) {
       params[2 + i] = ids[i];
       received[i] = false;
+      statusErrors[i] = 0;
     }
 
     clearRx();
@@ -296,7 +331,8 @@ public:
     while (replies < count && millis() - startedAt < 12) {
       uint8_t responseId = 0;
       uint8_t data[STS_PRESENT_STATE_BYTES];
-      if (!readDataResponse(responseId, data, sizeof(data), 3)) continue;
+      uint8_t responseStatus = 0;
+      if (!readDataResponse(responseId, data, sizeof(data), 3, responseStatus)) continue;
 
       for (uint8_t i = 0; i < count; i++) {
         if (ids[i] != responseId || received[i]) continue;
@@ -306,6 +342,7 @@ public:
         speeds[i] = (rawSpeed & 0x8000)
           ? -static_cast<int16_t>(rawSpeed & 0x7FFF)
           : static_cast<int16_t>(rawSpeed);
+        statusErrors[i] = responseStatus;
         received[i] = true;
         replies++;
         break;
@@ -314,12 +351,42 @@ public:
     return replies == count;
   }
 
-  bool ping(uint8_t id) {
+  bool ping(uint8_t id, uint8_t &statusError) {
     if (!bus) return false;
     clearRx();
     writePacket(id, 0x01, nullptr, 0);
     uint8_t response[6];
-    return readStatus(id, response, sizeof(response), 25);
+    return readStatus(id, response, sizeof(response), 25, statusError);
+  }
+
+  bool ping(uint8_t id) {
+    uint8_t ignoredStatus = 0;
+    return ping(id, ignoredStatus);
+  }
+
+  uint8_t probeReadResponse(
+    uint8_t id,
+    uint8_t address,
+    uint8_t readLength,
+    uint8_t *response,
+    uint8_t responseCapacity,
+    uint16_t timeoutMs = 100
+  ) {
+    if (!bus || !response || responseCapacity == 0) return 0;
+
+    clearRx();
+    uint8_t params[] = {address, readLength};
+    writePacket(id, 0x02, params, sizeof(params));
+
+    uint8_t count = 0;
+    uint32_t startedAt = millis();
+    while (millis() - startedAt < timeoutMs && count < responseCapacity) {
+      while (bus->available() && count < responseCapacity) {
+        response[count++] = static_cast<uint8_t>(bus->read());
+      }
+      if (count < responseCapacity) delayMicroseconds(100);
+    }
+    return count;
   }
 
   void writeByte(uint8_t id, uint8_t address, uint8_t value) {
@@ -340,7 +407,8 @@ public:
     uint8_t params[] = {address, value};
     writePacket(id, 0x03, params, sizeof(params));
     uint8_t response[6];
-    return readStatus(id, response, sizeof(response), timeoutMs);
+    uint8_t statusError = 0;
+    return readStatus(id, response, sizeof(response), timeoutMs, statusError);
   }
 
   void setMode(uint8_t id, uint8_t mode) {
@@ -399,27 +467,50 @@ private:
     while (bus->available()) bus->read();
   }
 
-  void writePacket(uint8_t id, uint8_t instruction, const uint8_t *params, uint8_t paramLen) {
+  void writePacket(
+    uint8_t id,
+    uint8_t instruction,
+    const uint8_t *params,
+    uint8_t paramLen,
+    bool waitForTransmission = true
+  ) {
     if (!bus) return;
 
     uint8_t length = paramLen + 2;
     uint16_t sum = id + length + instruction;
-    bus->write(0xFF);
-    bus->write(0xFF);
-    bus->write(id);
-    bus->write(length);
-    bus->write(instruction);
+    uint8_t packet[6 + 2 + (8 * MAX_SERVOS)];
+    uint8_t packetLen = 0;
+    packet[packetLen++] = 0xFF;
+    packet[packetLen++] = 0xFF;
+    packet[packetLen++] = id;
+    packet[packetLen++] = length;
+    packet[packetLen++] = instruction;
 
     for (uint8_t i = 0; i < paramLen; i++) {
-      bus->write(params[i]);
+      packet[packetLen++] = params[i];
       sum += params[i];
     }
 
-    bus->write(static_cast<uint8_t>(~sum));
-    bus->flush();
+    packet[packetLen++] = static_cast<uint8_t>(~sum);
+    bus->write(packet, packetLen);
+    if (waitForTransmission) {
+      // ESP32 HardwareSerial::flush() adds tens of milliseconds of fixed
+      // latency on this UART.  Waiting for the packet's actual 8N1 wire time
+      // provides the required TX completion without slowing the 50 Hz loop.
+      uint32_t wireMicros = (
+        static_cast<uint32_t>(packetLen) * 10U * 1000000U + SERVO_BAUD - 1
+      ) / SERVO_BAUD;
+      delayMicroseconds(wireMicros + 100U);
+    }
   }
 
-  bool readResponse(uint8_t id, uint8_t *buffer, uint8_t expectedLen, uint16_t timeoutMs) {
+  bool readResponse(
+    uint8_t id,
+    uint8_t *buffer,
+    uint8_t expectedLen,
+    uint16_t timeoutMs,
+    uint8_t &statusError
+  ) {
     uint8_t index = 0;
     uint32_t startedAt = millis();
 
@@ -439,17 +530,25 @@ private:
       buffer[index++] = value;
       if (index < expectedLen) continue;
 
-      if (buffer[2] != id || buffer[3] != 4 || buffer[4] != 0) return false;
+      if (buffer[2] != id || buffer[3] != 4) return false;
 
       uint16_t sum = 0;
       for (uint8_t i = 2; i < expectedLen - 1; i++) sum += buffer[i];
-      return static_cast<uint8_t>(~sum) == buffer[expectedLen - 1];
+      if (static_cast<uint8_t>(~sum) != buffer[expectedLen - 1]) return false;
+      statusError = buffer[4];
+      return true;
     }
 
     return false;
   }
 
-  bool readDataResponse(uint8_t &id, uint8_t *data, uint8_t dataLen, uint16_t timeoutMs) {
+  bool readDataResponse(
+    uint8_t &id,
+    uint8_t *data,
+    uint8_t dataLen,
+    uint16_t timeoutMs,
+    uint8_t &statusError
+  ) {
     if (!bus || !data || dataLen == 0 || dataLen > 8) return false;
 
     uint8_t buffer[14];
@@ -469,18 +568,25 @@ private:
       }
       buffer[index++] = value;
       if (index < expectedLen) continue;
-      if (buffer[3] != dataLen + 2 || buffer[4] != 0) return false;
+      if (buffer[3] != dataLen + 2) return false;
       uint16_t sum = 0;
       for (uint8_t i = 2; i < expectedLen - 1; i++) sum += buffer[i];
       if (static_cast<uint8_t>(~sum) != buffer[expectedLen - 1]) return false;
       id = buffer[2];
+      statusError = buffer[4];
       memcpy(data, &buffer[5], dataLen);
       return true;
     }
     return false;
   }
 
-  bool readStatus(uint8_t id, uint8_t *buffer, uint8_t expectedLen, uint16_t timeoutMs) {
+  bool readStatus(
+    uint8_t id,
+    uint8_t *buffer,
+    uint8_t expectedLen,
+    uint16_t timeoutMs,
+    uint8_t &statusError
+  ) {
     uint8_t index = 0;
     uint32_t startedAt = millis();
 
@@ -500,10 +606,12 @@ private:
       buffer[index++] = value;
       if (index < expectedLen) continue;
 
-      if (buffer[2] != id || buffer[3] != 2 || buffer[4] != 0) return false;
+      if (buffer[2] != id || buffer[3] != 2) return false;
       uint16_t sum = 0;
       for (uint8_t i = 2; i < expectedLen - 1; i++) sum += buffer[i];
-      return static_cast<uint8_t>(~sum) == buffer[expectedLen - 1];
+      if (static_cast<uint8_t>(~sum) != buffer[expectedLen - 1]) return false;
+      statusError = buffer[4];
+      return true;
     }
 
     return false;
@@ -533,6 +641,7 @@ bool programLoop = false;
 uint32_t nextProgramAt = 0;
 uint32_t lastStateAt = 0;
 String inputLine;
+bool discardInputLine = false;
 NetworkMessage networkMessages[NET_MESSAGE_LOG_SIZE];
 uint32_t networkMessageSeq = 0;
 uint8_t networkMessageSlot = 0;
@@ -602,7 +711,12 @@ void rememberNetworkMessage(const String &line) {
 void sendJson(JsonDocument &doc) {
   String line;
   serializeJson(doc, line);
-  Serial.println(line);
+  Serial.print(line);
+  size_t wireLength = line.length() + 2;
+  size_t padding = (USB_SERIAL_PACKET_BYTES - (wireLength % USB_SERIAL_PACKET_BYTES))
+    % USB_SERIAL_PACKET_BYTES;
+  for (size_t i = 0; i < padding; i++) Serial.write(' ');
+  Serial.print("\r\n");
   rememberNetworkMessage(line);
 }
 
@@ -633,6 +747,7 @@ void addConfigToJson(JsonDocument &doc) {
     item["enabled"] = servos[i].enabled;
     item["last"] = servos[i].lastAngle;
     if (servos[i].hasMeasuredAngle) item["measured"] = servos[i].measuredAngle;
+    if (servos[i].hasStatusError) item["statusError"] = servos[i].statusError;
     item["monitor"] = servos[i].monitorEnabled;
     item["monitorInterval"] = servos[i].monitorIntervalMs;
     item["velocity"] = servos[i].velocityDps;
@@ -657,6 +772,7 @@ void sendState(bool setupRange = false) {
   doc["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
   JsonObject positions = doc["positions"].to<JsonObject>();
   JsonObject measured = doc["measured"].to<JsonObject>();
+    JsonObject statusErrors = doc["statusErrors"].to<JsonObject>();
     JsonObject velocities = doc["velocities"].to<JsonObject>();
     JsonObject motorModes = doc["motorModes"].to<JsonObject>();
     JsonObject motorSpeeds = doc["motorSpeeds"].to<JsonObject>();
@@ -668,6 +784,7 @@ void sendState(bool setupRange = false) {
       motorSpeeds[String(servos[i].id)] = servos[i].motorSpeed;
       torqueLimits[String(servos[i].id)] = servos[i].torqueLimit;
       if (servos[i].hasMeasuredAngle) measured[String(servos[i].id)] = servos[i].measuredAngle;
+      if (servos[i].hasStatusError) statusErrors[String(servos[i].id)] = servos[i].statusError;
     }
   sendJson(doc);
 }
@@ -781,7 +898,7 @@ void setDefaultConfig() {
     servos[i].lastVelocityAt = 0;
     servos[i].motorMode = false;
     servos[i].motorSpeed = 0;
-    servos[i].torqueLimit = STS_TORQUE_LIMIT_MAX;
+    servos[i].torqueLimit = COMMISSIONING_TORQUE_LIMIT;
   }
 }
 
@@ -832,6 +949,7 @@ void loadConfig() {
     servos[servoCount].lastVelocityAt = 0;
     servos[servoCount].motorMode = false;
     servos[servoCount].motorSpeed = 0;
+    servos[servoCount].torqueLimit = COMMISSIONING_TORQUE_LIMIT;
     if (servos[servoCount].id > 0) servoCount++;
   }
 
@@ -880,6 +998,15 @@ bool moveServo(uint8_t id, float angle, uint16_t speed, uint8_t accel) {
   ServoConfig *servo = findServo(id);
   if (!servo || !servo->enabled) return false;
 
+  uint16_t presentPosition = 0;
+  uint8_t statusError = 0;
+  if (!servoBus.readPosition(servo->id, presentPosition, statusError)) return false;
+  servo->measuredAngle = busPositionToMeasuredAngle(*servo, presentPosition);
+  servo->hasMeasuredAngle = true;
+  servo->statusError = statusError;
+  servo->hasStatusError = true;
+  if (statusError != 0) return false;
+
   servo->velocityDps = 0;
   servo->lastVelocityAt = 0;
   ensureServoMode(*servo);
@@ -892,10 +1019,13 @@ bool readServoAngle(uint8_t id, bool setupRange = false) {
   if (!servo || !servo->enabled) return false;
 
   uint16_t position = 0;
-  if (!servoBus.readPosition(servo->id, position)) return false;
+  uint8_t statusError = 0;
+  if (!servoBus.readPosition(servo->id, position, statusError)) return false;
 
   servo->measuredAngle = setupRange ? busPositionToSetupAngle(*servo, position) : busPositionToMeasuredAngle(*servo, position);
   servo->hasMeasuredAngle = true;
+  servo->statusError = statusError;
+  servo->hasStatusError = true;
   return true;
 }
 
@@ -914,6 +1044,7 @@ bool syncReadConfiguredServoState(int16_t *rawSpeeds, bool *received) {
 
   uint8_t ids[MAX_SERVOS];
   uint16_t positions[MAX_SERVOS] = {0};
+  uint8_t statusErrors[MAX_SERVOS] = {0};
   for (uint8_t i = 0; i < servoCount; i++) {
     ids[i] = servos[i].id;
     rawSpeeds[i] = 0;
@@ -921,33 +1052,41 @@ bool syncReadConfiguredServoState(int16_t *rawSpeeds, bool *received) {
   }
 
   bool complete = servoBus.syncReadPositionSpeed(
-    ids, servoCount, positions, rawSpeeds, received
+    ids, servoCount, positions, rawSpeeds, received, statusErrors
   );
   for (uint8_t i = 0; i < servoCount; i++) {
     if (!received[i]) continue;
     servos[i].measuredAngle = busPositionToMeasuredAngle(servos[i], positions[i]);
     servos[i].hasMeasuredAngle = true;
+    servos[i].statusError = statusErrors[i];
+    servos[i].hasStatusError = true;
   }
   return complete;
 }
 
-void sendPolicyState(uint32_t sequence, const int16_t *rawSpeeds, const bool *received) {
+void sendPolicyState(
+  uint32_t sequence,
+  const bool *received,
+  uint32_t feedbackMicros = 0,
+  uint32_t frameMicros = 0
+) {
   DynamicJsonDocument doc(2048);
   doc["type"] = "policy_state";
   doc["armed"] = policyControl.armed;
   doc["seq"] = sequence;
   doc["sample_ms"] = imuState.sampleMs;
+  doc["feedback_us"] = feedbackMicros;
+  doc["frame_us"] = frameMicros;
+  bool feedbackComplete = true;
   JsonArray ids = doc["ids"].to<JsonArray>();
   JsonArray angles = doc["angles_deg"].to<JsonArray>();
-  JsonArray speeds = doc["raw_speeds"].to<JsonArray>();
-  JsonArray feedback = doc["feedback"].to<JsonArray>();
   for (uint8_t i = 0; i < servoCount; i++) {
     ids.add(servos[i].id);
     if (received[i]) angles.add(servos[i].measuredAngle);
     else angles.add(nullptr);
-    speeds.add(rawSpeeds[i]);
-    feedback.add(received[i]);
+    feedbackComplete = feedbackComplete && received[i];
   }
+  doc["feedback_complete"] = feedbackComplete;
   JsonArray accel = doc["accel_mg"].to<JsonArray>();
   JsonArray gyro = doc["gyro_dps"].to<JsonArray>();
   for (uint8_t i = 0; i < 3; i++) {
@@ -980,8 +1119,8 @@ bool policyHardwareReady(String &reason) {
       reason = "policy refuses the uncalibrated 0/180/360 servo defaults";
       return false;
     }
-    if (servo.torqueLimit == 0 || servo.torqueLimit >= STS_TORQUE_LIMIT_MAX) {
-      reason = "policy requires a deliberate nonzero reduced torque limit on every servo";
+    if (servo.torqueLimit == 0) {
+      reason = "policy requires a deliberate nonzero torque limit on every servo";
       return false;
     }
     idSeen[servo.id] = true;
@@ -1042,11 +1181,8 @@ void handlePolicyArm(JsonDocument &doc) {
     return;
   }
   for (uint8_t i = 0; i < servoCount; i++) {
-    if (
-      servos[i].measuredAngle < servos[i].minAngle ||
-      servos[i].measuredAngle > servos[i].maxAngle
-    ) {
-      sendError("a measured servo angle is outside its calibrated limits");
+    if (servos[i].hasStatusError && servos[i].statusError != 0) {
+      sendError("a servo hardware status error prevents policy arm");
       return;
     }
   }
@@ -1061,20 +1197,25 @@ void handlePolicyArm(JsonDocument &doc) {
     servoBus.moveTo(
       servos[i].id,
       angleToBusPosition(servos[i], servos[i].measuredAngle),
-      1,
-      0
+      1200,
+      30
     );
     servoBus.setTorque(servos[i].id, true);
   }
+
+  // Configuration writes above produce status replies. Drain them here so
+  // the first 50 Hz target frame never pays the one-time response backlog.
+  servoBus.discardPendingResponses();
 
   policyControl.armed = true;
   policyControl.lastFrameAt = millis();
   policyControl.lastSequence = 0;
   policyControl.feedbackFailures = 0;
-  sendPolicyState(0, rawSpeeds, received);
+  sendPolicyState(0, received);
 }
 
 void handlePolicyFrame(JsonDocument &doc) {
+  uint32_t frameStartedAt = micros();
   if (!policyControl.armed) {
     sendError("policy is not armed");
     return;
@@ -1102,28 +1243,28 @@ void handlePolicyFrame(JsonDocument &doc) {
       return;
     }
     float target = targets[key].as<float>();
-    if (target < servo.minAngle || target > servo.maxAngle) {
-      sendError("policy target is outside a calibrated servo limit");
-      return;
-    }
-    if (fabsf(target - servo.lastAngle) > POLICY_MAX_TARGET_STEP_DEG) {
-      sendError("policy target step exceeds 6 degrees");
-      return;
-    }
     ids[i] = servo.id;
     nextAngles[i] = target;
     positions[i] = angleToBusPosition(servo, target);
   }
 
-  servoBus.syncMoveTo(ids, positions, servoCount, 1200, 30);
+  servoBus.syncPosition(ids, positions, servoCount);
   for (uint8_t i = 0; i < servoCount; i++) servos[i].lastAngle = nextAngles[i];
   policyControl.lastSequence = sequence;
   policyControl.lastFrameAt = millis();
 
   int16_t rawSpeeds[MAX_SERVOS] = {0};
   bool received[MAX_SERVOS] = {false};
+  uint32_t feedbackStartedAt = micros();
   bool feedbackComplete = syncReadConfiguredServoState(rawSpeeds, received);
   bool imuComplete = sampleImu();
+  uint32_t feedbackMicros = micros() - feedbackStartedAt;
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (received[i] && servos[i].statusError != 0) {
+      disarmPolicy("servo hardware status error", true);
+      return;
+    }
+  }
   if (feedbackComplete && imuComplete) {
     policyControl.feedbackFailures = 0;
   } else {
@@ -1133,7 +1274,12 @@ void handlePolicyFrame(JsonDocument &doc) {
       return;
     }
   }
-  sendPolicyState(sequence, rawSpeeds, received);
+  sendPolicyState(
+    sequence,
+    received,
+    feedbackMicros,
+    micros() - frameStartedAt
+  );
 }
 
 void runPolicyWatchdog() {
@@ -1173,14 +1319,18 @@ bool setServoTorque(uint8_t id, bool enabled) {
   stopServoMotor(*servo);
 
   uint16_t presentPosition = 0;
-  bool hasPosition = servoBus.readPosition(servo->id, presentPosition);
+  uint8_t statusError = 0;
+  bool hasPosition = servoBus.readPosition(servo->id, presentPosition, statusError);
   if (hasPosition) {
     servo->measuredAngle = busPositionToMeasuredAngle(*servo, presentPosition);
     servo->hasMeasuredAngle = true;
     servo->lastAngle = clampAngle(*servo, servo->measuredAngle);
+    servo->statusError = statusError;
+    servo->hasStatusError = true;
   }
 
   if (enabled) {
+    if (!hasPosition || statusError != 0) return false;
     setServoMode(*servo, false);
     if (hasPosition) {
       servoBus.moveTo(servo->id, constrain(presentPosition, 0, 4095), 1, 0);
@@ -1205,6 +1355,7 @@ bool setServoTorqueLimit(uint8_t id, uint16_t limit) {
 bool jogServo(uint8_t id, float delta, uint16_t speed, uint8_t accel, bool setupRange, bool hasBaseAngle = false, float requestedBaseAngle = 0.0f) {
   ServoConfig *servo = findServo(id);
   if (!servo || !servo->enabled) return false;
+  if (!readServoAngle(id, setupRange) || servo->statusError != 0) return false;
 
   programPlaying = false;
   servo->velocityDps = 0;
@@ -1237,6 +1388,7 @@ bool jogServo(uint8_t id, float delta, uint16_t speed, uint8_t accel, bool setup
 bool setServoMotorSpeed(uint8_t id, float speed, uint8_t accel) {
   ServoConfig *servo = findServo(id);
   if (!servo || !servo->enabled) return false;
+  if (!readServoAngle(id) || servo->statusError != 0) return false;
 
   setServoMode(*servo, true);
   float limited = constrain(speed, -1.0f, 1.0f);
@@ -1250,6 +1402,7 @@ bool setServoMotorSpeed(uint8_t id, float speed, uint8_t accel) {
 bool setServoVelocity(uint8_t id, float velocityDps) {
   ServoConfig *servo = findServo(id);
   if (!servo || !servo->enabled) return false;
+  if (!readServoAngle(id) || servo->statusError != 0) return false;
 
   ensureServoMode(*servo);
   servo->velocityDps = constrain(velocityDps, -720.0f, 720.0f);
@@ -1326,7 +1479,8 @@ void writeIdentifyTarget(uint8_t id, float angle, uint16_t speed, uint8_t accel)
 }
 
 bool startServoIdentify(uint8_t id, float amplitude, uint16_t speed, uint8_t accel) {
-  if (id == 0 || !servoBus.ping(id)) return false;
+  uint8_t statusError = 0;
+  if (id == 0 || !servoBus.ping(id, statusError) || statusError != 0) return false;
 
   ServoConfig *servo = findServo(id);
   if (servo) {
@@ -1475,6 +1629,19 @@ void homeAll(uint16_t speed = 700, uint8_t accel = 40) {
   }
 }
 
+void disarmServosAtBoot() {
+  // A controller reboot must never create motion. In particular, do not use
+  // the saved home angles here: calibration may still be incomplete and a
+  // servo can remain torque-enabled while the ESP32 restarts.
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (servos[i].enabled) {
+      servoBus.setTorque(servos[i].id, false);
+      servoBus.setTorqueLimit(servos[i].id, COMMISSIONING_TORQUE_LIMIT);
+      servos[i].torqueLimit = COMMISSIONING_TORQUE_LIMIT;
+    }
+  }
+}
+
 void handleConfigSet(JsonDocument &doc) {
   if (!doc["servos"].is<JsonArray>()) {
     sendError("config_set requires a servos array");
@@ -1524,6 +1691,13 @@ void startProgram(JsonDocument &doc) {
   if (!doc["steps"].is<JsonArray>()) {
     sendError("play requires a steps array");
     return;
+  }
+
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (!readServoAngle(servos[i].id) || servos[i].statusError != 0) {
+      sendError("servo hardware status must be healthy before playback");
+      return;
+    }
   }
 
   programStepCount = 0;
@@ -1678,8 +1852,44 @@ void handleServoPing(JsonDocument &doc) {
     return;
   }
 
-  bool ok = servoBus.ping(id);
-  sendServoIdResult("servo_ping", id, id, ok);
+  uint8_t statusError = 0;
+  bool ok = servoBus.ping(id, statusError);
+  StaticJsonDocument<224> response;
+  response["type"] = "servo_ping";
+  response["current"] = id;
+  response["next"] = id;
+  response["ok"] = ok;
+  if (ok) response["statusError"] = statusError;
+  sendJson(response);
+}
+
+void handleServoBusProbe(JsonDocument &doc) {
+  uint8_t id = doc["id"] | 0;
+  if (id == 0 || id > 253) {
+    sendError("servo_bus_probe requires id 1..253");
+    return;
+  }
+
+  uint8_t address = constrain(doc["address"] | STS_PRESENT_POSITION_ADDR, 0, 255);
+  uint8_t readLength = constrain(doc["length"] | 2, 1, 8);
+  uint8_t bytes[32];
+  uint8_t count = servoBus.probeReadResponse(
+    id,
+    address,
+    readLength,
+    bytes,
+    sizeof(bytes)
+  );
+
+  StaticJsonDocument<384> response;
+  response["type"] = "servo_bus_probe";
+  response["id"] = id;
+  response["baud"] = SERVO_BAUD;
+  response["address"] = address;
+  response["length"] = readLength;
+  JsonArray raw = response["bytes"].to<JsonArray>();
+  for (uint8_t i = 0; i < count; i++) raw.add(bytes[i]);
+  sendJson(response);
 }
 
 void handleServoScan(JsonDocument &doc) {
@@ -1696,9 +1906,14 @@ void handleServoScan(JsonDocument &doc) {
   response["start"] = startId;
   response["end"] = endId;
   JsonArray found = response["found"].to<JsonArray>();
+  JsonObject statusErrors = response["statusErrors"].to<JsonObject>();
 
   for (uint8_t id = startId; id <= endId; id++) {
-    if (servoBus.ping(id)) found.add(id);
+    uint8_t statusError = 0;
+    if (servoBus.ping(id, statusError)) {
+      found.add(id);
+      statusErrors[String(id)] = statusError;
+    }
     delay(5);
   }
 
@@ -1886,6 +2101,58 @@ void handleServoTorqueLimit(JsonDocument &doc) {
   sendState();
 }
 
+void handleCenterPose(JsonDocument &doc) {
+  if (!doc["poses"].is<JsonObject>()) {
+    sendError("center_pose requires poses keyed by servo id");
+    return;
+  }
+
+  JsonObject poses = doc["poses"].as<JsonObject>();
+  uint8_t ids[MAX_SERVOS];
+  uint16_t positions[MAX_SERVOS];
+  float nextAngles[MAX_SERVOS];
+  uint8_t moveCount = 0;
+  for (JsonPair pair : poses) {
+    if (moveCount >= MAX_SERVOS) break;
+    uint8_t id = atoi(pair.key().c_str());
+    ServoConfig *servo = findServo(id);
+    if (!servo || !servo->enabled || (!pair.value().is<float>() && !pair.value().is<int>())) {
+      sendError("center_pose contains an unknown, disabled, or nonnumeric servo");
+      return;
+    }
+    float requested = pair.value().as<float>();
+    // Center trims are bounded to +/-45 degrees by the UI. Use the servo's
+    // complete 0-360 setup coordinate here so the older saved walk limits do
+    // not silently clip an operator-entered center.
+    float target = constrain(requested, 0.0f, STS_FULL_SCALE_DEGREES);
+    ids[moveCount] = servo->id;
+    positions[moveCount] = setupAngleToBusPosition(*servo, target);
+    nextAngles[moveCount] = target;
+    moveCount++;
+  }
+  if (moveCount == 0) {
+    sendError("center_pose requires at least one servo target");
+    return;
+  }
+
+  programPlaying = false;
+  stopAllServoVelocities();
+  stopAllServoMotors();
+  for (uint8_t i = 0; i < servoCount; i++) ensureServoMode(servos[i]);
+  servoBus.syncMoveTo(
+    ids,
+    positions,
+    moveCount,
+    constrain(doc["speed"] | 360, 1, 4095),
+    constrain(doc["accel"] | 40, 0, 254)
+  );
+  for (uint8_t i = 0; i < moveCount; i++) {
+    ServoConfig *servo = findServo(ids[i]);
+    if (servo) servo->lastAngle = nextAngles[i];
+  }
+  sendOk("center_pose");
+}
+
 void handleServoJog(JsonDocument &doc) {
   uint8_t id = doc["id"] | 0;
   float delta = constrain(doc["delta"] | 0.0f, -45.0f, 45.0f);
@@ -1961,7 +2228,11 @@ void handleCommand(const String &line) {
   DynamicJsonDocument doc(SERIAL_JSON_CAPACITY);
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
-    sendError("invalid json");
+    // A USB UART line can occasionally be damaged under the continuous
+    // bidirectional 50 Hz policy stream. Dropping one frame is preferable to
+    // aborting motion: the next valid frame advances the sequence, while the
+    // independent stale-frame watchdog still disarms sustained loss.
+    if (!policyControl.armed) sendError("invalid json");
     return;
   }
 
@@ -2070,6 +2341,8 @@ void handleCommand(const String &line) {
     sendMotorState();
   } else if (strcmp(cmd, "servo_ping") == 0) {
     handleServoPing(doc);
+  } else if (strcmp(cmd, "servo_bus_probe") == 0) {
+    handleServoBusProbe(doc);
   } else if (strcmp(cmd, "servo_scan") == 0) {
     handleServoScan(doc);
   } else if (strcmp(cmd, "servo_set_id") == 0) {
@@ -2088,6 +2361,8 @@ void handleCommand(const String &line) {
     handleServoTorque(doc);
   } else if (strcmp(cmd, "servo_torque_limit") == 0) {
     handleServoTorqueLimit(doc);
+  } else if (strcmp(cmd, "center_pose") == 0) {
+    handleCenterPose(doc);
   } else if (strcmp(cmd, "servo_jog") == 0) {
     handleServoJog(doc);
   } else if (strcmp(cmd, "servo_identify") == 0) {
@@ -2238,15 +2513,21 @@ void pollSerial() {
     char c = static_cast<char>(Serial.read());
     if (c == '\r') continue;
     if (c == '\n') {
-      if (inputLine.length() > 0) {
+      if (discardInputLine) {
+        discardInputLine = false;
+        inputLine = "";
+      } else if (inputLine.length() > 0) {
         handleCommand(inputLine);
         inputLine = "";
       }
+    } else if (discardInputLine) {
+      continue;
     } else if (inputLine.length() < SERIAL_JSON_CAPACITY - 1) {
       inputLine += c;
     } else {
       inputLine = "";
-      sendError("serial line too long");
+      discardInputLine = true;
+      if (!policyControl.armed) sendError("serial line too long");
     }
   }
 }
@@ -2263,14 +2544,17 @@ void setupWiFiAndOta() {
 }
 
 void setup() {
-  Serial.begin(460800);
+  Serial.setRxBufferSize(4096);
+  Serial.setTxBufferSize(2048);
+  Serial.begin(921600);
+  inputLine.reserve(SERIAL_JSON_CAPACITY);
   delay(300);
   loadConfig();
   setupMotors();
   setupImu();
   servoBus.begin();
+  disarmServosAtBoot();
   setupWiFiAndOta();
-  homeAll();
   sendConfig();
   sendImuState();
   sendMotorState();

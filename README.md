@@ -9,6 +9,7 @@ It gives you:
 - ESP32 firmware in `firmware/robot-dog-control` using PlatformIO.
 - JSON-line commands for manual servo position movement, velocity movement, home, stop, config, and simple program playback.
 - Wi-Fi setup through a captive portal and Arduino OTA support for later wireless updates.
+- A learned-policy Remote Control panel backed by the localhost-only `policy_runtime/run_policy.py` bridge.
 
 The current firmware is written for serial bus servos such as the Waveshare/Feetech-style ST series used by many Waveshare robot boards. If your exact Waveshare General Driver board already has its own firmware or uses a different servo protocol, keep the UI and adapt only `ServoBusDriver` in `src/main.cpp`.
 
@@ -39,6 +40,20 @@ Wi-Fi can also be configured over USB serial:
 ```json
 {"cmd":"wifi_set","ssid":"YourNetwork","password":"YourPassword"}
 ```
+
+For learned-policy commissioning, finish the measured calibration described in
+`policy_runtime/README.md`, disconnect the UI's manual board connection, and
+start the local runtime bridge:
+
+```powershell
+python policy_runtime\run_policy.py --ui --port COM5
+```
+
+Then connect the **Remote Control** panel to `http://127.0.0.1:18765`. Stand to
+Neutral once, press **Start Remote Control**, and adjust speed and steering live.
+The panel cannot bypass the calibration flags, command envelope, neutral pose, or
+firmware safety checks. Policy inference and ESP32 serial control stay inside
+`run_policy.py`.
 
 ## Board Pin Setup
 
@@ -71,7 +86,12 @@ The firmware starts with two servos:
 | 1 | Left front hip swing | 0-360 degrees | 180 |
 | 2 | Left front femur | 0-360 degrees | 180 |
 
-The **Whole Robot Walk Test** panel in the web UI uses the 12-servo leg map: left front `1,2,3`, right back `4,5,6`, right front `7,8,9`, and left back `10,11,12`. It can run all legs or one selected leg for bench testing. It will not add, rename, or enable servos from the walk controls; configure and save the IDs you want to test first. Step height defaults to `0 mm`, so the walk loop does not start moving until you raise it and click **Start Walk**. Neutral X defaults to `-20 mm` and moves the neutral IK foot target and the generated foot path together. Right-side legs use mirrored servo directions, and back legs apply the backward-mounted direction so they walk backward while keeping the same body-frame foot path. Each walk leg also has small per-servo center trims from `-5` to `+5` degrees so the neutral pose can be adjusted for spline alignment without changing saved servo limits.
+The **Whole Robot Walk Test** panel in the web UI uses the 12-servo leg map: left front `1,2,3`, right back `4,5,6`, right front `7,8,9`, and left back `10,11,12`. It can run all legs or one selected leg for bench testing. It will not add, rename, or enable servos from the walk controls; configure and save the IDs you want to test first. Step height defaults to `0 mm`, so the walk loop does not start moving until you raise it and click **Start Walk**. Neutral X defaults to `-20 mm` and moves the neutral IK foot target and the generated foot path together. Right-side legs use mirrored servo directions, and back legs apply the backward-mounted direction so they walk backward while keeping the same body-frame foot path. Each joint center trim accepts `-45` to `+45` degrees. **Live Centers** coalesces edits and synchronously updates the complete 12-servo neutral pose while values are typed.
+
+The walk IK already treats each knee servo as an absolute lower-link drive for
+the robot's four-bar linkage. Learned-policy deployment uses the same mapping:
+the runtime combines hip-flexion and relative knee policy angles on output and
+removes the hip contribution from knee feedback on input.
 
 You can add, rename, disable, and change limits in the UI. The Leg IK panel has a guided endpoint setup: choose a setup servo, start setup, jog to the min endpoint, click **Set Min Here**, jog to the max endpoint, click **Set Max Here**, then save. After saving, normal moves are clamped to those endpoints. Each manual servo card can cycle through **Position Mode**, **Joint Velocity Mode**, and real **Motor Mode**. Motor Mode is continuous spin, so lift the robot or remove horns before testing it.
 
@@ -113,6 +133,7 @@ Responses are also JSON lines and include `ok`, `state`, `config`, or `error` me
 ## Hardware Notes
 
 - Power the servos from the board's servo power input. USB-C is for ESP32 data/power only unless your board documentation says otherwise.
+- Firmware boot explicitly disables servo torque and never commands Home; use the UI only after feedback and calibration checks.
 - Start with the servo horns removed or the robot lifted so a bad range cannot bind the linkage.
 - Learned-policy commands remain locked until all 12 servos and the IMU are calibrated. Follow `policy_runtime/README.md`; never bypass its lifted-robot first test.
 - Use conservative min/max angles until each joint is mechanically verified.

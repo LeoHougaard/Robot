@@ -520,6 +520,133 @@
       min-width: 0;
     }
 
+    .policy-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+      gap: 14px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .policy-setup, .policy-controls {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .policy-runtime-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .policy-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff8f7;
+      color: var(--text);
+      line-height: 1.35;
+    }
+
+    .policy-message {
+      min-height: 42px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .policy-command {
+      padding: 9px 10px;
+      border-radius: 7px;
+      background: #111719;
+      color: #d8eeee;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .policy-telemetry {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfdfd;
+    }
+
+    .policy-telemetry-head, .policy-telemetry-readouts {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .policy-telemetry-canvas {
+      display: block;
+      width: 100%;
+      height: 420px;
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .policy-telemetry-readouts {
+      align-items: flex-start;
+      margin-top: 8px;
+      color: var(--muted);
+      font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    }
+
+    .policy-telemetry-readouts span {
+      overflow-wrap: anywhere;
+    }
+
+    .policy-telemetry-legend {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .policy-telemetry-legend span::before {
+      content: "";
+      display: inline-block;
+      width: 14px;
+      height: 3px;
+      margin-right: 5px;
+      vertical-align: middle;
+      border-radius: 999px;
+      background: var(--series-color);
+    }
+
+    .walk-trim-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    #topPanel { order: 0; }
+    #addServoPanel { order: 1; }
+    #policyPanel { order: 2; }
+    #walkTrimPanel { order: 3; }
+    #legIkPanel { order: 4; }
+    #walkTestPanel { order: 5; }
+    #servoCardsSection { order: 6; }
+    #programEditorPanel { order: 7; }
+    #diagnosticsPanel { order: 8; }
+
     .walk-trim-fields {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -554,6 +681,12 @@
     .limit-step.done {
       background: var(--panel-2);
       color: var(--text);
+    }
+
+    button.toggle-active {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: white;
     }
 
     .limit-setup-actions {
@@ -645,7 +778,11 @@
         grid-template-columns: 1fr;
       }
 
-      .walk-grid, .walk-readout, .walk-leg-grid {
+      .walk-grid, .walk-readout, .walk-leg-grid, .walk-trim-grid, .policy-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .policy-runtime-row {
         grid-template-columns: 1fr;
       }
 
@@ -685,7 +822,7 @@
 <body>
   <div class="shell">
     <main>
-      <section class="panel top-panel">
+      <section id="topPanel" class="panel top-panel">
         <div class="brand">
           <div>
             <h1>Robot Dog</h1>
@@ -727,7 +864,7 @@
         <div id="servoIdLog" class="monitor-log">ready</div>
       </section>
 
-      <section class="panel leg-panel">
+      <section id="legIkPanel" class="panel leg-panel">
         <div class="servo-head">
           <h2>Leg IK</h2>
           <div class="toolbar">
@@ -852,7 +989,7 @@
         </div>
       </section>
 
-      <section class="panel walk-panel">
+      <section id="walkTestPanel" class="panel walk-panel">
         <div class="servo-head">
           <h2>Whole Robot Walk Test</h2>
           <div class="toolbar">
@@ -899,13 +1036,116 @@
           </div>
           <div id="walkLegGrid" class="walk-leg-grid"></div>
         </div>
+        <p class="subtle">Leg direction and fold settings remain shared with the center trims and learned-policy mapping above.</p>
       </section>
 
-      <section>
+      <section id="policyPanel" class="panel walk-panel">
+        <div class="servo-head">
+            <div>
+              <h2>Remote Control</h2>
+              <p class="subtle">Live learned-policy driving with full servo and IMU debugging</p>
+            </div>
+          <div class="toolbar">
+            <span id="policyRunnerStatus" class="pill">runner offline</span>
+            <span id="policyCalibrationStatus" class="pill">calibration unknown</span>
+            <button id="policyStopButton" class="danger" disabled>Stop + Disarm</button>
+          </div>
+        </div>
+        <div class="policy-grid">
+          <div class="policy-setup">
+            <p class="subtle">Start once from neutral, then change speed and steering live. Python runs the learned policy and owns the ESP32 connection until Stop + Disarm.</p>
+            <div class="policy-command">python policy_runtime\run_policy.py --ui --port COM5</div>
+            <div class="policy-runtime-row">
+              <label>Local runner URL<input id="policyRunnerUrl" type="text" value="http://127.0.0.1:18765"></label>
+              <button id="policyConnectButton">Connect Runner</button>
+            </div>
+            <div class="status-row">
+              <span id="policyProfileStatus" class="pill">profile --</span>
+              <span id="policyLinkageStatus" class="pill">linkage --</span>
+              <span id="policyLegMappingStatus" class="pill">leg map --</span>
+            </div>
+            <div id="policyMessage" class="policy-message">Start the local runner to check the policy bundle and calibration. It cannot arm while either calibration flag is false.</div>
+          </div>
+          <div class="policy-controls">
+            <div class="control-surface">
+              <div class="range-head"><span>Drive speed</span><strong id="policyForwardValue">0.00 m/s</strong></div>
+              <input id="policyForwardRange" type="range" min="0" max="0.18" step="0.01" value="0">
+            </div>
+            <div class="control-surface">
+              <div class="range-head"><span>Steering / yaw rate</span><strong id="policyYawValue">0.00 rad/s</strong></div>
+              <input id="policyYawRange" type="range" min="-0.25" max="0.25" step="0.01" value="0">
+            </div>
+            <div class="control-surface">
+              <div class="range-head"><span>Drive torque</span><strong id="policyTorqueValue">100%</strong></div>
+              <input id="policyTorqueRange" type="range" min="1" max="100" step="1" value="100">
+            </div>
+            <div class="policy-runtime-row">
+              <label>IMU/body yaw alignment (degrees)<input id="policyImuYaw" type="number" min="-180" max="180" step="0.1" value="90"></label>
+              <button id="policyImuYawButton">Apply IMU Rotation</button>
+            </div>
+            <div class="control-surface">
+              <div class="range-head"><span>Choose any IMU direction</span><strong>−180° to +180°</strong></div>
+              <input id="policyImuYawRange" type="range" min="-180" max="180" step="0.5" value="90">
+              <div class="toolbar" style="margin-top:8px">
+                <button class="policy-imu-preset" data-yaw="-180">−180°</button>
+                <button class="policy-imu-preset" data-yaw="-90">−90°</button>
+                <button class="policy-imu-preset" data-yaw="0">0°</button>
+                <button class="policy-imu-preset" data-yaw="90">+90°</button>
+                <button class="policy-imu-preset" data-yaw="180">+180°</button>
+              </div>
+              <p class="subtle">Select a preset or any custom angle, then Apply. The current 90° value is calibration, not a restriction.</p>
+            </div>
+            <button id="policyStandButton">Stand to Neutral</button>
+            <button id="policyStartButton" class="primary" disabled>Start Remote Control</button>
+            <button id="policyZeroCommandButton" disabled>Zero Drive Command</button>
+            <p id="policyActionHint" class="subtle">Connect the runner to see which actions are available.</p>
+            <p class="subtle">Stand to Neutral is required once before driving. Remote control then stays active until Stop + Disarm. Lateral motion remains 0.00 m/s; speed and steering stay inside the validated learned-policy envelope.</p>
+          </div>
+        </div>
+        <div class="policy-telemetry">
+          <div class="policy-telemetry-head">
+            <div>
+              <h3>Live Servo + IMU Feedback</h3>
+              <p class="subtle">Measured physical servo angles and calibrated body-frame IMU axes, available with or without remote control. Trained forward is body -Y: nose-up makes accel Y negative and projected-gravity Y positive.</p>
+            </div>
+            <div class="toolbar">
+              <span id="policyTelemetryStatus" class="pill">feedback monitor off</span>
+              <button id="policyTelemetryButton">Start Feedback</button>
+            </div>
+          </div>
+          <canvas id="policyTelemetryCanvas" class="policy-telemetry-canvas" aria-label="Live graph of twelve servo angles, accelerometer axes, and gyroscope axes"></canvas>
+          <div class="policy-telemetry-legend">
+            <span style="--series-color:#006d77">S1 FL hip</span><span style="--series-color:#0a9396">S2 FL femur</span><span style="--series-color:#52b788">S3 FL knee</span>
+            <span style="--series-color:#ee9b00">S4 BR hip</span><span style="--series-color:#ca6702">S5 BR femur</span><span style="--series-color:#bb3e03">S6 BR knee</span>
+            <span style="--series-color:#9b5de5">S7 FR hip</span><span style="--series-color:#6a4c93">S8 FR femur</span><span style="--series-color:#4361ee">S9 FR knee</span>
+            <span style="--series-color:#4895ef">S10 BL hip</span><span style="--series-color:#ef476f">S11 BL femur</span><span style="--series-color:#d00000">S12 BL knee</span>
+          </div>
+          <div class="policy-telemetry-readouts">
+            <span id="policyServoTelemetryReadout">S1-S12 --</span>
+            <span id="policyImuTelemetryReadout">IMU --</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="walkTrimPanel" class="panel">
+        <div class="servo-head">
+          <div>
+            <h2>Robot Center Trims</h2>
+            <p class="subtle">Adjust each physical joint around its saved center. Values are offsets limited to +/-45 degrees.</p>
+          </div>
+          <div class="toolbar">
+            <button id="walkLiveCentersButton" aria-pressed="false">Live Centers: Off</button>
+            <button id="walkPolicyCentersButton" disabled>Apply Centers to Learned Policy</button>
+          </div>
+        </div>
+        <div id="walkTrimGrid" class="walk-trim-grid"></div>
+      </section>
+
+      <section id="servoCardsSection">
         <div id="servoGrid" class="grid"></div>
       </section>
 
-      <details class="panel">
+      <details id="programEditorPanel" class="panel">
         <summary>Program Editor</summary>
         <div class="program-grid">
           <div>
@@ -921,7 +1161,7 @@
         </div>
       </details>
 
-      <details class="panel">
+      <details id="diagnosticsPanel" class="panel">
         <summary>Diagnostics</summary>
         <section class="grid">
           <div>
@@ -998,6 +1238,7 @@
       neutralJointDeg: 45,
       hipSwingLimitDeg: 35
     };
+    const WALK_CENTER_TRIM_LIMIT_DEG = 45;
 
     const WALK_LEGS = [
       { key: "lf", name: "Left front", pair: 0, sideSign: 1, xSign: 1, liftSign: 1, defaultFold: 1, defaultServoDir: 1, defaultStepDir: 1, ids: { hip: 1, femur: 2, knee: 3 } },
@@ -1007,7 +1248,7 @@
     ];
 
     const DEFAULT_WALK_CONFIG = {
-      configVersion: 10,
+      configVersion: 11,
       stepHeight: 0,
       cycleSeconds: 3,
       neutralX: -20,
@@ -1073,12 +1314,17 @@
     let servoVelocities = Object.fromEntries(servos.map((servo) => [servo.id, servo.velocity ?? 0]));
     let servoMotorSpeeds = Object.fromEntries(servos.map((servo) => [servo.id, servo.motorSpeed ?? 0]));
     let servoControlModes = {};
+    let servoStatusErrors = {};
     let availableServoIds = loadAvailableServoIds();
     let legConfig = loadLegConfig();
     let walkConfig = loadWalkConfig();
     let walkRunning = false;
     let walkUpdateTimer;
     let walkCommandToken = 0;
+    let walkLiveCentersEnabled = false;
+    let walkLiveCentersTimer;
+    let walkLiveCentersInFlight = false;
+    let walkLiveCentersQueued = false;
     let pendingCommandAcks = [];
     let limitSetup = { id: null, step: "idle", min: null, max: null };
     let lastLegSendAt = 0;
@@ -1092,6 +1338,18 @@
     let logLines = [];
     let logFlushPending = false;
     let logStickToBottom = true;
+    let policyRunnerConnected = false;
+    let policyRunnerReady = false;
+    let policyTrialRunning = false;
+    let policyRemoteControlActive = false;
+    let policyHoldingTorque = false;
+    let policyTelemetryMonitoring = false;
+    let policyPollTimer;
+    let policyTelemetryHistory = [];
+    let policyTelemetrySampleMs = null;
+    let policyCommandSendTimer;
+    let policyCommandSendInFlight = false;
+    let policyCommandSendQueued = false;
     let motors = [
       { id: "A", speed: 0, limit: 0.35 },
       { id: "B", speed: 0, limit: 0.35 }
@@ -1100,6 +1358,12 @@
     const MAX_LOG_LINES = 180;
     const WIFI_POLL_INTERVAL_MS = 500;
     const WIFI_BACKGROUND_POLL_INTERVAL_MS = 1500;
+    const POLICY_TELEMETRY_WINDOW_MS = 20000;
+    const POLICY_SERVO_COLORS = [
+      "#006d77", "#0a9396", "#52b788", "#ee9b00", "#ca6702", "#bb3e03",
+      "#9b5de5", "#6a4c93", "#4361ee", "#4895ef", "#ef476f", "#d00000"
+    ];
+    const POLICY_IMU_COLORS = ["#d62828", "#2a9d4b", "#277da1"];
 
     const els = {
       connectButton: document.querySelector("#connectButton"),
@@ -1172,6 +1436,8 @@
       walkStatus: document.querySelector("#walkStatus"),
       walkRegisterButton: document.querySelector("#walkRegisterButton"),
       walkNeutralButton: document.querySelector("#walkNeutralButton"),
+      walkLiveCentersButton: document.querySelector("#walkLiveCentersButton"),
+      walkPolicyCentersButton: document.querySelector("#walkPolicyCentersButton"),
       walkStartButton: document.querySelector("#walkStartButton"),
       walkStopButton: document.querySelector("#walkStopButton"),
       walkTargetSelect: document.querySelector("#walkTargetSelect"),
@@ -1186,6 +1452,35 @@
       walkStepXValue: document.querySelector("#walkStepXValue"),
       walkStepYValue: document.querySelector("#walkStepYValue"),
       walkLegGrid: document.querySelector("#walkLegGrid"),
+      walkTrimGrid: document.querySelector("#walkTrimGrid"),
+      policyRunnerStatus: document.querySelector("#policyRunnerStatus"),
+      policyCalibrationStatus: document.querySelector("#policyCalibrationStatus"),
+      policyProfileStatus: document.querySelector("#policyProfileStatus"),
+      policyLinkageStatus: document.querySelector("#policyLinkageStatus"),
+      policyLegMappingStatus: document.querySelector("#policyLegMappingStatus"),
+      policyMessage: document.querySelector("#policyMessage"),
+      policyRunnerUrl: document.querySelector("#policyRunnerUrl"),
+      policyConnectButton: document.querySelector("#policyConnectButton"),
+      policyForwardRange: document.querySelector("#policyForwardRange"),
+      policyForwardValue: document.querySelector("#policyForwardValue"),
+      policyYawRange: document.querySelector("#policyYawRange"),
+      policyYawValue: document.querySelector("#policyYawValue"),
+      policyTorqueRange: document.querySelector("#policyTorqueRange"),
+      policyTorqueValue: document.querySelector("#policyTorqueValue"),
+      policyImuYaw: document.querySelector("#policyImuYaw"),
+      policyImuYawRange: document.querySelector("#policyImuYawRange"),
+      policyImuPresets: document.querySelectorAll(".policy-imu-preset"),
+      policyImuYawButton: document.querySelector("#policyImuYawButton"),
+      policyActionHint: document.querySelector("#policyActionHint"),
+      policyTelemetryStatus: document.querySelector("#policyTelemetryStatus"),
+      policyTelemetryButton: document.querySelector("#policyTelemetryButton"),
+      policyTelemetryCanvas: document.querySelector("#policyTelemetryCanvas"),
+      policyServoTelemetryReadout: document.querySelector("#policyServoTelemetryReadout"),
+      policyImuTelemetryReadout: document.querySelector("#policyImuTelemetryReadout"),
+      policyStandButton: document.querySelector("#policyStandButton"),
+      policyStartButton: document.querySelector("#policyStartButton"),
+      policyZeroCommandButton: document.querySelector("#policyZeroCommandButton"),
+      policyStopButton: document.querySelector("#policyStopButton"),
       homeAllButton: document.querySelector("#homeAllButton"),
       stopButton: document.querySelector("#stopButton"),
       imuToggleButton: document.querySelector("#imuToggleButton"),
@@ -1206,6 +1501,7 @@
 
     els.programText.value = JSON.stringify(DEFAULT_PROGRAM, null, 2);
     els.wifiUrl.value = defaultWifiUrl();
+    els.policyRunnerUrl.value = localStorage.getItem("robotDogPolicyRunnerUrl") || "http://127.0.0.1:18765";
     populateServoOptions();
     populateLegControls();
     populateWalkControls();
@@ -1296,9 +1592,9 @@
         kneeDir: normalizeSign(setting.kneeDir, leg.defaultServoDir),
         stepDir: normalizeSign(setting.stepDir, leg.defaultStepDir),
         fold: fold === 1 || fold === -1 ? fold : leg.defaultFold,
-        hipTrim: clamp(Number(setting.hipTrim || 0), -5, 5),
-        femurTrim: clamp(Number(setting.femurTrim || 0), -5, 5),
-        kneeTrim: clamp(Number(setting.kneeTrim || 0), -5, 5)
+        hipTrim: clamp(Number(setting.hipTrim || 0), -WALK_CENTER_TRIM_LIMIT_DEG, WALK_CENTER_TRIM_LIMIT_DEG),
+        femurTrim: clamp(Number(setting.femurTrim || 0), -WALK_CENTER_TRIM_LIMIT_DEG, WALK_CENTER_TRIM_LIMIT_DEG),
+        kneeTrim: clamp(Number(setting.kneeTrim || 0), -WALK_CENTER_TRIM_LIMIT_DEG, WALK_CENTER_TRIM_LIMIT_DEG)
       };
     }
 
@@ -1370,6 +1666,553 @@
       els.serialStatus.textContent = isConnected ? `${label} connected` : "Disconnected";
       els.connectButton.textContent = transport === "serial" ? "Disconnect USB" : "USB";
       els.wifiConnectButton.textContent = transport === "wifi" ? "Disconnect Wi-Fi" : "Connect Wi-Fi";
+      updatePolicyButtons();
+    }
+
+    function policyRunnerBaseUrl() {
+      let value = String(els.policyRunnerUrl.value || "").trim();
+      if (!/^https?:\/\//i.test(value)) value = `http://${value}`;
+      const url = new URL(value);
+      if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) {
+        throw new Error("The policy runner must use a local http://127.0.0.1 or localhost URL.");
+      }
+      return url.toString().replace(/\/+$/, "");
+    }
+
+    async function policyRequest(path, payload) {
+      const baseUrl = policyRunnerBaseUrl();
+      const options = payload === undefined
+        ? { cache: "no-store" }
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch(`${baseUrl}${path}`, { ...options, signal: controller.signal });
+        const value = await response.json();
+        if (!response.ok || value.ok === false) {
+          throw new Error(value.error || `Policy runner HTTP ${response.status}`);
+        }
+        return value;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    function applyPolicyStatus(status) {
+      policyRunnerConnected = true;
+      policyRunnerReady = Boolean(status.calibration_ready);
+      policyTrialRunning = Boolean(status.trial?.running);
+      policyRemoteControlActive = Boolean(status.remote_control?.active);
+      policyHoldingTorque = Boolean(status.trial?.holding_torque);
+      policyTelemetryMonitoring = Boolean(status.telemetry?.monitoring);
+      const trialState = String(status.trial?.state || "");
+      const centerCount = Number(status.calibration_draft?.center_count || 0);
+      els.policyRunnerStatus.textContent = policyTrialRunning
+        ? (policyRemoteControlActive ? "remote control active" : (trialState.includes("stand") ? "standing up" : "robot action active"))
+        : policyTelemetryMonitoring
+          ? `feedback ${status.port || "online"}`
+          : `runner ${status.port || "online"}`;
+      els.policyCalibrationStatus.textContent = policyRunnerReady
+        ? "calibration verified"
+        : `calibration locked · ${centerCount}/12 centers`;
+      els.policyProfileStatus.textContent = status.profile_id ? `${status.profile_id} · ${String(status.profile_sha256 || "").slice(0, 8)}` : "profile --";
+      els.policyLinkageStatus.textContent = status.linkage === "four_bar_follow"
+        ? `${status.linkage_knees || 4} knee linkages`
+        : "linkage unavailable";
+      const mapping = Array.isArray(status.leg_mapping) ? status.leg_mapping : [];
+      els.policyLegMappingStatus.textContent = mapping.length === 4
+        ? mapping.map((item) => `${item.policy_leg}=${item.servo_ids.join("-")}`).join(" · ")
+        : "leg map unavailable";
+      if (policyRemoteControlActive) {
+        const elapsed = Number(status.trial?.elapsed_s || 0).toFixed(1);
+        els.policyMessage.textContent = `${status.trial?.message || "Remote control active."} Sequence ${status.trial?.sequence || 0}, ${elapsed} s.`;
+      } else if (policyTrialRunning) {
+        els.policyMessage.textContent = status.trial?.message || "Robot action is active.";
+      } else if (!policyRunnerReady) {
+        els.policyMessage.textContent = centerCount === 12
+          ? "All 12 center points are saved as an unverified draft. Verify direction/scale, safe limits, and IMU calibration before setting either calibration flag."
+          : `Runner is safe-locked: ${status.calibration_error || "calibration is incomplete"}`;
+      } else {
+        els.policyMessage.textContent = status.trial?.message || "Policy bundle, four-bar mapping, and calibration are ready for remote control.";
+      }
+      if (
+        Number.isFinite(Number(status.imu_mount_yaw_deg))
+        && document.activeElement !== els.policyImuYaw
+        && document.activeElement !== els.policyImuYawRange
+      ) {
+        const yaw = Number(status.imu_mount_yaw_deg).toFixed(1);
+        els.policyImuYaw.value = yaw;
+        els.policyImuYawRange.value = yaw;
+      }
+      appendPolicyTelemetry(status.telemetry?.sample || status.trial?.telemetry);
+      if (policyTelemetryMonitoring && !status.telemetry?.sample) {
+        els.policyTelemetryStatus.textContent = status.telemetry?.message || "starting feedback monitor";
+      } else if (!policyTelemetryMonitoring && !policyTelemetryHistory.length) {
+        els.policyTelemetryStatus.textContent = status.telemetry?.message || "feedback monitor off";
+      }
+      updatePolicyButtons();
+    }
+
+    function setPolicyRunnerDisconnected(message = "Runner offline.") {
+      policyRunnerConnected = false;
+      policyRunnerReady = false;
+      policyTrialRunning = false;
+      policyRemoteControlActive = false;
+      policyHoldingTorque = false;
+      policyTelemetryMonitoring = false;
+      if (policyPollTimer) clearTimeout(policyPollTimer);
+      policyPollTimer = undefined;
+      els.policyRunnerStatus.textContent = "runner offline";
+      els.policyCalibrationStatus.textContent = "calibration unknown";
+      els.policyMessage.textContent = message;
+      els.policyTelemetryStatus.textContent = policyTelemetryHistory.length
+        ? "runner offline - showing last sample"
+        : "feedback monitor off";
+      els.policyConnectButton.textContent = "Connect Runner";
+      updatePolicyButtons();
+    }
+
+    function updatePolicyButtons() {
+      els.policyStartButton.disabled = !policyRunnerConnected || !policyRunnerReady || policyTrialRunning || !policyHoldingTorque;
+      els.policyStandButton.disabled = !policyRunnerConnected || !policyRunnerReady || policyTrialRunning;
+      els.policyStopButton.disabled = !policyRunnerConnected || (!policyTrialRunning && !policyHoldingTorque);
+      els.walkPolicyCentersButton.disabled = !policyRunnerConnected || policyTrialRunning;
+      els.policyConnectButton.disabled = policyTrialRunning;
+      els.policyForwardRange.disabled = false;
+      els.policyYawRange.disabled = false;
+      els.policyTorqueRange.disabled = policyTrialRunning;
+      els.policyImuYaw.disabled = policyTrialRunning;
+      els.policyImuYawRange.disabled = policyTrialRunning;
+      els.policyImuPresets.forEach((button) => { button.disabled = policyTrialRunning; });
+      els.policyImuYawButton.disabled = !policyRunnerConnected || !policyRunnerReady || policyTrialRunning;
+      els.policyZeroCommandButton.disabled = !policyRemoteControlActive;
+      els.policyTelemetryButton.disabled = !policyRunnerConnected || policyTrialRunning || (!policyTelemetryMonitoring && policyHoldingTorque);
+      els.policyTelemetryButton.textContent = policyTelemetryMonitoring ? "Stop Feedback" : "Start Feedback";
+      els.policyRunnerUrl.disabled = policyRunnerConnected;
+
+      if (!policyRunnerConnected) {
+        els.policyActionHint.textContent = "Connect the runner first. Settings remain editable while it is offline.";
+      } else if (!policyRunnerReady) {
+        els.policyActionHint.textContent = "Motion is unavailable because the runner reports incomplete calibration; the message at left gives the exact calibration problem.";
+      } else if (policyRemoteControlActive) {
+        els.policyActionHint.textContent = "Remote control is active. Drive speed and steering update live; Zero Drive Command stops requested travel without disarming, and Stop + Disarm ends the session.";
+      } else if (policyTrialRunning) {
+        els.policyActionHint.textContent = "A stand or stop action is in progress. Drive controls remain editable; calibration and torque wait until that action finishes.";
+      } else if (policyTelemetryMonitoring) {
+        els.policyActionHint.textContent = "Read-only feedback is using COM3. You can edit every setting; Stand, IMU Rotation, center Apply, USB, or Wi-Fi will stop feedback automatically before taking control.";
+      } else if (policyHoldingTorque) {
+        els.policyActionHint.textContent = "Neutral is holding torque. Start Remote Control is ready; feedback cannot take COM3 until you Start or Stop + Disarm.";
+      } else {
+        els.policyActionHint.textContent = "Start Remote Control is unavailable until Stand to Neutral has completed. All drive and calibration settings remain editable.";
+      }
+
+      els.policyStartButton.title = els.policyStartButton.disabled
+        ? els.policyActionHint.textContent
+        : "Start live remote control from the held neutral pose.";
+      els.policyStandButton.title = els.policyStandButton.disabled
+        ? els.policyActionHint.textContent
+        : (policyTelemetryMonitoring ? "Feedback will stop automatically, then the robot will stand to neutral." : "Move the robot to its saved neutral pose.");
+      els.policyImuYaw.title = "Any yaw from -180 to +180 degrees is accepted; decimals are allowed. Positive yaw maps sensor +X toward body +Y.";
+      els.policyImuYawButton.title = policyTelemetryMonitoring
+        ? "Feedback will pause, the new IMU yaw will be saved, then feedback will resume with the new transform."
+        : "Save this IMU mounting yaw.";
+      els.walkPolicyCentersButton.title = policyTelemetryMonitoring
+        ? "Feedback will pause, the centers will be applied, then feedback will resume."
+        : "Apply the twelve displayed center values to the learned policy.";
+    }
+
+    function updatePolicyCommandReadouts() {
+      els.policyForwardValue.textContent = `${Number(els.policyForwardRange.value).toFixed(2)} m/s`;
+      els.policyYawValue.textContent = `${Number(els.policyYawRange.value).toFixed(2)} rad/s`;
+      els.policyTorqueValue.textContent = `${Math.round(Number(els.policyTorqueRange.value))}%`;
+    }
+
+    function appendPolicyTelemetry(sample) {
+      if (!sample || typeof sample !== "object") return;
+      const sampleMs = Number(sample.sample_ms);
+      const servoAngles = Array.from(
+        { length: 12 },
+        (_, index) => Number(sample.servo_angles_deg?.[String(index + 1)])
+      );
+      const accel = Array.from(sample.accel_body_g || [], Number);
+      const gyro = Array.from(sample.gyro_body_dps || [], Number);
+      if (
+        !Number.isFinite(sampleMs)
+        || servoAngles.some((value) => !Number.isFinite(value))
+        || accel.length !== 3
+        || gyro.length !== 3
+        || accel.some((value) => !Number.isFinite(value))
+        || gyro.some((value) => !Number.isFinite(value))
+      ) return;
+      if (sampleMs === policyTelemetrySampleMs) return;
+      policyTelemetrySampleMs = sampleMs;
+      const now = performance.now();
+      policyTelemetryHistory.push({ time: now, servoAngles, accel, gyro });
+      policyTelemetryHistory = policyTelemetryHistory.filter(
+        (entry) => now - entry.time <= POLICY_TELEMETRY_WINDOW_MS
+      );
+      els.policyServoTelemetryReadout.textContent = servoAngles
+        .map((value, index) => `S${index + 1} ${value.toFixed(1)} deg`)
+        .join("  |  ");
+      els.policyImuTelemetryReadout.textContent =
+        `Accel ${axisReadout(accel, "g", 2)}  |  Gyro ${axisReadout(gyro, "deg/s", 1)}`;
+      els.policyTelemetryStatus.textContent = policyTrialRunning
+        ? "live from remote policy"
+        : policyTelemetryMonitoring
+          ? "live read-only feedback"
+          : "last feedback sample";
+      drawPolicyTelemetry();
+    }
+
+    function axisReadout(values, unit, digits) {
+      return ["X", "Y", "Z"]
+        .map((axis, index) => `${axis} ${values[index].toFixed(digits)} ${unit}`)
+        .join("  ");
+    }
+
+    function telemetryRange(series, minimumSpan, includeZero = false) {
+      const values = series.flat().filter(Number.isFinite);
+      let low = values.length ? Math.min(...values) : -minimumSpan / 2;
+      let high = values.length ? Math.max(...values) : minimumSpan / 2;
+      if (includeZero) {
+        low = Math.min(low, 0);
+        high = Math.max(high, 0);
+      }
+      const center = (low + high) / 2;
+      const span = Math.max(minimumSpan, high - low);
+      return [center - span * 0.6, center + span * 0.6];
+    }
+
+    function drawPolicyTelemetry() {
+      const canvas = els.policyTelemetryCanvas;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const scale = Math.max(1, window.devicePixelRatio || 1);
+      const width = Math.round(rect.width * scale);
+      const height = Math.round(rect.height * scale);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const context = canvas.getContext("2d");
+      context.setTransform(scale, 0, 0, scale, 0, 0);
+      context.clearRect(0, 0, rect.width, rect.height);
+      const left = 58;
+      const right = rect.width - 14;
+      const bands = [
+        { top: 30, bottom: 222, label: "Servo change from first sample (deg)" },
+        { top: 254, bottom: 326, label: "Body accel (g)" },
+        { top: 358, bottom: 408, label: "Body gyro (deg/s)" }
+      ];
+      if (!policyTelemetryHistory.length) {
+        context.fillStyle = "#6b7d82";
+        context.font = "13px system-ui, sans-serif";
+        context.textAlign = "center";
+        context.fillText("Press Start Feedback, or run the learned policy, to graph physical feedback.", rect.width / 2, rect.height / 2);
+        return;
+      }
+      const servoBaseline = policyTelemetryHistory[0].servoAngles;
+      const servoChanges = policyTelemetryHistory.map((entry) =>
+        entry.servoAngles.map((value, index) => value - servoBaseline[index])
+      );
+      const servoRange = telemetryRange(
+        servoChanges, 4, true
+      );
+      const accelRange = telemetryRange(
+        policyTelemetryHistory.map((entry) => entry.accel), 0.25, true
+      );
+      const gyroRange = telemetryRange(
+        policyTelemetryHistory.map((entry) => entry.gyro), 5, true
+      );
+      drawTelemetryBand(context, bands[0], servoRange, left, right, rect.width);
+      drawTelemetryBand(context, bands[1], accelRange, left, right, rect.width);
+      drawTelemetryBand(context, bands[2], gyroRange, left, right, rect.width);
+      const newestTime = policyTelemetryHistory.at(-1).time;
+      const oldestTime = Math.max(policyTelemetryHistory[0].time, newestTime - POLICY_TELEMETRY_WINDOW_MS);
+      const timeSpan = Math.max(250, newestTime - oldestTime);
+      policyTelemetryHistory.forEach((entry) => {
+        entry.x = left + (right - left) * (entry.time - oldestTime) / timeSpan;
+      });
+      drawTelemetryTimeGrid(context, bands, left, right, newestTime - oldestTime);
+      for (let series = 0; series < 12; series++) {
+        drawTelemetryLine(context, bands[0], servoRange, POLICY_SERVO_COLORS[series],
+          policyTelemetryHistory.map((entry, index) => [entry.x, servoChanges[index][series]]), 1.5);
+      }
+      for (let axis = 0; axis < 3; axis++) {
+        drawTelemetryLine(context, bands[1], accelRange, POLICY_IMU_COLORS[axis],
+          policyTelemetryHistory.map((entry) => [entry.x, entry.accel[axis]]), 1.7);
+        drawTelemetryLine(context, bands[2], gyroRange, POLICY_IMU_COLORS[axis],
+          policyTelemetryHistory.map((entry) => [entry.x, entry.gyro[axis]]), 1.7);
+      }
+      context.font = "10px system-ui, sans-serif";
+      context.textAlign = "left";
+      ["X", "Y", "Z"].forEach((axis, index) => {
+        context.fillStyle = POLICY_IMU_COLORS[index];
+        context.fillText(axis, right - 64 + index * 24, 246);
+      });
+    }
+
+    function drawTelemetryBand(context, band, range, left, right, width) {
+      context.fillStyle = "#f7fbfb";
+      context.fillRect(left, band.top, right - left, band.bottom - band.top);
+      context.strokeStyle = "#dce5e6";
+      context.lineWidth = 1;
+      for (let index = 0; index <= 4; index++) {
+        const y = band.top + (band.bottom - band.top) * index / 4;
+        context.beginPath();
+        context.moveTo(left, y);
+        context.lineTo(right, y);
+        context.stroke();
+      }
+      context.fillStyle = "#52666b";
+      context.font = "10px system-ui, sans-serif";
+      context.textAlign = "left";
+      context.fillText(band.label, 8, band.top - 6);
+      context.textAlign = "right";
+      for (let index = 0; index <= 4; index++) {
+        const value = range[1] - (range[1] - range[0]) * index / 4;
+        const y = band.top + (band.bottom - band.top) * index / 4;
+        context.fillText(value.toFixed(Math.abs(range[1] - range[0]) < 2 ? 2 : 1), left - 5, y + 3);
+      }
+      context.strokeStyle = "#9aabad";
+      context.strokeRect(left, band.top, Math.max(0, right - left), band.bottom - band.top);
+    }
+
+    function drawTelemetryTimeGrid(context, bands, left, right, elapsedMs) {
+      context.font = "10px system-ui, sans-serif";
+      context.textAlign = "center";
+      for (let index = 0; index <= 4; index++) {
+        const x = left + (right - left) * index / 4;
+        context.strokeStyle = "#e5ecec";
+        context.beginPath();
+        context.moveTo(x, bands[0].top);
+        context.lineTo(x, bands.at(-1).bottom);
+        context.stroke();
+        const secondsAgo = -(elapsedMs / 1000) * (1 - index / 4);
+        context.fillStyle = "#64727a";
+        context.fillText(index === 4 ? "now" : `${secondsAgo.toFixed(1)}s`, x, 419);
+      }
+    }
+
+    function drawTelemetryLine(context, band, range, color, points, lineWidth) {
+      const span = range[1] - range[0] || 1;
+      context.beginPath();
+      points.forEach(([x, value], index) => {
+        const y = band.bottom - (value - range[0]) / span * (band.bottom - band.top);
+        if (index) context.lineTo(x, y);
+        else context.moveTo(x, y);
+      });
+      context.strokeStyle = color;
+      context.lineWidth = lineWidth;
+      context.globalAlpha = 0.9;
+      context.stroke();
+      const last = points.at(-1);
+      if (last) {
+        const y = band.bottom - (last[1] - range[0]) / span * (band.bottom - band.top);
+        context.fillStyle = color;
+        context.beginPath();
+        context.arc(last[0], y, 2.2, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.globalAlpha = 1;
+    }
+
+    async function pollPolicyRunner() {
+      if (!policyRunnerConnected) return;
+      try {
+        const path = policyRemoteControlActive ? "/api/command" : "/api/status";
+        const payload = policyRemoteControlActive
+          ? {
+              forward: Number(els.policyForwardRange.value),
+              yaw_rate: Number(els.policyYawRange.value)
+            }
+          : undefined;
+        applyPolicyStatus(await policyRequest(path, payload));
+      } catch (error) {
+        setPolicyRunnerDisconnected(`Policy runner connection lost: ${error.message}`);
+        return;
+      }
+      policyPollTimer = setTimeout(pollPolicyRunner, policyTrialRunning || policyTelemetryMonitoring ? 250 : 1000);
+    }
+
+    async function connectPolicyRunner() {
+      if (policyRunnerConnected) {
+        await pausePolicyTelemetry("disconnecting the runner");
+        setPolicyRunnerDisconnected("Runner disconnected. No feedback or policy motion is active.");
+        return;
+      }
+      if (transport === "wifi") disconnectWifi();
+      if (port) await disconnect();
+      const baseUrl = policyRunnerBaseUrl();
+      els.policyRunnerUrl.value = baseUrl;
+      localStorage.setItem("robotDogPolicyRunnerUrl", baseUrl);
+      applyPolicyStatus(await policyRequest("/api/status"));
+      els.policyConnectButton.textContent = "Disconnect Runner";
+      policyPollTimer = setTimeout(pollPolicyRunner, 500);
+    }
+
+    async function startPolicyRemoteControl() {
+      if (transport === "wifi") disconnectWifi();
+      if (port) await disconnect();
+      await pausePolicyTelemetry("starting the learned policy");
+      const status = await policyRequest("/api/start", {
+        forward: Number(els.policyForwardRange.value),
+        yaw_rate: Number(els.policyYawRange.value),
+        torque_percent: Number(els.policyTorqueRange.value),
+        confirm_control: true
+      });
+      applyPolicyStatus(status);
+    }
+
+    function schedulePolicyCommandUpdate(immediate = false) {
+      if (!policyRemoteControlActive) return;
+      policyCommandSendQueued = true;
+      if (policyCommandSendTimer) clearTimeout(policyCommandSendTimer);
+      policyCommandSendTimer = setTimeout(flushPolicyCommandUpdate, immediate ? 0 : 80);
+    }
+
+    async function flushPolicyCommandUpdate() {
+      policyCommandSendTimer = undefined;
+      if (!policyRemoteControlActive || !policyCommandSendQueued) return;
+      if (policyCommandSendInFlight) return;
+      policyCommandSendQueued = false;
+      policyCommandSendInFlight = true;
+      try {
+        applyPolicyStatus(await policyRequest("/api/command", {
+          forward: Number(els.policyForwardRange.value),
+          yaw_rate: Number(els.policyYawRange.value)
+        }));
+      } catch (error) {
+        els.policyMessage.textContent = `Remote command was not accepted: ${error.message}`;
+      } finally {
+        policyCommandSendInFlight = false;
+        if (policyCommandSendQueued) schedulePolicyCommandUpdate(true);
+      }
+    }
+
+    function zeroPolicyCommand() {
+      els.policyForwardRange.value = "0";
+      els.policyYawRange.value = "0";
+      updatePolicyCommandReadouts();
+      schedulePolicyCommandUpdate(true);
+    }
+
+    function setPolicyImuYaw(value) {
+      const yaw = clamp(Number(value), -180, 180);
+      if (!Number.isFinite(yaw)) return;
+      els.policyImuYaw.value = yaw.toFixed(1);
+      els.policyImuYawRange.value = String(yaw);
+    }
+
+    function syncPolicyImuYawFromNumber() {
+      const raw = String(els.policyImuYaw.value).trim();
+      if (!raw) return;
+      const yaw = Number(raw);
+      if (Number.isFinite(yaw)) {
+        els.policyImuYawRange.value = String(clamp(yaw, -180, 180));
+      }
+    }
+
+    async function standPolicyNeutral() {
+      if (transport === "wifi") disconnectWifi();
+      if (port) await disconnect();
+      await pausePolicyTelemetry("standing to neutral");
+      const status = await policyRequest("/api/stand", {
+        torque_percent: Number(els.policyTorqueRange.value)
+      });
+      applyPolicyStatus(status);
+    }
+
+    async function savePolicyImuYaw() {
+      const yawDeg = Number(els.policyImuYaw.value);
+      if (!Number.isFinite(yawDeg) || yawDeg < -180 || yawDeg > 180) {
+        throw new Error("IMU board yaw must be from -180 to 180 degrees.");
+      }
+      return withPolicyTelemetryPaused("changing IMU rotation", async () => {
+        applyPolicyStatus(await policyRequest("/api/calibration/imu-yaw", {
+          yaw_deg: yawDeg
+        }));
+      }, true);
+    }
+
+    async function stopPolicyTrial() {
+      if (!policyRunnerConnected) return;
+      policyCommandSendQueued = false;
+      if (policyCommandSendTimer) clearTimeout(policyCommandSendTimer);
+      policyCommandSendTimer = undefined;
+      applyPolicyStatus(await policyRequest("/api/stop", {}));
+    }
+
+    async function togglePolicyTelemetry() {
+      const path = policyTelemetryMonitoring ? "/api/telemetry/stop" : "/api/telemetry/start";
+      applyPolicyStatus(await policyRequest(path, {}));
+    }
+
+    async function pausePolicyTelemetry(actionLabel) {
+      if (!policyRunnerConnected || !policyTelemetryMonitoring) return false;
+      els.policyTelemetryStatus.textContent = `stopping feedback for ${actionLabel}`;
+      applyPolicyStatus(await policyRequest("/api/telemetry/stop", {}));
+      const deadline = performance.now() + 6000;
+      while (policyTelemetryMonitoring && performance.now() < deadline) {
+        await sleep(100);
+        applyPolicyStatus(await policyRequest("/api/status"));
+      }
+      if (policyTelemetryMonitoring) {
+        throw new Error(`Feedback could not release COM3 for ${actionLabel}. Press Stop Feedback and try again.`);
+      }
+      els.policyTelemetryStatus.textContent = `feedback paused for ${actionLabel}`;
+      return true;
+    }
+
+    async function withPolicyTelemetryPaused(actionLabel, action, restartFeedback = false) {
+      const wasMonitoring = await pausePolicyTelemetry(actionLabel);
+      try {
+        return await action();
+      } finally {
+        if (wasMonitoring && restartFeedback && policyRunnerConnected && !policyTrialRunning && !policyHoldingTorque) {
+          try {
+            applyPolicyStatus(await policyRequest("/api/telemetry/start", {}));
+          } catch (error) {
+            els.policyTelemetryStatus.textContent = `Feedback did not restart: ${error.message}`;
+          }
+        }
+      }
+    }
+
+    function walkPolicyCenterDraft() {
+      readWalkControls();
+      const centers = {};
+      for (const leg of WALK_LEGS) {
+        for (const role of ["hip", "femur", "knee"]) {
+          const id = Number(leg.ids[role]);
+          const center = Number(walkServoCenter(leg, role));
+          if (!Number.isInteger(id) || id < 1 || id > 12 || !Number.isFinite(center)) {
+            throw new Error("All 12 walk center values must be valid before saving the policy draft.");
+          }
+          centers[String(id)] = Number(center.toFixed(3));
+        }
+      }
+      if (Object.keys(centers).length !== 12) {
+        throw new Error("The walk center mapping must contain servo IDs 1 through 12.");
+      }
+      return centers;
+    }
+
+    async function saveWalkPolicyCenters() {
+      if (!policyRunnerConnected) {
+        throw new Error("Connect run_policy.py before saving center points.");
+      }
+      return withPolicyTelemetryPaused("applying center trims", async () => {
+        const status = await policyRequest("/api/calibration/centers", {
+          confirm: "APPLY_VERIFIED_WALK_CENTERS",
+          centers: walkPolicyCenterDraft()
+        });
+        applyPolicyStatus(status);
+      }, true);
     }
 
     function logLine(text, direction = "info") {
@@ -1420,6 +2263,7 @@
 
     function populateWalkControls() {
       renderWalkLegControls();
+      renderWalkTrimControls();
       syncWalkControlValues();
       updateWalkStatus();
     }
@@ -1456,21 +2300,62 @@
                 <option value="-1"${setting.fold === -1 ? " selected" : ""}>&lt;</option>
               </select></label>
             </div>
-            <div class="walk-trim-fields">
-              <label>Hip center<input class="walk-leg-setting" data-field="hipTrim" type="number" min="-5" max="5" step="0.5" value="${Number(setting.hipTrim).toFixed(1)}"></label>
-              <label>Femur center<input class="walk-leg-setting" data-field="femurTrim" type="number" min="-5" max="5" step="0.5" value="${Number(setting.femurTrim).toFixed(1)}"></label>
-              <label>Knee center<input class="walk-leg-setting" data-field="kneeTrim" type="number" min="-5" max="5" step="0.5" value="${Number(setting.kneeTrim).toFixed(1)}"></label>
-            </div>
           </article>
         `;
       }).join("");
 
-      els.walkLegGrid.querySelectorAll(".walk-leg-setting").forEach((control) => {
-        control.addEventListener("change", () => {
+      bindWalkLegSettingControls(els.walkLegGrid);
+    }
+
+    function renderWalkTrimControls() {
+      els.walkTrimGrid.innerHTML = WALK_LEGS.map((leg) => {
+        const setting = normalizeWalkLegSetting(walkConfig.legs?.[leg.key] || {}, leg);
+        walkConfig.legs[leg.key] = setting;
+        return `
+          <article class="walk-leg-card" data-leg="${escapeAttr(leg.key)}">
+            <div>
+              <h3>${escapeHtml(leg.name)}</h3>
+              <p class="subtle">IDs ${leg.ids.hip}, ${leg.ids.femur}, ${leg.ids.knee}</p>
+            </div>
+            <div class="walk-trim-fields">
+              <label>Hip trim<input class="walk-leg-setting" data-field="hipTrim" type="number" min="-45" max="45" step="0.5" value="${Number(setting.hipTrim).toFixed(1)}"></label>
+              <label>Femur trim<input class="walk-leg-setting" data-field="femurTrim" type="number" min="-45" max="45" step="0.5" value="${Number(setting.femurTrim).toFixed(1)}"></label>
+              <label>Knee trim<input class="walk-leg-setting" data-field="kneeTrim" type="number" min="-45" max="45" step="0.5" value="${Number(setting.kneeTrim).toFixed(1)}"></label>
+            </div>
+            <p class="subtle" data-role="effective-centers"></p>
+          </article>
+        `;
+      }).join("");
+      bindWalkLegSettingControls(els.walkTrimGrid);
+      updateWalkTrimReadouts();
+    }
+
+    function bindWalkLegSettingControls(root) {
+      root.querySelectorAll(".walk-leg-setting").forEach((control) => {
+        const applySetting = () => {
+          if (control instanceof HTMLInputElement && !Number.isFinite(control.valueAsNumber)) return;
+          if (String(control.dataset.field).endsWith("Trim")) {
+            control.value = String(clamp(Number(control.value), -WALK_CENTER_TRIM_LIMIT_DEG, WALK_CENTER_TRIM_LIMIT_DEG));
+          }
           readWalkControls();
+          updateWalkTrimReadouts();
           if (walkRunning) queueWalkProgramUpdate();
-        });
+          if (walkLiveCentersEnabled) queueWalkLiveCenterUpdate();
+        };
+        control.addEventListener("change", applySetting);
+        if (control instanceof HTMLInputElement) control.addEventListener("input", applySetting);
       });
+    }
+
+    function updateWalkTrimReadouts() {
+      for (const leg of WALK_LEGS) {
+        const card = els.walkTrimGrid.querySelector(`[data-leg="${leg.key}"]`);
+        if (!card) continue;
+        const values = ["hip", "femur", "knee"].map((role) =>
+          `${role} ${walkServoCenter(leg, role).toFixed(1)} deg`
+        );
+        card.querySelector('[data-role="effective-centers"]').textContent = `Effective centers: ${values.join(" | ")}`;
+      }
     }
 
     function readWalkControls() {
@@ -1481,11 +2366,13 @@
       walkConfig.stepX = clamp(Number(els.walkStepXRange.value || 0), -80, 80);
       walkConfig.stepY = clamp(Number(els.walkStepYRange.value || 0), -80, 80);
       for (const leg of WALK_LEGS) {
-        const card = els.walkLegGrid.querySelector(`[data-leg="${leg.key}"]`);
         const current = normalizeWalkLegSetting(walkConfig.legs?.[leg.key] || {}, leg);
-        if (card) {
-          for (const control of card.querySelectorAll(".walk-leg-setting")) {
-            current[control.dataset.field] = Number(control.value);
+        for (const root of [els.walkLegGrid, els.walkTrimGrid]) {
+          const card = root.querySelector(`[data-leg="${leg.key}"]`);
+          if (card) {
+            for (const control of card.querySelectorAll(".walk-leg-setting")) {
+              current[control.dataset.field] = Number(control.value);
+            }
           }
         }
         walkConfig.legs[leg.key] = normalizeWalkLegSetting(current, leg);
@@ -1506,6 +2393,7 @@
       els.walkNeutralXValue.textContent = `${Math.round(walkConfig.neutralX)} mm`;
       els.walkStepXValue.textContent = `${Math.round(walkConfig.stepX)} mm`;
       els.walkStepYValue.textContent = `${Math.round(walkConfig.stepY)} mm`;
+      updateWalkTrimReadouts();
     }
 
     function updateWalkStatus(text) {
@@ -1578,9 +2466,15 @@
     }
 
     function updateServoScanStatus() {
-      els.servoScanStatus.textContent = availableServoIds.length
-        ? `plugged ${availableServoIds.join(", ")}`
-        : "IDs unknown";
+      const alarmIds = Object.entries(servoStatusErrors)
+        .filter(([, status]) => Number(status) !== 0)
+        .map(([id]) => Number(id))
+        .sort((a, b) => a - b);
+      els.servoScanStatus.textContent = alarmIds.length
+        ? `hardware alarm IDs ${alarmIds.join(", ")}`
+        : availableServoIds.length
+          ? `plugged ${availableServoIds.join(", ")}`
+          : "IDs unknown";
     }
 
     function readLegControls() {
@@ -2160,8 +3054,8 @@
       sendLegPoseThrottled();
     }
 
-    function walkRequiredServoIds() {
-      return activeWalkLegs().flatMap((leg) => [leg.ids.hip, leg.ids.femur, leg.ids.knee]);
+    function walkRequiredServoIds(legs = activeWalkLegs()) {
+      return legs.flatMap((leg) => [leg.ids.hip, leg.ids.femur, leg.ids.knee]);
     }
 
     function activeWalkLegs() {
@@ -2244,7 +3138,7 @@
       return true;
     }
 
-    function ensureWalkServosReady() {
+    function ensureWalkServosReady(legs = activeWalkLegs()) {
       if (!hasCommandTransport()) {
         updateWalkStatus("connect first");
         return false;
@@ -2255,7 +3149,7 @@
         return false;
       }
 
-      const requiredIds = walkRequiredServoIds();
+      const requiredIds = walkRequiredServoIds(legs);
       const missingIds = requiredIds.filter((id) => !servos.some((servo) => Number(servo.id) === Number(id)));
       if (missingIds.length) {
         updateWalkStatus(`missing IDs ${missingIds.slice(0, 4).join(", ")}${missingIds.length > 4 ? "..." : ""}`);
@@ -2285,12 +3179,87 @@
       return walkServoHome(leg.ids[role]) + Number(setting[trimKey] || 0);
     }
 
-    function walkNeutralPose() {
+    function walkNeutralPose(legs = activeWalkLegs()) {
       const poses = {};
-      for (const leg of activeWalkLegs()) {
+      for (const leg of legs) {
         Object.assign(poses, walkNeutralLegPose(leg).poses);
       }
       return poses;
+    }
+
+    function setWalkLiveCentersEnabled(enabled, message = true) {
+      walkLiveCentersEnabled = Boolean(enabled);
+      if (!walkLiveCentersEnabled) {
+        if (walkLiveCentersTimer) clearTimeout(walkLiveCentersTimer);
+        walkLiveCentersTimer = undefined;
+        walkLiveCentersQueued = false;
+      }
+      els.walkLiveCentersButton.classList.toggle("toggle-active", walkLiveCentersEnabled);
+      els.walkLiveCentersButton.setAttribute("aria-pressed", String(walkLiveCentersEnabled));
+      els.walkLiveCentersButton.textContent = `Live Centers: ${walkLiveCentersEnabled ? "On" : "Off"}`;
+      if (message) updateWalkStatus(walkLiveCentersEnabled ? "live centers on" : "live centers off");
+    }
+
+    async function waitForBoardConfig(timeoutMs = 3000) {
+      const deadline = performance.now() + timeoutMs;
+      while (!boardConfigFresh && performance.now() < deadline) await sleep(50);
+      return boardConfigFresh;
+    }
+
+    async function prepareWalkCenterControl() {
+      if (!hasCommandTransport()) await connectWifi();
+      if (!hasCommandTransport()) throw new Error("Could not connect to the robot for live center control.");
+      if (!(await waitForBoardConfig()) || !ensureWalkServosReady(WALK_LEGS)) {
+        throw new Error("The 12-servo board configuration is not ready.");
+      }
+      await sendAndWait({ cmd: "servo_torque_limit", all: true, limit: 1000 });
+      await sendAndWait({ cmd: "servo_torque", all: true, enabled: true });
+    }
+
+    async function toggleWalkLiveCenters() {
+      if (walkLiveCentersEnabled) {
+        setWalkLiveCentersEnabled(false);
+        return;
+      }
+      if (policyTrialRunning) throw new Error("Stop remote policy control before using live centers.");
+      await prepareWalkCenterControl();
+      setWalkLiveCentersEnabled(true);
+    }
+
+    function queueWalkLiveCenterUpdate() {
+      if (!walkLiveCentersEnabled) return;
+      if (walkLiveCentersTimer) clearTimeout(walkLiveCentersTimer);
+      walkLiveCentersTimer = setTimeout(() => {
+        walkLiveCentersTimer = undefined;
+        sendWalkLiveCenterPose().catch((error) => {
+          updateWalkStatus("live center error");
+          els.lastMessage.textContent = error.message;
+          logLine(error.message);
+        });
+      }, 120);
+    }
+
+    async function sendWalkLiveCenterPose() {
+      if (!walkLiveCentersEnabled) return false;
+      if (walkLiveCentersInFlight) {
+        walkLiveCentersQueued = true;
+        return false;
+      }
+      walkLiveCentersInFlight = true;
+      walkLiveCentersQueued = false;
+      try {
+        readWalkControls();
+        if (!ensureWalkServosReady(WALK_LEGS)) return false;
+        const poses = walkNeutralPose(WALK_LEGS);
+        for (const [id, angle] of Object.entries(poses)) positions[id] = angle;
+        renderServos();
+        await sendAndWait({ cmd: "center_pose", poses, speed: 360, accel: 40 });
+        updateWalkStatus("live centers updated");
+        return true;
+      } finally {
+        walkLiveCentersInFlight = false;
+        if (walkLiveCentersQueued && walkLiveCentersEnabled) queueWalkLiveCenterUpdate();
+      }
     }
 
     async function sendWalkNeutral(keepCommandToken = false, commandToken = walkCommandToken) {
@@ -2304,9 +3273,9 @@
       for (const [id, angle] of Object.entries(poses)) positions[id] = angle;
       renderServos();
       if (commandToken !== walkCommandToken) return false;
-      await sendAndWait({ cmd: "stop" });
+      await prepareWalkCenterControl();
       if (commandToken !== walkCommandToken) return false;
-      await sendAndWait({ cmd: "play", loop: false, steps: [{ ms: 600, poses, speed: 180, accel: 30 }] });
+      await sendAndWait({ cmd: "center_pose", poses, speed: 180, accel: 30 });
       if (commandToken !== walkCommandToken) return false;
       updateWalkStatus("neutral");
       return true;
@@ -2332,6 +3301,7 @@
     async function stopWalkTest() {
       walkCommandToken++;
       walkRunning = false;
+      setWalkLiveCentersEnabled(false, false);
       if (walkUpdateTimer) clearTimeout(walkUpdateTimer);
       walkUpdateTimer = undefined;
       await sendAndWait({ cmd: "stop" });
@@ -2933,6 +3903,7 @@
         return;
       }
 
+      await pausePolicyTelemetry("opening manual USB control");
       boardConfigFresh = false;
       port = await navigator.serial.requestPort();
       await port.open({ baudRate: 460800 });
@@ -2969,6 +3940,7 @@
       }
 
       if (port) await disconnect();
+      await pausePolicyTelemetry("opening manual Wi-Fi control");
 
       const baseUrl = normalizeBaseUrl(els.wifiUrl.value);
       els.wifiUrl.value = baseUrl;
@@ -3001,6 +3973,7 @@
       wifiBaseUrl = "";
       boardConfigFresh = false;
       if (transport === "wifi") transport = null;
+      setWalkLiveCentersEnabled(false, false);
       setConnected(false);
     }
 
@@ -3113,6 +4086,7 @@
         positions = { ...positions, ...(message.positions || {}) };
         servoVelocities = { ...servoVelocities, ...(message.velocities || {}) };
         servoMotorSpeeds = { ...servoMotorSpeeds, ...(message.motorSpeeds || {}) };
+        servoStatusErrors = { ...servoStatusErrors, ...(message.statusErrors || {}) };
         if (message.motorModes) {
           for (const [id, isMotor] of Object.entries(message.motorModes)) {
             if (isMotor) servoControlModes[id] = "motor";
@@ -3120,6 +4094,7 @@
           }
         }
         mergeMeasuredFromState(message.measured || {}, Boolean(message.setup));
+        updateServoScanStatus();
         updateServoCards();
         syncLegLimitReadouts();
       } else if (message.type === "imu") {
@@ -3140,6 +4115,7 @@
           .map(Number)
           .filter((id) => Number.isInteger(id) && id >= 1 && id <= 253)
           .sort((a, b) => a - b);
+        servoStatusErrors = { ...servoStatusErrors, ...(message.statusErrors || {}) };
         saveAvailableServoIds();
         populateLegServoOptions();
         updateServoScanStatus();
@@ -3201,6 +4177,9 @@
         monitor: servo.monitor !== false,
         monitorInterval: Number(servo.monitorInterval ?? 250)
       }));
+      servoStatusErrors = Object.fromEntries(nextServos
+        .filter((servo) => Number.isFinite(Number(servo.statusError)))
+        .map((servo) => [Number(servo.id), Number(servo.statusError)]));
       positions = Object.fromEntries(servos.map((servo) => [servo.id, servo.last]));
       measuredPositions = Object.fromEntries(servos.map((servo) => [servo.id, servo.measured]));
       servoVelocities = Object.fromEntries(servos.map((servo) => [servo.id, Number(previousVelocities[servo.id] ?? servo.velocity ?? 0)]));
@@ -3210,6 +4189,7 @@
       if (els.addServoPanel.classList.contains("hidden")) populateServoOptions();
       populateLegServoOptions();
       syncLegLimitControls();
+      updateServoScanStatus();
       updateLegIk();
     }
 
@@ -3446,8 +4426,69 @@
       if (transport === "wifi") scheduleWifiPoll(document.hidden ? currentWifiPollInterval() : 0);
     });
 
+    window.addEventListener("pagehide", () => {
+      if (!policyRunnerConnected || (!policyTrialRunning && !policyTelemetryMonitoring)) return;
+      try {
+        const payload = new Blob(["{}"], { type: "text/plain;charset=UTF-8" });
+        const path = policyTrialRunning ? "/api/stop" : "/api/telemetry/stop";
+        navigator.sendBeacon(`${policyRunnerBaseUrl()}${path}`, payload);
+      } catch {
+        // run_policy.py still enforces the bounded duration and firmware watchdog.
+      }
+    });
+
     els.connectButton.addEventListener("click", () => connect().catch((error) => logLine(error.message)));
     els.wifiConnectButton.addEventListener("click", () => connectWifi().catch((error) => logLine(error.message)));
+    els.policyConnectButton.addEventListener("click", () => {
+      connectPolicyRunner().catch((error) => setPolicyRunnerDisconnected(`Could not connect to run_policy.py: ${error.message}`));
+    });
+    [els.policyForwardRange, els.policyYawRange].forEach((control) => {
+      control.addEventListener("input", () => {
+        updatePolicyCommandReadouts();
+        schedulePolicyCommandUpdate();
+      });
+    });
+    els.policyTorqueRange.addEventListener("input", updatePolicyCommandReadouts);
+    els.policyStandButton.addEventListener("click", () => {
+      standPolicyNeutral().catch((error) => {
+        els.policyMessage.textContent = error.message;
+        updatePolicyButtons();
+      });
+    });
+    els.policyStartButton.addEventListener("click", () => {
+      startPolicyRemoteControl().catch((error) => {
+        els.policyMessage.textContent = error.message;
+        updatePolicyButtons();
+      });
+    });
+    els.policyZeroCommandButton.addEventListener("click", zeroPolicyCommand);
+    els.policyImuYaw.addEventListener("input", syncPolicyImuYawFromNumber);
+    els.policyImuYawRange.addEventListener("input", () => setPolicyImuYaw(els.policyImuYawRange.value));
+    els.policyImuPresets.forEach((button) => {
+      button.addEventListener("click", () => setPolicyImuYaw(button.dataset.yaw));
+    });
+    els.policyImuYawButton.addEventListener("click", () => {
+      savePolicyImuYaw().catch((error) => {
+        els.policyMessage.textContent = error.message;
+        updatePolicyButtons();
+      });
+    });
+    els.policyStopButton.addEventListener("click", () => {
+      stopPolicyTrial().catch((error) => {
+        els.policyMessage.textContent = `Stop request failed: ${error.message}. Use Ctrl+C in the run_policy.py window; the firmware watchdog remains active.`;
+      });
+    });
+    els.policyTelemetryButton.addEventListener("click", () => {
+      togglePolicyTelemetry().catch((error) => {
+        els.policyTelemetryStatus.textContent = error.message;
+        updatePolicyButtons();
+      });
+    });
+    els.walkPolicyCentersButton.addEventListener("click", () => {
+      saveWalkPolicyCenters().catch((error) => {
+        els.policyMessage.textContent = `Walk centers were not applied: ${error.message}`;
+      });
+    });
     els.addServoButton.addEventListener("click", () => {
       prepareAddServoPanel();
       els.addServoPanel.classList.remove("hidden");
@@ -3570,6 +4611,14 @@
         logLine(error.message);
       });
     });
+    els.walkLiveCentersButton.addEventListener("click", () => {
+      toggleWalkLiveCenters().catch((error) => {
+        setWalkLiveCentersEnabled(false, false);
+        els.lastMessage.textContent = error.message;
+        updateWalkStatus("live center error");
+        logLine(error.message);
+      });
+    });
     els.walkStartButton.addEventListener("click", () => {
       startWalkTest().catch((error) => {
         els.lastMessage.textContent = error.message;
@@ -3586,6 +4635,7 @@
     els.homeAllButton.addEventListener("click", () => {
       walkCommandToken++;
       walkRunning = false;
+      setWalkLiveCentersEnabled(false, false);
       if (walkUpdateTimer) clearTimeout(walkUpdateTimer);
       walkUpdateTimer = undefined;
       updateWalkStatus();
@@ -3598,6 +4648,7 @@
     els.stopButton.addEventListener("click", () => {
       walkCommandToken++;
       walkRunning = false;
+      setWalkLiveCentersEnabled(false, false);
       if (walkUpdateTimer) clearTimeout(walkUpdateTimer);
       walkUpdateTimer = undefined;
       updateWalkStatus("stopped");
@@ -3607,6 +4658,11 @@
       send({ cmd: "servo_velocity_stop", all: true });
       send({ cmd: "servo_motor_stop", all: true });
       send({ cmd: "motor_stop" });
+      if (policyTrialRunning) {
+        stopPolicyTrial().catch((error) => {
+          els.policyMessage.textContent = `Stop request failed: ${error.message}. Use Ctrl+C in the run_policy.py window.`;
+        });
+      }
     });
     els.imuToggleButton.addEventListener("click", () => {
       imuMonitorEnabled = !imuMonitorEnabled;
@@ -3643,11 +4699,18 @@
     if (activeSetupId) els.servoNextId.value = activeSetupId;
     renderServos();
     renderMotors();
+    drawPolicyTelemetry();
+    window.addEventListener("resize", drawPolicyTelemetry);
     setConnected(false);
+    updatePolicyCommandReadouts();
+    setPolicyRunnerDisconnected("Start run_policy.py --ui, then connect the runner. Calibration remains locked until both measured calibration flags are true.");
 
     if ((location.protocol === "http:" || location.protocol === "https:") && location.hostname) {
-      connectWifi().catch((error) => logLine(error.message));
+      connectPolicyRunner().catch((error) => {
+        setPolicyRunnerDisconnected(`Local policy runner unavailable: ${error.message}. Use Connect Wi-Fi for direct controls.`);
+      });
     }
+
   </script>
 </body>
 </html>
