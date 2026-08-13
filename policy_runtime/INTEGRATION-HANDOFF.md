@@ -63,9 +63,11 @@ Each policy frame contains, in order:
 6. previously applied normalized action (12)
 
 Four frames are flattened oldest-to-newest into 180 values. The 12 outputs
-are clipped to [-1, 1], multiplied by 0.25 rad, mapped through measured servo
-zeros/directions, limited to 5 degrees per 20 ms host frame, and checked
-against calibrated min/max angles.
+are clipped to [-1, 1], limited to the training environment's 0.30 normalized
+action change per 20 ms frame, multiplied by 0.25 rad, and mapped through
+measured servo zeros/directions. Body commands use the training environment's
+0.4 second low-pass filter. Requested, applied, and measured policy-space poses
+are exposed in live telemetry and recorded for diagnosis.
 
 The four physical knee servos use the same absolute-lower-link four-bar
 mapping as the existing Whole Robot Walk Test UI. For every leg, the runtime
@@ -116,6 +118,14 @@ opens a session whose forward/yaw sliders update live until **Stop + Disarm**.
 A two-second browser-command heartbeat disarms on UI loss. Direct CLI runs still
 use bounded durations and require `--confirm-lifted`.
 
+The same runtime can run at boot on a Raspberry Pi 3B connected to the ESP32
+over USB, removing the Windows-computer dependency. The Pi installer and
+service are in `deploy/raspberry-pi`; they use a stable `/dev/serial/by-id`
+device, OS-provided NumPy/pyserial packages, one BLAS thread, automatic service
+restart, and `--ui-host 0.0.0.0`. The browser's Runner URL then points to
+`http://<pi-hostname>.local:18765`. Keep this unauthenticated control port on a
+trusted local network only.
+
 The Remote Control panel has a drive-torque slider. It defaults to 100%
 and the browser, Python API, and firmware accept 1-100%. `run_policy.py` applies
 the selected limit before arming.
@@ -127,7 +137,7 @@ the following remote-control session. The policy's conservative joint envelope i
 shrinking that envelope would prevent recovery from the resting pose. Runner
 connection now automatically releases the page's direct board transport.
 
-Dynamic accelerometer vectors are normalized without the former 700-1300 mg
+Dynamic accelerometer vectors are fused with the calibrated gyroscope without the former 700-1300 mg
 stationary magnitude gate. Non-finite or near-zero vectors remain invalid.
 
 Remote control requests physical torque-off on Stop + Disarm, heartbeat loss,

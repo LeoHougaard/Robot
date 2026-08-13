@@ -9,7 +9,8 @@ It gives you:
 - ESP32 firmware in `firmware/robot-dog-control` using PlatformIO.
 - JSON-line commands for manual servo position movement, velocity movement, home, stop, config, and simple program playback.
 - Wi-Fi setup through a captive portal and Arduino OTA support for later wireless updates.
-- A learned-policy Remote Control panel backed by the localhost-only `policy_runtime/run_policy.py` bridge.
+- A learned-policy Remote Control panel backed by `policy_runtime/run_policy.py`
+  on either the operator computer or a Raspberry Pi 3B carried by the robot.
 
 The current firmware is written for serial bus servos such as the Waveshare/Feetech-style ST series used by many Waveshare robot boards. If your exact Waveshare General Driver board already has its own firmware or uses a different servo protocol, keep the UI and adapt only `ServoBusDriver` in `src/main.cpp`.
 
@@ -54,6 +55,17 @@ Neutral once, press **Start Remote Control**, and adjust speed and steering live
 The panel cannot bypass the calibration flags, command envelope, neutral pose, or
 firmware safety checks. Policy inference and ESP32 serial control stay inside
 `run_policy.py`.
+
+To remove the Windows-computer dependency, connect the ESP32 over USB to a
+Raspberry Pi 3B and install the boot service described in
+[`deploy/raspberry-pi/README.md`](deploy/raspberry-pi/README.md). The browser then
+uses a runner URL such as `http://raspberrypi.local:18765`; the Pi runs the same
+portable actor, calibration mapping, 50 Hz transport, and disarm paths.
+
+The Remote Control diagnostics show the learned policy's applied 3D pose beside
+encoder feedback and record each run as downloadable JSONL. Use the prioritized
+checks in [`policy_runtime/SIM-TO-REAL-DIAGNOSIS.md`](policy_runtime/SIM-TO-REAL-DIAGNOSIS.md)
+to separate mapping, IMU, linkage, actuator, power, and contact problems.
 
 ## Board Pin Setup
 

@@ -2,6 +2,7 @@
 .pioenvs/
 .piolibdeps/
 .venv/
+.venv-pi/
 __pycache__/
 *.pyc
 
@@ -10,6 +11,7 @@ __pycache__/
 __pycache__/
 *.pyc
 sim/runs/
+policy_runtime/logs/
 
 *.log
 MUJOCO_LOG.TXT

@@ -12,6 +12,7 @@ import numpy as np
 import run_policy as run_policy_module
 
 from run_policy import (
+    GravityEstimator,
     NumpyPolicy,
     POLICY_JOINT_SEMANTICS,
     POLICY_SERVO_IDS,
@@ -19,8 +20,10 @@ from run_policy import (
     PolicySerial,
     RobotCalibration,
     disable_and_verify_servo_torque,
+    limit_policy_action,
     policy_torque_limit,
     read_telemetry_sample,
+    smooth_policy_command,
     state_vectors,
     telemetry_from_state,
 )
@@ -82,6 +85,47 @@ def write_uncalibrated_template(path: Path) -> None:
 
 
 class PolicyRuntimeTests(unittest.TestCase):
+    def test_deployment_matches_training_action_and_command_filters(self) -> None:
+        requested = np.asarray([-1.0, -0.1, 0.2, 1.0], dtype=np.float32)
+        previous = np.asarray([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        np.testing.assert_allclose(
+            limit_policy_action(requested, previous, 0.3),
+            [-0.3, -0.1, 0.2, 0.3],
+            atol=1.0e-7,
+        )
+        np.testing.assert_allclose(
+            smooth_policy_command(
+                np.zeros(3, dtype=np.float32),
+                np.asarray([0.18, 0.0, -0.25], dtype=np.float32),
+                0.4,
+            ),
+            [0.009, 0.0, -0.0125],
+            atol=1.0e-7,
+        )
+
+    def test_gravity_estimator_uses_gyro_during_linear_acceleration(self) -> None:
+        estimator = GravityEstimator()
+        np.testing.assert_allclose(
+            estimator.update(
+                np.asarray([0.0, 0.0, 1000.0]),
+                np.zeros(3),
+                -1.0,
+                0.02,
+            ),
+            [0.0, 0.0, -1.0],
+            atol=1.0e-6,
+        )
+        # At 1.5 g the accelerometer direction is dynamically contaminated, so
+        # the estimate advances from the gyro instead of treating it as gravity.
+        projected = estimator.update(
+            np.asarray([1000.0, 0.0, 1100.0]),
+            np.asarray([0.0, 1.0, 0.0]),
+            -1.0,
+            0.02,
+        )
+        self.assertGreater(float(projected[0]), 0.015)
+        self.assertLess(float(projected[2]), -0.99)
+
     def test_serial_parser_preserves_fragmented_json(self) -> None:
         class FragmentedSerial:
             def __init__(self) -> None:
@@ -177,7 +221,16 @@ class PolicyRuntimeTests(unittest.TestCase):
                 "accel_mg": [100.0, 200.0, 900.0],
             }
 
-            telemetry = telemetry_from_state(state, calibration)
+            target = calibration.policy_positions(
+                dict(zip(state["ids"], state["angles_deg"], strict=True))
+            )
+            target[4] += 0.1
+            telemetry = telemetry_from_state(
+                state,
+                calibration,
+                requested_policy_position=target + 0.02,
+                applied_policy_position=target,
+            )
 
             self.assertEqual(telemetry["sample_ms"], 1234)
             self.assertEqual(telemetry["servo_angles_deg"]["10"], 172.0)
@@ -188,6 +241,22 @@ class PolicyRuntimeTests(unittest.TestCase):
             np.testing.assert_allclose(
                 telemetry["gyro_body_dps"], [-20.0, 10.0, 30.0], atol=1.0e-6
             )
+            self.assertEqual(len(telemetry["measured_policy_position_rad"]), 12)
+            self.assertEqual(len(telemetry["requested_policy_position_rad"]), 12)
+            self.assertEqual(len(telemetry["applied_policy_position_rad"]), 12)
+            self.assertAlmostEqual(
+                telemetry["policy_position_error_rad"][4], -0.1, places=5
+            )
+            self.assertAlmostEqual(
+                telemetry["max_policy_position_error_deg"], 5.7296, places=3
+            )
+            np.testing.assert_allclose(
+                telemetry["projected_gravity_body"], [-0.21567, 0.10783, 0.97049], atol=1.0e-5
+            )
+            state["accel_mg"] = [0.0, 0.0, 0.0]
+            zero_accel_telemetry = telemetry_from_state(state, calibration)
+            self.assertNotIn("projected_gravity_body", zero_accel_telemetry)
+            json.dumps(zero_accel_telemetry, allow_nan=False)
 
     def test_read_only_telemetry_sends_no_motion_or_torque_command(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -274,6 +343,8 @@ class PolicyRuntimeTests(unittest.TestCase):
                         "action_size": 12,
                         "control_hz": 50,
                         "action_scale_rad": 0.25,
+                        "action_delta_limit": 0.3,
+                        "command_smoothing_time_s": 0.4,
                         "validated_command_limits": {
                             "forward_m_s": [0.0, 0.18],
                             "lateral_m_s": [0.0, 0.0],

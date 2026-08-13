@@ -32,6 +32,11 @@ DEFAULT_POLICY_TORQUE_PERCENT = 100.0
 MIN_POLICY_TORQUE_PERCENT = 1.0
 MAX_POLICY_TORQUE_PERCENT = 100.0
 REMOTE_COMMAND_TIMEOUT_S = 2.0
+EXPECTED_ACTION_DELTA_LIMIT = 0.30
+EXPECTED_COMMAND_SMOOTHING_S = 0.40
+GRAVITY_CORRECTION_TIME_S = 0.25
+SESSION_LOG_DECIMATION = 2
+SESSION_LOG_MAX_BYTES = 25 * 1024 * 1024
 FOUR_BAR_KNEE_PARENTS = {2: 1, 5: 4, 8: 7, 11: 10}
 POLICY_JOINT_SEMANTICS = (
     "front_right_hip_abduction",
@@ -98,6 +103,18 @@ class NumpyPolicy:
         self.action_scale = float(self.metadata["action_scale_rad"])
         if self.action_scale != 0.25:
             raise ValueError("policy action scale is incompatible")
+        self.action_delta_limit = float(
+            self.metadata.get("action_delta_limit", EXPECTED_ACTION_DELTA_LIMIT)
+        )
+        if self.action_delta_limit != EXPECTED_ACTION_DELTA_LIMIT:
+            raise ValueError("policy action-rate contract is incompatible")
+        self.command_smoothing_s = float(
+            self.metadata.get(
+                "command_smoothing_time_s", EXPECTED_COMMAND_SMOOTHING_S
+            )
+        )
+        if self.command_smoothing_s != EXPECTED_COMMAND_SMOOTHING_S:
+            raise ValueError("policy command-smoothing contract is incompatible")
 
     @staticmethod
     def _elu(value: np.ndarray) -> np.ndarray:
@@ -401,9 +418,78 @@ def disable_and_verify_servo_torque(
             raise RuntimeError(f"servo {servo_id} torque-off verification failed")
 
 
+class GravityEstimator:
+    """Estimate Isaac-style projected gravity from gyro plus accelerometer feedback."""
+
+    def __init__(self, correction_time_s: float = GRAVITY_CORRECTION_TIME_S):
+        self.correction_time_s = float(correction_time_s)
+        self.projected_gravity: np.ndarray | None = None
+
+    def update(
+        self,
+        accel_body_mg: np.ndarray,
+        gyro_body_rad_s: np.ndarray,
+        gravity_sign: float,
+        dt: float,
+    ) -> np.ndarray:
+        accel = np.asarray(accel_body_mg, dtype=np.float32)
+        gyro = np.asarray(gyro_body_rad_s, dtype=np.float32)
+        magnitude = float(np.linalg.norm(accel))
+        if magnitude < 50.0:
+            raise RuntimeError(f"accelerometer vector is unusable: {magnitude:.1f} mg")
+        accel_gravity = gravity_sign * accel / magnitude
+
+        if self.projected_gravity is None:
+            estimate = accel_gravity
+        else:
+            # An inertial vector expressed in the rotating body frame follows
+            # dv/dt = v x omega. The accelerometer only corrects gyro drift;
+            # its influence is reduced while magnitude shows linear acceleration.
+            estimate = self.projected_gravity + float(dt) * np.cross(
+                self.projected_gravity, gyro
+            )
+            estimate /= max(float(np.linalg.norm(estimate)), 1.0e-6)
+            accel_confidence = max(0.0, 1.0 - abs(magnitude / 1000.0 - 1.0) / 0.35)
+            correction = (
+                min(1.0, float(dt) / max(self.correction_time_s, float(dt)))
+                * accel_confidence
+            )
+            estimate = (1.0 - correction) * estimate + correction * accel_gravity
+
+        estimate /= max(float(np.linalg.norm(estimate)), 1.0e-6)
+        self.projected_gravity = estimate.astype(np.float32)
+        return self.projected_gravity.copy()
+
+
+def smooth_policy_command(
+    current: np.ndarray,
+    target: np.ndarray,
+    smoothing_time_s: float,
+    dt: float = FRAME_DT,
+) -> np.ndarray:
+    """Match the command low-pass used by the promoted training environment."""
+    alpha = min(1.0, float(dt) / max(float(smoothing_time_s), float(dt)))
+    return (current + alpha * (target - current)).astype(np.float32)
+
+
+def limit_policy_action(
+    requested: np.ndarray,
+    previous_applied: np.ndarray,
+    delta_limit: float,
+) -> np.ndarray:
+    """Match the per-control-step action limiter used during training."""
+    return np.clip(
+        requested,
+        previous_applied - float(delta_limit),
+        previous_applied + float(delta_limit),
+    ).astype(np.float32)
+
+
 def state_vectors(
     state: dict,
     calibration: RobotCalibration,
+    gravity_estimator: GravityEstimator | None = None,
+    dt: float = FRAME_DT,
 ) -> tuple[np.ndarray, np.ndarray]:
     feedback_complete = state.get("feedback_complete")
     if feedback_complete is None:
@@ -424,14 +510,26 @@ def state_vectors(
     if not np.all(np.isfinite(accel_sensor)):
         raise RuntimeError("accelerometer feedback contains a non-finite value")
     accel_body = calibration.imu_matrix @ accel_sensor
-    magnitude = float(np.linalg.norm(accel_body))
-    if magnitude < 50.0:
-        raise RuntimeError(f"accelerometer vector is unusable: {magnitude:.1f} mg")
-    projected_gravity = calibration.gravity_sign * accel_body / magnitude
+    if gravity_estimator is None:
+        magnitude = float(np.linalg.norm(accel_body))
+        if magnitude < 50.0:
+            raise RuntimeError(f"accelerometer vector is unusable: {magnitude:.1f} mg")
+        projected_gravity = calibration.gravity_sign * accel_body / magnitude
+    else:
+        projected_gravity = gravity_estimator.update(
+            accel_body, gyro_body, calibration.gravity_sign, dt
+        )
     return np.concatenate((gyro_body, projected_gravity)).astype(np.float32), joint_position
 
 
-def telemetry_from_state(state: dict, calibration: RobotCalibration) -> dict:
+def telemetry_from_state(
+    state: dict,
+    calibration: RobotCalibration,
+    *,
+    requested_policy_position: np.ndarray | None = None,
+    applied_policy_position: np.ndarray | None = None,
+    projected_gravity_body: np.ndarray | None = None,
+) -> dict:
     """Return compact physical feedback for the local commissioning UI."""
     ids = [int(value) for value in state["ids"]]
     angles = [float(value) for value in state["angles_deg"]]
@@ -447,11 +545,24 @@ def telemetry_from_state(state: dict, calibration: RobotCalibration) -> dict:
     if gyro_sensor.shape != (3,) or not np.all(np.isfinite(gyro_sensor)):
         raise RuntimeError("telemetry gyroscope feedback is invalid")
 
+    angles_by_id = dict(zip(ids, angles, strict=True))
+    measured_policy_position = calibration.policy_positions(angles_by_id)
     accel_body_g = calibration.imu_matrix @ accel_sensor / 1000.0
     gyro_body_dps = calibration.imu_matrix @ (
         gyro_sensor - calibration.gyro_bias_dps
     )
-    return {
+    accel_magnitude = float(np.linalg.norm(accel_body_g))
+    if projected_gravity_body is None:
+        projected_gravity = (
+            calibration.gravity_sign * accel_body_g / accel_magnitude
+            if accel_magnitude >= 0.05
+            else None
+        )
+    else:
+        projected_gravity = np.asarray(projected_gravity_body, dtype=np.float32)
+        if projected_gravity.shape != (3,) or not np.all(np.isfinite(projected_gravity)):
+            raise RuntimeError("telemetry projected gravity must contain 3 finite values")
+    telemetry = {
         "sample_ms": int(state["sample_ms"]),
         "servo_angles_deg": {
             str(servo_id): round(angle, 3)
@@ -459,7 +570,36 @@ def telemetry_from_state(state: dict, calibration: RobotCalibration) -> dict:
         },
         "accel_body_g": [round(float(value), 4) for value in accel_body_g],
         "gyro_body_dps": [round(float(value), 3) for value in gyro_body_dps],
+        "measured_policy_position_rad": [
+            round(float(value), 6) for value in measured_policy_position
+        ],
     }
+    if projected_gravity is not None:
+        telemetry["projected_gravity_body"] = [
+            round(float(value), 5) for value in projected_gravity
+        ]
+    if requested_policy_position is not None:
+        requested = np.asarray(requested_policy_position, dtype=np.float32)
+        if requested.shape != (12,) or not np.all(np.isfinite(requested)):
+            raise RuntimeError("telemetry requested policy pose must contain 12 finite values")
+        telemetry["requested_policy_position_rad"] = [
+            round(float(value), 6) for value in requested
+        ]
+    if applied_policy_position is not None:
+        applied = np.asarray(applied_policy_position, dtype=np.float32)
+        if applied.shape != (12,) or not np.all(np.isfinite(applied)):
+            raise RuntimeError("telemetry applied policy pose must contain 12 finite values")
+        error = measured_policy_position - applied
+        telemetry["applied_policy_position_rad"] = [
+            round(float(value), 6) for value in applied
+        ]
+        telemetry["policy_position_error_rad"] = [
+            round(float(value), 6) for value in error
+        ]
+        telemetry["max_policy_position_error_deg"] = round(
+            math.degrees(float(np.max(np.abs(error)))), 3
+        )
+    return telemetry
 
 
 def read_telemetry_sample(
@@ -675,6 +815,7 @@ def run_trial(
     report: Callable[[dict], None] | None = None,
     torque_off_on_exit: bool = False,
     command_provider: Callable[[], tuple[float, float, float]] | None = None,
+    log_path: Path | None = None,
 ) -> str:
     validate_trial_parameters(
         policy,
@@ -689,9 +830,37 @@ def run_trial(
     previous_joint_position = None
     previous_sample_ms = None
     history = None
-    command = np.asarray((forward, lateral, yaw_rate), dtype=np.float32)
+    command_target = np.asarray((forward, lateral, yaw_rate), dtype=np.float32)
+    # Training initializes a newly sampled reset command immediately, then
+    # smooths subsequent target changes during the episode.
+    command = command_target.copy()
+    gravity_estimator = GravityEstimator()
+    previous_applied_action = np.zeros(12, dtype=np.float32)
+    log_stream = None
 
     try:
+        if log_path is not None:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_stream = log_path.open("w", encoding="utf-8", buffering=1)
+            log_stream.write(
+                json.dumps(
+                    {
+                        "type": "policy_session",
+                        "schema_version": 1,
+                        "profile_sha256": policy.metadata["profile_sha256"],
+                        "weights_sha256": policy.metadata["weights_sha256"],
+                        "control_hz": CONTROL_HZ,
+                        "recording_hz": CONTROL_HZ // SESSION_LOG_DECIMATION,
+                        "action_delta_limit": policy.action_delta_limit,
+                        "command_smoothing_time_s": policy.command_smoothing_s,
+                        "servo_ids_policy_order": calibration.servo_ids,
+                        "started_unix_s": time.time(),
+                    },
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                + "\n"
+            )
         if torque_percent is not None:
             torque_limit = policy_torque_limit(torque_percent)
             transport.send(
@@ -708,6 +877,7 @@ def run_trial(
         sequence = 0
         state_sequence = 0
         actions_by_sequence = {0: np.zeros(12, dtype=np.float32)}
+        requested_actions_by_sequence = {0: np.zeros(12, dtype=np.float32)}
         started = time.monotonic()
         next_tick = started
         last_report = started
@@ -723,7 +893,9 @@ def run_trial(
                     yaw_rate=yaw_rate,
                     duration=1.0,
                 )
-                command = np.asarray((forward, lateral, yaw_rate), dtype=np.float32)
+                command_target = np.asarray(
+                    (forward, lateral, yaw_rate), dtype=np.float32
+                )
             for message in transport.receive_available():
                 if (
                     message.get("type") == "error"
@@ -746,14 +918,22 @@ def run_trial(
                     state = message
                     state_sequence = received_sequence
 
-            imu_terms, joint_position = state_vectors(state, calibration)
             sample_ms = int(state["sample_ms"])
             if previous_joint_position is None:
-                joint_velocity = np.zeros(12, dtype=np.float32)
+                dt = FRAME_DT
             else:
                 elapsed_ms = (sample_ms - previous_sample_ms) & 0xFFFFFFFF
                 dt = elapsed_ms / 1000.0 if 5 <= elapsed_ms <= 100 else FRAME_DT
+            imu_terms, joint_position = state_vectors(
+                state, calibration, gravity_estimator, dt
+            )
+            if previous_joint_position is None:
+                joint_velocity = np.zeros(12, dtype=np.float32)
+            else:
                 joint_velocity = (joint_position - previous_joint_position) / dt
+            command = smooth_policy_command(
+                command, command_target, policy.command_smoothing_s
+            )
             frame = np.concatenate(
                 (
                     imu_terms,
@@ -770,15 +950,22 @@ def run_trial(
                 history[-1] = frame
 
             requested_action = policy.action(history.reshape(-1))
-            requested_position = policy.action_scale * requested_action
-            applied_targets = calibration.servo_targets(requested_position)
-            applied_action = requested_action
+            applied_action = limit_policy_action(
+                requested_action,
+                previous_applied_action,
+                policy.action_delta_limit,
+            )
+            applied_position = policy.action_scale * applied_action
+            applied_targets = calibration.servo_targets(applied_position)
 
             sequence += 1
             actions_by_sequence[sequence] = applied_action
+            requested_actions_by_sequence[sequence] = requested_action
+            previous_applied_action = applied_action
             for old_sequence in tuple(actions_by_sequence):
                 if old_sequence < state_sequence - 1:
                     del actions_by_sequence[old_sequence]
+                    requested_actions_by_sequence.pop(old_sequence, None)
             targets = {
                 str(servo_id): round(float(applied_targets[index]), 4)
                 for index, servo_id in enumerate(calibration.servo_ids)
@@ -788,15 +975,53 @@ def run_trial(
             previous_sample_ms = sample_ms
 
             now = time.monotonic()
-            report(
-                {
+            telemetry = telemetry_from_state(
+                state,
+                calibration,
+                requested_policy_position=(
+                    policy.action_scale
+                    * requested_actions_by_sequence[state_sequence]
+                ),
+                applied_policy_position=(
+                    policy.action_scale * actions_by_sequence[state_sequence]
+                ),
+                projected_gravity_body=imu_terms[3:],
+            )
+            report_update = {
                     "sequence": sequence,
                     "elapsed_s": now - started,
                     "forward": forward,
                     "yaw_rate": yaw_rate,
-                    "telemetry": telemetry_from_state(state, calibration),
+                    "applied_forward": float(command[0]),
+                    "applied_yaw_rate": float(command[2]),
+                    "telemetry": telemetry,
                 }
-            )
+            report(report_update)
+            if (
+                log_stream is not None
+                and sequence % SESSION_LOG_DECIMATION == 0
+                and log_stream.tell() < SESSION_LOG_MAX_BYTES
+            ):
+                log_stream.write(
+                    json.dumps(
+                        {
+                            "type": "frame",
+                            **report_update,
+                            "state_sequence": state_sequence,
+                            "command_target": command_target.tolist(),
+                            "command_applied": command.tolist(),
+                            "requested_action": requested_action.tolist(),
+                            "applied_action": applied_action.tolist(),
+                            "joint_velocity_rad_s": joint_velocity.tolist(),
+                            "servo_targets_deg": targets,
+                            "feedback_us": int(state.get("feedback_us", 0)),
+                            "firmware_frame_us": int(state.get("frame_us", 0)),
+                        },
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    )
+                    + "\n"
+                )
             if now - last_report >= 1.0:
                 print(
                     f"seq={sequence} forward={forward:.2f} "
@@ -824,6 +1049,8 @@ def run_trial(
             shutdown_error = error
         finally:
             transport.close()
+            if log_stream is not None:
+                log_stream.close()
         if shutdown_error is not None:
             raise RuntimeError(
                 f"policy shutdown could not verify physical torque-off: {shutdown_error}"
@@ -948,6 +1175,7 @@ class PolicyRunner:
         self._remote_command = (0.0, 0.0, 0.0)
         self._last_remote_command_at = 0.0
         self._holding_torque = False
+        self._session_log_path: Path | None = None
         self._calibration: RobotCalibration | None = None
         self._calibration_error = "calibration has not been checked"
         self._trial_status: dict = {
@@ -1056,6 +1284,11 @@ class PolicyRunner:
                         else None
                     ),
                     "timeout_s": REMOTE_COMMAND_TIMEOUT_S,
+                    "session_log": (
+                        str(self._session_log_path)
+                        if self._session_log_path is not None
+                        else None
+                    ),
                 },
                 "telemetry": {
                     "monitoring": monitoring,
@@ -1424,6 +1657,13 @@ class PolicyRunner:
         calibration: RobotCalibration,
         torque_percent: float = DEFAULT_POLICY_TORQUE_PERCENT,
     ) -> None:
+        log_path = self.metadata_path.parent / "logs" / (
+            "policy-session-"
+            + time.strftime("%Y%m%d-%H%M%S")
+            + f"-{time.time_ns() % 1_000_000_000:09d}.jsonl"
+        )
+        with self._lock:
+            self._session_log_path = log_path
         try:
             result = run_trial(
                 port=self.port,
@@ -1438,6 +1678,7 @@ class PolicyRunner:
                 report=self._report,
                 torque_off_on_exit=True,
                 command_provider=self._remote_command_snapshot,
+                log_path=log_path,
             )
         except Exception as error:
             with self._lock:
@@ -1588,6 +1829,11 @@ class PolicyRunner:
         if telemetry_thread is not None:
             telemetry_thread.join(timeout)
 
+    def latest_session_log(self) -> Path | None:
+        with self._lock:
+            path = self._session_log_path
+        return path if path is not None and path.is_file() else None
+
 
 class PolicyUiHandler(BaseHTTPRequestHandler):
     server_version = "RobotDogPolicyUI/1.0"
@@ -1612,6 +1858,22 @@ class PolicyUiHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True})
 
     def do_GET(self) -> None:
+        if self.path == "/api/session-log":
+            path = self.runner.latest_session_log()
+            if path is None:
+                self._send_json(404, {"ok": False, "error": "no policy session log yet"})
+                return
+            payload = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header(
+                "Content-Disposition", f'attachment; filename="{path.name}"'
+            )
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path != "/api/status":
             self._send_json(404, {"ok": False, "error": "not found"})
             return
@@ -1665,11 +1927,13 @@ class PolicyUiHandler(BaseHTTPRequestHandler):
         return
 
 
-def serve_policy_ui(runner: PolicyRunner, port: int) -> None:
-    server = ThreadingHTTPServer((UI_BIND_HOST, port), PolicyUiHandler)
+def serve_policy_ui(
+    runner: PolicyRunner, port: int, host: str = UI_BIND_HOST
+) -> None:
+    server = ThreadingHTTPServer((host, port), PolicyUiHandler)
     server.runner = runner  # type: ignore[attr-defined]
     print(
-        f"Policy UI bridge ready at http://{UI_BIND_HOST}:{port}; "
+        f"Policy UI bridge listening on http://{host}:{port}; "
         "leave this window open and use the Learned Policy panel.",
         flush=True,
     )
@@ -1705,19 +1969,29 @@ def main() -> None:
         help="disable all servo torque before closing serial after a commissioning trial",
     )
     parser.add_argument("--ui", action="store_true", help="serve the local browser UI bridge")
+    parser.add_argument(
+        "--ui-host",
+        default=UI_BIND_HOST,
+        help=(
+            "interface used by the browser bridge (default: 127.0.0.1; "
+            "use 0.0.0.0 only on a trusted LAN, such as for a Raspberry Pi)"
+        ),
+    )
     parser.add_argument("--ui-port", type=int, default=UI_DEFAULT_PORT)
     args = parser.parse_args()
 
     if args.ui:
         if not 1024 <= args.ui_port <= 65535:
             raise SystemExit("ui-port must be 1024 to 65535")
+        if not args.ui_host.strip():
+            raise SystemExit("ui-host cannot be empty")
         runner = PolicyRunner(
             port=args.port,
             weights=args.weights,
             metadata=args.metadata,
             calibration=args.calibration,
         )
-        serve_policy_ui(runner, args.ui_port)
+        serve_policy_ui(runner, args.ui_port, args.ui_host)
         return
 
     if not args.confirm_lifted:

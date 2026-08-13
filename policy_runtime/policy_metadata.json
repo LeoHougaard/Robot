@@ -5,10 +5,12 @@
   ],
   "action_scale_rad": 0.25,
   "action_size": 12,
+  "action_delta_limit": 0.3,
   "activation": "elu",
   "checkpoint_epoch": 3446,
   "checkpoint_sha256": "235a330a9bca715db303c472bbab84e29989b0f96102efc9e36e5f6bde85f95c",
   "control_hz": 50,
+  "command_smoothing_time_s": 0.4,
   "evaluation": {
     "failures": [],
     "passed": true,

@@ -1,0 +1,24 @@
+[Unit]
+Description=Robot Dog learned-policy runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+SupplementaryGroups=dialout
+EnvironmentFile=/etc/default/robot-dog-policy
+ExecStart=/usr/local/bin/robot-dog-policy
+Restart=on-failure
+RestartSec=2
+# run_policy.py catches SIGINT and requests Stop + Disarm before exiting.
+KillSignal=SIGINT
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

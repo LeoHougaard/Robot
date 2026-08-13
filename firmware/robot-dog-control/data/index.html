@@ -98,11 +98,11 @@
     }
 
     main {
-      padding: 18px;
+      padding: 18px 18px 48px;
       display: grid;
       gap: 16px;
       min-width: 0;
-      max-width: 1320px;
+      max-width: 1440px;
       margin: 0 auto;
     }
 
@@ -191,10 +191,43 @@
       grid-template-columns: minmax(220px, 1fr) auto;
       gap: 14px;
       align-items: center;
+      position: sticky;
+      top: 8px;
+      z-index: 20;
+      border-color: #c8d7d5;
     }
 
     .top-actions {
       justify-content: flex-end;
+    }
+
+    .emergency-stop {
+      min-height: 46px;
+      padding: 0 20px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      box-shadow: 0 5px 14px rgba(210, 79, 53, 0.22);
+    }
+
+    .connection-drawer {
+      grid-column: 1 / -1;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    .connection-drawer summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .connection-drawer[open] summary {
+      margin-bottom: 10px;
+    }
+
+    .manual-actions {
+      margin-top: 10px;
     }
 
     .connection-row {
@@ -217,6 +250,25 @@
 
     details.panel[open] summary {
       margin-bottom: 12px;
+    }
+
+    .tool-summary {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 3px;
+      max-width: calc(100% - 30px);
+      vertical-align: middle;
+    }
+
+    .tool-summary strong {
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    .tool-summary small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
     }
 
     .empty-state {
@@ -522,7 +574,7 @@
 
     .policy-grid {
       display: grid;
-      grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+      grid-template-columns: minmax(360px, 1.25fr) minmax(300px, 0.75fr);
       gap: 14px;
       align-items: start;
       min-width: 0;
@@ -532,6 +584,124 @@
       display: grid;
       gap: 10px;
       min-width: 0;
+    }
+
+    .policy-controls {
+      order: -1;
+    }
+
+    .policy-controls, .policy-setup-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fbfdfd;
+    }
+
+    .policy-controls {
+      border-color: #9bc9c5;
+      box-shadow: inset 4px 0 0 var(--accent);
+    }
+
+    .policy-controls h3, .policy-setup-card h3 {
+      font-size: 15px;
+    }
+
+    .policy-state-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .policy-state-item {
+      min-height: 48px;
+      display: grid;
+      align-content: center;
+      gap: 2px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f7f9f9;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .policy-state-item strong {
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .policy-state-item.ready {
+      border-color: #a9d5ba;
+      background: #f0faf4;
+    }
+
+    .policy-state-item.active {
+      border-color: #8fc8c4;
+      background: #eaf8f7;
+    }
+
+    .policy-state-item.blocked {
+      border-color: #e7c79d;
+      background: #fff9ef;
+    }
+
+    .drive-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .drive-actions button {
+      min-height: 48px;
+      font-weight: 700;
+    }
+
+    .action-reasons {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .action-reasons small {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .policy-advanced {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fbfdfd;
+    }
+
+    .policy-advanced summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .policy-advanced[open] summary {
+      margin-bottom: 12px;
+    }
+
+    .policy-advanced-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .policy-direction-note {
+      padding: 10px;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 7px 7px 0;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
     }
 
     .policy-runtime-row {
@@ -630,6 +800,57 @@
       background: var(--series-color);
     }
 
+    /* Policy-space 3D target/feedback comparison. */
+    .policy-pose-compare {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f4f8f8;
+    }
+
+    .policy-pose-canvas {
+      display: block;
+      width: 100%;
+      height: 430px;
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(#fafdfe, #eef4f4);
+      touch-action: none;
+      cursor: grab;
+    }
+
+    .policy-pose-canvas:active { cursor: grabbing; }
+
+    .policy-pose-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .policy-pose-summary > div {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .policy-pose-summary strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    @media (max-width: 760px) {
+      .policy-pose-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .policy-pose-canvas { height: 350px; }
+    }
+
     .walk-trim-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -637,15 +858,29 @@
       margin-top: 12px;
     }
 
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 2px 0;
+    }
+
+    .section-heading h2 {
+      margin-bottom: 3px;
+      font-size: 17px;
+    }
+
     #topPanel { order: 0; }
-    #addServoPanel { order: 1; }
-    #policyPanel { order: 2; }
+    #policyPanel { order: 1; }
+    #advancedToolsHeading { order: 2; }
     #walkTrimPanel { order: 3; }
     #legIkPanel { order: 4; }
     #walkTestPanel { order: 5; }
     #servoCardsSection { order: 6; }
-    #programEditorPanel { order: 7; }
-    #diagnosticsPanel { order: 8; }
+    #addServoPanel { order: 7; }
+    #programEditorPanel { order: 8; }
+    #diagnosticsPanel { order: 9; }
 
     .walk-trim-fields {
       display: grid;
@@ -778,7 +1013,11 @@
         grid-template-columns: 1fr;
       }
 
-      .walk-grid, .walk-readout, .walk-leg-grid, .walk-trim-grid, .policy-grid {
+      .walk-grid, .walk-readout, .walk-leg-grid, .walk-trim-grid, .policy-grid, .policy-advanced-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .policy-state-strip, .drive-actions, .action-reasons {
         grid-template-columns: 1fr;
       }
 
@@ -816,6 +1055,10 @@
       .top-actions {
         justify-content: flex-start;
       }
+
+      .top-panel {
+        position: static;
+      }
     }
   </style>
 </head>
@@ -825,27 +1068,33 @@
       <section id="topPanel" class="panel top-panel">
         <div class="brand">
           <div>
-            <h1>Robot Dog</h1>
-            <p id="lastMessage" class="subtle">Waiting for board.</p>
+            <h1>Robot Dog Control</h1>
+            <p id="lastMessage" class="subtle">Connect the policy runner to begin.</p>
           </div>
           <div class="status-row">
             <span id="serialDot" class="dot"></span>
-            <strong id="serialStatus">Disconnected</strong>
+            <strong id="serialStatus">Board disconnected</strong>
             <span id="boardVersion" class="pill">firmware unknown</span>
             <span id="wifiStatus" class="pill">Wi-Fi unknown</span>
           </div>
         </div>
         <div class="toolbar top-actions">
-          <button id="addServoButton" class="primary">Add Servo</button>
-          <button id="playButton">Play Program</button>
-          <button id="homeAllButton">Home All</button>
-          <button id="stopButton" class="danger">Stop</button>
+          <button id="stopButton" class="danger emergency-stop">EMERGENCY STOP ALL</button>
         </div>
-        <div class="connection-row">
-          <label>Board URL<input id="wifiUrl" type="text" autocomplete="off" spellcheck="false"></label>
-          <button id="wifiConnectButton" class="primary">Connect Wi-Fi</button>
-          <button id="connectButton" title="Connect USB serial">USB</button>
-        </div>
+        <details class="connection-drawer">
+          <summary>Board connection and direct/manual controls</summary>
+          <div class="connection-row">
+            <label>Board URL<input id="wifiUrl" type="text" autocomplete="off" spellcheck="false"></label>
+            <button id="wifiConnectButton" class="primary">Connect Wi-Fi</button>
+            <button id="connectButton" title="Connect USB serial">Connect USB</button>
+          </div>
+          <div class="toolbar manual-actions">
+            <button id="addServoButton">Add / Program Servo</button>
+            <button id="playButton">Play Program</button>
+            <button id="homeAllButton">Home All Servos</button>
+          </div>
+          <p class="subtle" style="margin-top:8px">These controls talk directly to the ESP32. The learned-policy runner releases a feedback connection automatically before it takes control.</p>
+        </details>
       </section>
 
       <section id="addServoPanel" class="panel add-servo-panel hidden">
@@ -864,9 +1113,10 @@
         <div id="servoIdLog" class="monitor-log">ready</div>
       </section>
 
-      <section id="legIkPanel" class="panel leg-panel">
+      <details id="legIkPanel" class="panel leg-panel">
+        <summary><span class="tool-summary"><strong>Leg IK</strong><small>Move and validate one leg, servo limits, directions, and linkage geometry</small></span></summary>
         <div class="servo-head">
-          <h2>Leg IK</h2>
+          <h2>Single-leg setup</h2>
           <div class="toolbar">
             <span id="servoScanStatus" class="pill">IDs unknown</span>
             <button id="servoScanButton">Scan IDs</button>
@@ -987,11 +1237,12 @@
             </div>
           </div>
         </div>
-      </section>
+      </details>
 
-      <section id="walkTestPanel" class="panel walk-panel">
+      <details id="walkTestPanel" class="panel walk-panel">
+        <summary><span class="tool-summary"><strong>Whole Robot Walk Test</strong><small>Legacy open-loop gait and leg-pairing diagnostics</small></span></summary>
         <div class="servo-head">
-          <h2>Whole Robot Walk Test</h2>
+          <h2>Open-loop walk controls</h2>
           <div class="toolbar">
             <span id="walkStatus" class="pill">height 0</span>
             <button id="walkRegisterButton">Register IDs</button>
@@ -1037,51 +1288,66 @@
           <div id="walkLegGrid" class="walk-leg-grid"></div>
         </div>
         <p class="subtle">Leg direction and fold settings remain shared with the center trims and learned-policy mapping above.</p>
-      </section>
+      </details>
 
       <section id="policyPanel" class="panel walk-panel">
         <div class="servo-head">
             <div>
-              <h2>Remote Control</h2>
-              <p class="subtle">Live learned-policy driving with full servo and IMU debugging</p>
+              <h2>Learned-Policy Remote Control</h2>
+              <p class="subtle">Drive continuously while the computer or Raspberry Pi runs the policy</p>
             </div>
           <div class="toolbar">
             <span id="policyRunnerStatus" class="pill">runner offline</span>
             <span id="policyCalibrationStatus" class="pill">calibration unknown</span>
-            <button id="policyStopButton" class="danger" disabled>Stop + Disarm</button>
+            <button id="policyStopButton" class="danger" disabled>Stop Policy + Disarm</button>
           </div>
         </div>
+        <div class="policy-state-strip" aria-label="Remote control readiness">
+          <div id="policyRunnerReadyState" class="policy-state-item blocked"><span>1. Control computer</span><strong>Runner offline</strong></div>
+          <div id="policyCalibrationReadyState" class="policy-state-item blocked"><span>2. Robot setup</span><strong>Calibration unknown</strong></div>
+          <div id="policyNeutralReadyState" class="policy-state-item blocked"><span>3. Motion state</span><strong>Neutral required</strong></div>
+        </div>
         <div class="policy-grid">
-          <div class="policy-setup">
-            <p class="subtle">Start once from neutral, then change speed and steering live. Python runs the learned policy and owns the ESP32 connection until Stop + Disarm.</p>
+          <div class="policy-setup policy-setup-card">
+            <div>
+              <h3>Policy runner</h3>
+              <p class="subtle">Run policy inference on this computer or the robot's Raspberry Pi, then connect this dashboard to it.</p>
+            </div>
             <div class="policy-command">python policy_runtime\run_policy.py --ui --port COM5</div>
             <div class="policy-runtime-row">
-              <label>Local runner URL<input id="policyRunnerUrl" type="text" value="http://127.0.0.1:18765"></label>
+              <label>Runner URL<input id="policyRunnerUrl" type="text" value="http://127.0.0.1:18765"></label>
               <button id="policyConnectButton">Connect Runner</button>
             </div>
+            <p class="subtle">Disconnect the runner before changing its URL. Disconnecting also stops standalone feedback.</p>
             <div class="status-row">
               <span id="policyProfileStatus" class="pill">profile --</span>
               <span id="policyLinkageStatus" class="pill">linkage --</span>
               <span id="policyLegMappingStatus" class="pill">leg map --</span>
             </div>
-            <div id="policyMessage" class="policy-message">Start the local runner to check the policy bundle and calibration. It cannot arm while either calibration flag is false.</div>
+            <div id="policyMessage" class="policy-message">Start the policy runner to check its connection, policy bundle, and calibration.</div>
           </div>
           <div class="policy-controls">
+            <div>
+              <h3>Drive</h3>
+              <p class="subtle">Speed and steering update live whenever learned-policy control is active.</p>
+            </div>
             <div class="control-surface">
-              <div class="range-head"><span>Drive speed</span><strong id="policyForwardValue">0.00 m/s</strong></div>
+              <div class="range-head"><span>Forward speed</span><strong id="policyForwardValue">0.00 m/s</strong></div>
               <input id="policyForwardRange" type="range" min="0" max="0.18" step="0.01" value="0">
             </div>
             <div class="control-surface">
-              <div class="range-head"><span>Steering / yaw rate</span><strong id="policyYawValue">0.00 rad/s</strong></div>
+              <div class="range-head"><span>Steering</span><strong id="policyYawValue">0.00 rad/s</strong></div>
               <input id="policyYawRange" type="range" min="-0.25" max="0.25" step="0.01" value="0">
             </div>
             <div class="control-surface">
-              <div class="range-head"><span>Drive torque</span><strong id="policyTorqueValue">100%</strong></div>
+              <div class="range-head"><span>Torque limit</span><strong id="policyTorqueValue">100%</strong></div>
               <input id="policyTorqueRange" type="range" min="1" max="100" step="1" value="100">
             </div>
+            <details class="policy-advanced">
+              <summary>IMU mounting orientation</summary>
             <div class="policy-runtime-row">
               <label>IMU/body yaw alignment (degrees)<input id="policyImuYaw" type="number" min="-180" max="180" step="0.1" value="90"></label>
-              <button id="policyImuYawButton">Apply IMU Rotation</button>
+              <button id="policyImuYawButton">Apply Rotation</button>
             </div>
             <div class="control-surface">
               <div class="range-head"><span>Choose any IMU direction</span><strong>−180° to +180°</strong></div>
@@ -1095,21 +1361,30 @@
               </div>
               <p class="subtle">Select a preset or any custom angle, then Apply. The current 90° value is calibration, not a restriction.</p>
             </div>
-            <button id="policyStandButton">Stand to Neutral</button>
-            <button id="policyStartButton" class="primary" disabled>Start Remote Control</button>
-            <button id="policyZeroCommandButton" disabled>Zero Drive Command</button>
+            </details>
+            <div class="drive-actions">
+              <button id="policyStandButton">Stand to Neutral</button>
+              <button id="policyStartButton" class="primary" disabled>Start Driving</button>
+              <button id="policyZeroCommandButton" disabled>Zero Command</button>
+            </div>
+            <div class="action-reasons" aria-live="polite">
+              <small id="policyStandReason">Connect the runner before standing.</small>
+              <small id="policyStartReason">Stand to neutral before driving.</small>
+              <small id="policyZeroReason">Available while driving.</small>
+            </div>
             <p id="policyActionHint" class="subtle">Connect the runner to see which actions are available.</p>
-            <p class="subtle">Stand to Neutral is required once before driving. Remote control then stays active until Stop + Disarm. Lateral motion remains 0.00 m/s; speed and steering stay inside the validated learned-policy envelope.</p>
+            <p class="subtle">Stand once, then drive continuously until Stop Policy + Disarm. Lateral motion remains 0.00 m/s and commands stay inside the validated policy envelope.</p>
           </div>
         </div>
         <div class="policy-telemetry">
           <div class="policy-telemetry-head">
             <div>
-              <h3>Live Servo + IMU Feedback</h3>
-              <p class="subtle">Measured physical servo angles and calibrated body-frame IMU axes, available with or without remote control. Trained forward is body -Y: nose-up makes accel Y negative and projected-gravity Y positive.</p>
+              <h3>Live Robot Feedback</h3>
+              <p class="subtle">Measured servo angles and calibrated body-frame IMU data. Feedback can run independently of learned-policy control.</p>
             </div>
             <div class="toolbar">
               <span id="policyTelemetryStatus" class="pill">feedback monitor off</span>
+              <button id="policyDownloadLogButton" disabled>Download Last Run</button>
               <button id="policyTelemetryButton">Start Feedback</button>
             </div>
           </div>
@@ -1124,13 +1399,43 @@
             <span id="policyServoTelemetryReadout">S1-S12 --</span>
             <span id="policyImuTelemetryReadout">IMU --</span>
           </div>
+          <div id="policyPoseCompare" class="policy-pose-compare">
+            <div class="policy-telemetry-head">
+              <div>
+                <h3>Policy Pose vs Physical Robot</h3>
+                <p class="subtle">A lightweight 3D policy-space diagnostic. Cyan dashed is the policy's applied joint target; orange solid is encoder feedback after servo-ID, direction, and four-bar conversion. The body follows measured IMU tilt.</p>
+              </div>
+              <div class="toolbar">
+                <span id="policyPoseStatus" class="pill">waiting for feedback</span>
+                <button class="policy-pose-view" data-view="front">Front</button>
+                <button class="policy-pose-view" data-view="side">Side</button>
+                <button class="policy-pose-view" data-view="three-quarter">3D</button>
+              </div>
+            </div>
+            <canvas id="policyPoseCanvas" class="policy-pose-canvas" aria-label="3D overlay of the policy joint target and measured physical robot pose"></canvas>
+            <div class="policy-pose-summary">
+              <div><span>Largest joint error</span><strong id="policyPoseMaxError">--</strong></div>
+              <div><span>Worst joint</span><strong id="policyPoseWorstJoint">--</strong></div>
+              <div><span>Body tilt</span><strong id="policyPoseTilt">--</strong></div>
+              <div><span>Comparison</span><strong id="policyPoseMode">measured only</strong></div>
+            </div>
+            <p class="subtle">Drag to orbit. This is a kinematic comparison in the exact trained joint order (FR, FL, BR, BL), not an Isaac physics replay. Yaw cannot be recovered from gravity alone.</p>
+          </div>
         </div>
       </section>
 
-      <section id="walkTrimPanel" class="panel">
+      <section id="advancedToolsHeading" class="section-heading">
+        <div>
+          <h2>Setup &amp; Debugging Tools</h2>
+          <p class="subtle">Open only the tool you need. Direct and legacy motion controls stay separate from learned-policy driving.</p>
+        </div>
+      </section>
+
+      <details id="walkTrimPanel" class="panel">
+        <summary><span class="tool-summary"><strong>Robot Center Trims</strong><small>Fine-tune the saved neutral pose for all 12 joints</small></span></summary>
         <div class="servo-head">
           <div>
-            <h2>Robot Center Trims</h2>
+            <h2>Per-leg center offsets</h2>
             <p class="subtle">Adjust each physical joint around its saved center. Values are offsets limited to +/-45 degrees.</p>
           </div>
           <div class="toolbar">
@@ -1139,14 +1444,15 @@
           </div>
         </div>
         <div id="walkTrimGrid" class="walk-trim-grid"></div>
-      </section>
+      </details>
 
-      <section id="servoCardsSection">
+      <details id="servoCardsSection" class="panel">
+        <summary><span class="tool-summary"><strong>Direct Servo Controls</strong><small>Inspect or command individual bus servos</small></span></summary>
         <div id="servoGrid" class="grid"></div>
-      </section>
+      </details>
 
       <details id="programEditorPanel" class="panel">
-        <summary>Program Editor</summary>
+        <summary><span class="tool-summary"><strong>Program Editor</strong><small>Build and replay direct servo pose sequences</small></span></summary>
         <div class="program-grid">
           <div>
             <div class="toolbar" style="margin-bottom: 10px;">
@@ -1162,7 +1468,7 @@
       </details>
 
       <details id="diagnosticsPanel" class="panel">
-        <summary>Diagnostics</summary>
+        <summary><span class="tool-summary"><strong>Hardware Diagnostics</strong><small>Raw IMU monitor and DC motor tests</small></span></summary>
         <section class="grid">
           <div>
           <div class="servo-head">
@@ -1344,9 +1650,13 @@
     let policyRemoteControlActive = false;
     let policyHoldingTorque = false;
     let policyTelemetryMonitoring = false;
+    let policySessionLogAvailable = false;
     let policyPollTimer;
     let policyTelemetryHistory = [];
     let policyTelemetrySampleMs = null;
+    let policyPoseTelemetry = null;
+    let policyPoseCamera = { yaw: -0.72, pitch: -0.35 };
+    let policyPoseDrag = null;
     let policyCommandSendTimer;
     let policyCommandSendInFlight = false;
     let policyCommandSendQueued = false;
@@ -1455,6 +1765,9 @@
       walkTrimGrid: document.querySelector("#walkTrimGrid"),
       policyRunnerStatus: document.querySelector("#policyRunnerStatus"),
       policyCalibrationStatus: document.querySelector("#policyCalibrationStatus"),
+      policyRunnerReadyState: document.querySelector("#policyRunnerReadyState"),
+      policyCalibrationReadyState: document.querySelector("#policyCalibrationReadyState"),
+      policyNeutralReadyState: document.querySelector("#policyNeutralReadyState"),
       policyProfileStatus: document.querySelector("#policyProfileStatus"),
       policyLinkageStatus: document.querySelector("#policyLinkageStatus"),
       policyLegMappingStatus: document.querySelector("#policyLegMappingStatus"),
@@ -1472,11 +1785,22 @@
       policyImuPresets: document.querySelectorAll(".policy-imu-preset"),
       policyImuYawButton: document.querySelector("#policyImuYawButton"),
       policyActionHint: document.querySelector("#policyActionHint"),
+      policyStandReason: document.querySelector("#policyStandReason"),
+      policyStartReason: document.querySelector("#policyStartReason"),
+      policyZeroReason: document.querySelector("#policyZeroReason"),
       policyTelemetryStatus: document.querySelector("#policyTelemetryStatus"),
+      policyDownloadLogButton: document.querySelector("#policyDownloadLogButton"),
       policyTelemetryButton: document.querySelector("#policyTelemetryButton"),
       policyTelemetryCanvas: document.querySelector("#policyTelemetryCanvas"),
       policyServoTelemetryReadout: document.querySelector("#policyServoTelemetryReadout"),
       policyImuTelemetryReadout: document.querySelector("#policyImuTelemetryReadout"),
+      policyPoseCanvas: document.querySelector("#policyPoseCanvas"),
+      policyPoseStatus: document.querySelector("#policyPoseStatus"),
+      policyPoseMaxError: document.querySelector("#policyPoseMaxError"),
+      policyPoseWorstJoint: document.querySelector("#policyPoseWorstJoint"),
+      policyPoseTilt: document.querySelector("#policyPoseTilt"),
+      policyPoseMode: document.querySelector("#policyPoseMode"),
+      policyPoseViews: document.querySelectorAll(".policy-pose-view"),
       policyStandButton: document.querySelector("#policyStandButton"),
       policyStartButton: document.querySelector("#policyStartButton"),
       policyZeroCommandButton: document.querySelector("#policyZeroCommandButton"),
@@ -1709,6 +2033,7 @@
       policyRemoteControlActive = Boolean(status.remote_control?.active);
       policyHoldingTorque = Boolean(status.trial?.holding_torque);
       policyTelemetryMonitoring = Boolean(status.telemetry?.monitoring);
+      policySessionLogAvailable = Boolean(status.remote_control?.session_log);
       const trialState = String(status.trial?.state || "");
       const centerCount = Number(status.calibration_draft?.center_count || 0);
       els.policyRunnerStatus.textContent = policyTrialRunning
@@ -1764,6 +2089,7 @@
       policyRemoteControlActive = false;
       policyHoldingTorque = false;
       policyTelemetryMonitoring = false;
+      policySessionLogAvailable = false;
       if (policyPollTimer) clearTimeout(policyPollTimer);
       policyPollTimer = undefined;
       els.policyRunnerStatus.textContent = "runner offline";
@@ -1774,6 +2100,13 @@
         : "feedback monitor off";
       els.policyConnectButton.textContent = "Connect Runner";
       updatePolicyButtons();
+    }
+
+    function setPolicyReadiness(element, value, state) {
+      const strong = element?.querySelector("strong");
+      if (strong) strong.textContent = value;
+      element?.classList.remove("ready", "active", "blocked");
+      element?.classList.add(state);
     }
 
     function updatePolicyButtons() {
@@ -1792,7 +2125,33 @@
       els.policyZeroCommandButton.disabled = !policyRemoteControlActive;
       els.policyTelemetryButton.disabled = !policyRunnerConnected || policyTrialRunning || (!policyTelemetryMonitoring && policyHoldingTorque);
       els.policyTelemetryButton.textContent = policyTelemetryMonitoring ? "Stop Feedback" : "Start Feedback";
+      els.policyDownloadLogButton.disabled = !policyRunnerConnected || !policySessionLogAvailable;
+      els.policyDownloadLogButton.title = policySessionLogAvailable
+        ? "Download the most recent remote-control JSONL session from this runner."
+        : "A download becomes available after a remote-control session has recorded data.";
       els.policyRunnerUrl.disabled = policyRunnerConnected;
+
+      setPolicyReadiness(
+        els.policyRunnerReadyState,
+        policyRunnerConnected ? "Runner connected" : "Runner offline",
+        policyRunnerConnected ? "ready" : "blocked"
+      );
+      setPolicyReadiness(
+        els.policyCalibrationReadyState,
+        policyRunnerReady ? "Calibration verified" : (policyRunnerConnected ? "Calibration incomplete" : "Calibration unknown"),
+        policyRunnerReady ? "ready" : "blocked"
+      );
+      setPolicyReadiness(
+        els.policyNeutralReadyState,
+        policyRemoteControlActive
+          ? "Driving active"
+          : policyTrialRunning
+            ? "Robot action active"
+            : policyHoldingTorque
+              ? "Neutral held - ready"
+              : "Stand to neutral",
+        policyRemoteControlActive || policyTrialRunning ? "active" : (policyHoldingTorque ? "ready" : "blocked")
+      );
 
       if (!policyRunnerConnected) {
         els.policyActionHint.textContent = "Connect the runner first. Settings remain editable while it is offline.";
@@ -1810,6 +2169,26 @@
         els.policyActionHint.textContent = "Start Remote Control is unavailable until Stand to Neutral has completed. All drive and calibration settings remain editable.";
       }
 
+      els.policyStandReason.textContent = !policyRunnerConnected
+        ? "Needs a runner connection."
+        : !policyRunnerReady
+          ? "Needs verified calibration."
+          : policyTrialRunning
+            ? "Wait for the active robot action."
+            : (policyTelemetryMonitoring ? "Feedback stops automatically first." : "Moves to the saved neutral pose.");
+      els.policyStartReason.textContent = !policyRunnerConnected
+        ? "Needs a runner connection."
+        : !policyRunnerReady
+          ? "Needs verified calibration."
+          : policyTrialRunning
+            ? "Remote control or another action is active."
+            : !policyHoldingTorque
+              ? "Stand to neutral first."
+              : "Ready to begin continuous driving.";
+      els.policyZeroReason.textContent = policyRemoteControlActive
+        ? "Sets speed and steering to zero."
+        : "Available while remote control is active.";
+
       els.policyStartButton.title = els.policyStartButton.disabled
         ? els.policyActionHint.textContent
         : "Start live remote control from the held neutral pose.";
@@ -1820,6 +2199,16 @@
       els.policyImuYawButton.title = policyTelemetryMonitoring
         ? "Feedback will pause, the new IMU yaw will be saved, then feedback will resume with the new transform."
         : "Save this IMU mounting yaw.";
+      els.policyTelemetryButton.title = !policyRunnerConnected
+        ? "Connect the policy runner to read feedback."
+        : policyTrialRunning
+          ? "Feedback is already supplied by the active policy, or a robot action currently owns the connection."
+          : (!policyTelemetryMonitoring && policyHoldingTorque)
+            ? "Stop + Disarm releases the held neutral pose before standalone feedback can start."
+            : (policyTelemetryMonitoring ? "Stop standalone feedback." : "Read servo and IMU feedback without moving the robot.");
+      els.policyStopButton.title = els.policyStopButton.disabled
+        ? "The learned policy is not moving or holding torque. Emergency Stop All remains available above."
+        : "Stop the learned policy and disable servo torque.";
       els.walkPolicyCentersButton.title = policyTelemetryMonitoring
         ? "Feedback will pause, the centers will be applied, then feedback will resume."
         : "Apply the twelve displayed center values to the learned policy.";
@@ -1840,6 +2229,10 @@
       );
       const accel = Array.from(sample.accel_body_g || [], Number);
       const gyro = Array.from(sample.gyro_body_dps || [], Number);
+      const measuredPolicy = Array.from(sample.measured_policy_position_rad || [], Number);
+      const requestedPolicy = Array.from(sample.requested_policy_position_rad || [], Number);
+      const appliedPolicy = Array.from(sample.applied_policy_position_rad || [], Number);
+      const projectedGravity = Array.from(sample.projected_gravity_body || [], Number);
       if (
         !Number.isFinite(sampleMs)
         || servoAngles.some((value) => !Number.isFinite(value))
@@ -1855,6 +2248,15 @@
       policyTelemetryHistory = policyTelemetryHistory.filter(
         (entry) => now - entry.time <= POLICY_TELEMETRY_WINDOW_MS
       );
+      if (measuredPolicy.length === 12 && measuredPolicy.every(Number.isFinite)) {
+        policyPoseTelemetry = {
+          measured: measuredPolicy,
+          requested: requestedPolicy.length === 12 && requestedPolicy.every(Number.isFinite) ? requestedPolicy : null,
+          applied: appliedPolicy.length === 12 && appliedPolicy.every(Number.isFinite) ? appliedPolicy : null,
+          gravity: projectedGravity.length === 3 && projectedGravity.every(Number.isFinite) ? projectedGravity : null,
+          sampleMs
+        };
+      }
       els.policyServoTelemetryReadout.textContent = servoAngles
         .map((value, index) => `S${index + 1} ${value.toFixed(1)} deg`)
         .join("  |  ");
@@ -1866,6 +2268,7 @@
           ? "live read-only feedback"
           : "last feedback sample";
       drawPolicyTelemetry();
+      drawPolicyPoseComparison();
     }
 
     function axisReadout(values, unit, digits) {
@@ -2021,6 +2424,225 @@
       context.globalAlpha = 1;
     }
 
+    // --- Policy-space 3D overlay (training order: FR, FL, BR, BL) ---
+    const POLICY_POSE_JOINT_NAMES = [
+      "FR hip", "FR femur", "FR knee", "FL hip", "FL femur", "FL knee",
+      "BR hip", "BR femur", "BR knee", "BL hip", "BL femur", "BL knee"
+    ];
+    const POLICY_POSE_LEGS = [
+      { label: "FR", side: 1, front: 1, fold: 1 },
+      { label: "FL", side: -1, front: 1, fold: 1 },
+      { label: "BR", side: 1, front: -1, fold: -1 },
+      { label: "BL", side: -1, front: -1, fold: -1 }
+    ];
+
+    function policyPoseAdd(a, b) {
+      return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+    }
+
+    function policyPoseScale(value, scale) {
+      return value.map((item) => item * scale);
+    }
+
+    function policyPoseNormalize(value) {
+      const length = Math.hypot(...value) || 1;
+      return value.map((item) => item / length);
+    }
+
+    function policyPoseBodyRotation(point, gravity) {
+      if (!gravity) return point.slice();
+      const from = policyPoseNormalize(gravity);
+      const to = [0, 0, -1];
+      const cross = [
+        from[1] * to[2] - from[2] * to[1],
+        from[2] * to[0] - from[0] * to[2],
+        from[0] * to[1] - from[1] * to[0]
+      ];
+      const sine = Math.hypot(...cross);
+      const cosine = Math.max(-1, Math.min(1, from[0] * to[0] + from[1] * to[1] + from[2] * to[2]));
+      if (sine < 1e-7) return cosine > 0 ? point.slice() : [point[0], -point[1], -point[2]];
+      const axis = cross.map((item) => item / sine);
+      const axisDot = axis[0] * point[0] + axis[1] * point[1] + axis[2] * point[2];
+      const axisCrossPoint = [
+        axis[1] * point[2] - axis[2] * point[1],
+        axis[2] * point[0] - axis[0] * point[2],
+        axis[0] * point[1] - axis[1] * point[0]
+      ];
+      return point.map((value, index) =>
+        value * cosine + axisCrossPoint[index] * sine + axis[index] * axisDot * (1 - cosine)
+      );
+    }
+
+    function policyPoseSkeleton(joints, gravity) {
+      const legs = POLICY_POSE_LEGS.map((leg, legIndex) => {
+        const offset = legIndex * 3;
+        // The training profile's physical forward axis is body -Y.
+        const hip = [0.096 * leg.side, -0.142 * leg.front, 0];
+        const abduction = joints[offset];
+        const femurAngle = leg.fold * Math.PI / 4 + joints[offset + 1];
+        const lowerAngle = -leg.fold * Math.PI / 4 + joints[offset + 1] + joints[offset + 2];
+        const femur = [
+          0.09 * Math.sin(abduction) * leg.side,
+          0.09 * Math.sin(femurAngle),
+          -0.09 * Math.cos(femurAngle) * Math.cos(abduction)
+        ];
+        const lower = [
+          0.115 * Math.sin(abduction) * leg.side,
+          0.115 * Math.sin(lowerAngle),
+          -0.115 * Math.cos(lowerAngle) * Math.cos(abduction)
+        ];
+        const knee = policyPoseAdd(hip, femur);
+        const foot = policyPoseAdd(knee, lower);
+        return {
+          ...leg,
+          points: [hip, knee, foot].map((point) => policyPoseBodyRotation(point, gravity))
+        };
+      });
+      const body = [
+        [-0.096, -0.142, 0], [0.096, -0.142, 0],
+        [0.096, 0.142, 0], [-0.096, 0.142, 0]
+      ].map((point) => policyPoseBodyRotation(point, gravity));
+      return { body, legs };
+    }
+
+    function policyPoseProject(point, centerX, centerY, scale) {
+      const yaw = policyPoseCamera.yaw;
+      const pitch = policyPoseCamera.pitch;
+      const x = Math.cos(yaw) * point[0] - Math.sin(yaw) * point[1];
+      const y = Math.sin(yaw) * point[0] + Math.cos(yaw) * point[1];
+      const vertical = Math.sin(pitch) * y + Math.cos(pitch) * point[2];
+      return [centerX + x * scale, centerY - vertical * scale];
+    }
+
+    function drawPolicyPoseSkeleton(context, skeleton, project, style) {
+      context.save();
+      context.strokeStyle = style.color;
+      context.fillStyle = style.color;
+      context.lineWidth = style.width;
+      context.globalAlpha = style.alpha;
+      context.setLineDash(style.dash || []);
+      skeleton.legs.forEach((leg) => {
+        const points = leg.points.map(project);
+        context.beginPath();
+        context.moveTo(...points[0]);
+        context.lineTo(...points[1]);
+        context.lineTo(...points[2]);
+        context.stroke();
+        points.forEach((point, index) => {
+          context.beginPath();
+          context.arc(point[0], point[1], index === 2 ? 4 : 3, 0, Math.PI * 2);
+          context.fill();
+        });
+        context.font = "bold 11px system-ui, sans-serif";
+        context.fillText(leg.label, points[2][0] + 5, points[2][1] - 4);
+      });
+      context.restore();
+    }
+
+    function drawPolicyPoseComparison() {
+      const canvas = els.policyPoseCanvas;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+      const width = Math.round(rect.width * pixelRatio);
+      const height = Math.round(rect.height * pixelRatio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const context = canvas.getContext("2d");
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, rect.width, rect.height);
+      if (!policyPoseTelemetry) {
+        context.fillStyle = "#607278";
+        context.font = "14px system-ui, sans-serif";
+        context.textAlign = "center";
+        context.fillText("Start Feedback to see the measured pose.", rect.width / 2, rect.height / 2 - 8);
+        context.fillText("Start Remote Control to overlay the policy target.", rect.width / 2, rect.height / 2 + 16);
+        return;
+      }
+
+      const measured = policyPoseSkeleton(policyPoseTelemetry.measured, policyPoseTelemetry.gravity);
+      const expectedJoints = policyPoseTelemetry.applied || policyPoseTelemetry.requested;
+      const expected = expectedJoints ? policyPoseSkeleton(expectedJoints, policyPoseTelemetry.gravity) : null;
+      const scale = Math.min(rect.width / 0.62, rect.height / 0.43);
+      const project = (point) => policyPoseProject(point, rect.width / 2, rect.height * 0.47, scale);
+
+      context.strokeStyle = "#d7e1e2";
+      context.lineWidth = 1;
+      for (let line = -4; line <= 4; line++) {
+        const a = project([line * 0.05, -0.24, -0.16]);
+        const b = project([line * 0.05, 0.24, -0.16]);
+        const c = project([-0.24, line * 0.05, -0.16]);
+        const d = project([0.24, line * 0.05, -0.16]);
+        context.beginPath(); context.moveTo(...a); context.lineTo(...b); context.stroke();
+        context.beginPath(); context.moveTo(...c); context.lineTo(...d); context.stroke();
+      }
+
+      const body = measured.body.map(project);
+      context.fillStyle = "rgba(53, 75, 80, 0.12)";
+      context.strokeStyle = "#40575d";
+      context.lineWidth = 2;
+      context.beginPath();
+      body.forEach((point, index) => index ? context.lineTo(...point) : context.moveTo(...point));
+      context.closePath(); context.fill(); context.stroke();
+      const forwardStart = project(policyPoseBodyRotation([0, -0.02, 0.015], policyPoseTelemetry.gravity));
+      const forwardEnd = project(policyPoseBodyRotation([0, -0.23, 0.015], policyPoseTelemetry.gravity));
+      context.strokeStyle = "#263f45";
+      context.lineWidth = 2;
+      context.beginPath(); context.moveTo(...forwardStart); context.lineTo(...forwardEnd); context.stroke();
+      context.fillStyle = "#263f45";
+      context.font = "bold 11px system-ui, sans-serif";
+      context.textAlign = "center";
+      context.fillText(
+        "FORWARD (-body Y)",
+        clamp(forwardEnd[0], 70, rect.width - 70),
+        clamp(forwardEnd[1] - 7, 56, rect.height - 10)
+      );
+
+      if (expected) {
+        drawPolicyPoseSkeleton(context, expected, project, { color: "#0096a6", width: 5, alpha: 0.5, dash: [8, 5] });
+      }
+      drawPolicyPoseSkeleton(context, measured, project, { color: "#dc6b28", width: 3, alpha: 0.95 });
+
+      context.setLineDash([]);
+      context.textAlign = "left";
+      context.font = "12px system-ui, sans-serif";
+      context.fillStyle = "#0096a6";
+      context.fillText(expected ? "- - POLICY APPLIED TARGET" : "POLICY TARGET UNAVAILABLE", 14, 22);
+      context.fillStyle = "#dc6b28";
+      context.fillText("--- PHYSICAL ENCODER POSE", 14, 42);
+
+      const gravity = policyPoseTelemetry.gravity;
+      const tiltDeg = gravity
+        ? Math.acos(Math.max(-1, Math.min(1, -policyPoseNormalize(gravity)[2]))) * 180 / Math.PI
+        : null;
+      els.policyPoseTilt.textContent = tiltDeg === null ? "--" : `${tiltDeg.toFixed(1)} deg`;
+      els.policyPoseMode.textContent = policyPoseTelemetry.applied
+        ? "applied vs measured"
+        : policyPoseTelemetry.requested ? "requested vs measured" : "measured only";
+      if (expectedJoints) {
+        const errors = policyPoseTelemetry.measured.map((value, index) => Math.abs(value - expectedJoints[index]) * 180 / Math.PI);
+        const worstIndex = errors.indexOf(Math.max(...errors));
+        const maximum = errors[worstIndex];
+        els.policyPoseMaxError.textContent = `${maximum.toFixed(1)} deg`;
+        els.policyPoseWorstJoint.textContent = POLICY_POSE_JOINT_NAMES[worstIndex];
+        els.policyPoseStatus.textContent = maximum < 3 ? "tracking aligned" : maximum < 8 ? "tracking difference" : "large divergence";
+      } else {
+        els.policyPoseMaxError.textContent = "--";
+        els.policyPoseWorstJoint.textContent = "--";
+        els.policyPoseStatus.textContent = "measured pose only";
+      }
+    }
+
+    function setPolicyPoseView(view) {
+      if (view === "front") policyPoseCamera = { yaw: 0, pitch: 0 };
+      else if (view === "side") policyPoseCamera = { yaw: -Math.PI / 2, pitch: 0 };
+      else policyPoseCamera = { yaw: -0.72, pitch: -0.35 };
+      drawPolicyPoseComparison();
+    }
+
     async function pollPolicyRunner() {
       if (!policyRunnerConnected) return;
       try {
@@ -2150,6 +2772,17 @@
     async function togglePolicyTelemetry() {
       const path = policyTelemetryMonitoring ? "/api/telemetry/stop" : "/api/telemetry/start";
       applyPolicyStatus(await policyRequest(path, {}));
+    }
+
+    function downloadPolicySessionLog() {
+      if (!policyRunnerConnected || !policySessionLogAvailable) return;
+      const link = document.createElement("a");
+      link.href = `${policyRunnerBaseUrl()}/api/session-log`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     }
 
     async function pausePolicyTelemetry(actionLabel) {
@@ -4484,6 +5117,7 @@
         updatePolicyButtons();
       });
     });
+    els.policyDownloadLogButton.addEventListener("click", downloadPolicySessionLog);
     els.walkPolicyCentersButton.addEventListener("click", () => {
       saveWalkPolicyCenters().catch((error) => {
         els.policyMessage.textContent = `Walk centers were not applied: ${error.message}`;
@@ -4658,7 +5292,7 @@
       send({ cmd: "servo_velocity_stop", all: true });
       send({ cmd: "servo_motor_stop", all: true });
       send({ cmd: "motor_stop" });
-      if (policyTrialRunning) {
+      if (policyRunnerConnected && (policyTrialRunning || policyHoldingTorque || policyTelemetryMonitoring)) {
         stopPolicyTrial().catch((error) => {
           els.policyMessage.textContent = `Stop request failed: ${error.message}. Use Ctrl+C in the run_policy.py window.`;
         });
@@ -4678,6 +5312,21 @@
       renderMotors();
       send({ cmd: "motor_stop" });
     });
+    els.policyPoseViews.forEach((button) => {
+      button.addEventListener("click", () => setPolicyPoseView(button.dataset.view));
+    });
+    els.policyPoseCanvas.addEventListener("pointerdown", (event) => {
+      policyPoseDrag = { x: event.clientX, y: event.clientY, yaw: policyPoseCamera.yaw, pitch: policyPoseCamera.pitch };
+      els.policyPoseCanvas.setPointerCapture(event.pointerId);
+    });
+    els.policyPoseCanvas.addEventListener("pointermove", (event) => {
+      if (!policyPoseDrag) return;
+      policyPoseCamera.yaw = policyPoseDrag.yaw + (event.clientX - policyPoseDrag.x) * 0.01;
+      policyPoseCamera.pitch = clamp(policyPoseDrag.pitch + (event.clientY - policyPoseDrag.y) * 0.008, -1.2, 1.2);
+      drawPolicyPoseComparison();
+    });
+    els.policyPoseCanvas.addEventListener("pointerup", () => { policyPoseDrag = null; });
+    els.policyPoseCanvas.addEventListener("pointercancel", () => { policyPoseDrag = null; });
     els.capturePoseButton.addEventListener("click", () => {
       const program = JSON.parse(els.programText.value);
       program.steps.push({
@@ -4700,7 +5349,11 @@
     renderServos();
     renderMotors();
     drawPolicyTelemetry();
-    window.addEventListener("resize", drawPolicyTelemetry);
+    drawPolicyPoseComparison();
+    window.addEventListener("resize", () => {
+      drawPolicyTelemetry();
+      drawPolicyPoseComparison();
+    });
     setConnected(false);
     updatePolicyCommandReadouts();
     setPolicyRunnerDisconnected("Start run_policy.py --ui, then connect the runner. Calibration remains locked until both measured calibration flags are true.");
