@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "profile_id": "isaaclab-unitree-go2-12dof",
+  "display_name": "Isaac Lab Unitree Go2 reference (12 DOF)",
+  "robot": {
+    "asset_source": "Isaac Lab built-in",
+    "asset_usd": "isaaclab://Robots/Unitree/Go2/go2.usd",
+    "reference_task": "Isaac-Velocity-Flat-Unitree-Go2-v0",
+    "expected_joint_count": 12,
+    "ready_for_training": true,
+    "start_position": [
+      0,
+      0,
+      0.4
+    ],
+    "start_rotation_deg": [
+      0,
+      0,
+      0
+    ],
+    "forward_axis": [
+      1,
+      0,
+      0
+    ],
+    "contacts": {
+      "base": "base",
+      "undesired": ".*_(hip|thigh|calf)",
+      "feet": {
+        "front_right": "FR_foot",
+        "front_left": "FL_foot",
+        "back_right": "RR_foot",
+        "back_left": "RL_foot"
+      }
+    },
+    "joints": [
+      {
+        "name": "FR_hip_joint",
+        "semantic": "front_right_hip_abduction",
+        "direction": 1,
+        "rest_position": -0.1,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "FR_thigh_joint",
+        "semantic": "front_right_hip_flexion",
+        "direction": 1,
+        "rest_position": 0.8,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "FR_calf_joint",
+        "semantic": "front_right_knee_flexion",
+        "direction": 1,
+        "rest_position": -1.5,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "FL_hip_joint",
+        "semantic": "front_left_hip_abduction",
+        "direction": 1,
+        "rest_position": 0.1,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "FL_thigh_joint",
+        "semantic": "front_left_hip_flexion",
+        "direction": 1,
+        "rest_position": 0.8,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "FL_calf_joint",
+        "semantic": "front_left_knee_flexion",
+        "direction": 1,
+        "rest_position": -1.5,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "RR_hip_joint",
+        "semantic": "back_right_hip_abduction",
+        "direction": 1,
+        "rest_position": -0.1,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "RR_thigh_joint",
+        "semantic": "back_right_hip_flexion",
+        "direction": 1,
+        "rest_position": 1,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "RR_calf_joint",
+        "semantic": "back_right_knee_flexion",
+        "direction": 1,
+        "rest_position": -1.5,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "RL_hip_joint",
+        "semantic": "back_left_hip_abduction",
+        "direction": 1,
+        "rest_position": 0.1,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "RL_thigh_joint",
+        "semantic": "back_left_hip_flexion",
+        "direction": 1,
+        "rest_position": 1,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      },
+      {
+        "name": "RL_calf_joint",
+        "semantic": "back_left_knee_flexion",
+        "direction": 1,
+        "rest_position": -1.5,
+        "stiffness": 25,
+        "damping": 0.5,
+        "effort_limit": 23.5,
+        "velocity_limit": 30,
+        "armature": 0
+      }
+    ]
+  },
+  "training": {
+    "stage": "V2Rough",
+    "num_envs": 512,
+    "max_iterations": 3000,
+    "checkpoint": "/workspace/projects/training/logs/rl_games/quadruped_v2_isaaclab_unitree_go2_12dof/2026-08-01_22-06-03/nn/last_quadruped_v2_isaaclab_unitree_go2_12dof_ep_1500_rew_10.43973.pth",
+    "seed": 42,
+    "record_video": true,
+    "video_interval": 5000,
+    "video_length": 400
+  },
+  "environment": {
+    "surface": "Mixed curriculum",
+    "static_friction": 1,
+    "dynamic_friction": 1,
+    "restitution": 0,
+    "physics_hz": 200,
+    "control_hz": 50,
+    "action_scale": 0.25,
+    "action_delta_limit": 0.34,
+    "episode_length_s": 20,
+    "termination_height": 0.18,
+    "env_spacing": 2.5
+  },
+  "terrain": {
+    "roughness_min": 0.01,
+    "roughness_max": 0.06,
+    "slope_max": 0.18,
+    "tile_size": 4
+  },
+  "physics": {
+    "solver_position_iterations": 4,
+    "solver_velocity_iterations": 0,
+    "self_collisions": false,
+    "max_depenetration_velocity": 1,
+    "contact_patch_capacity": 1048576
+  },
+  "commands": {
+    "forward_min": -1,
+    "forward_max": 1,
+    "lateral_min": -0.5,
+    "lateral_max": 0.5,
+    "yaw_max": 1,
+    "straight_fraction": 0.2,
+    "low_speed_straight_fraction": 0,
+    "high_speed_straight_fraction": 0,
+    "hold_min_s": 2,
+    "hold_max_s": 4,
+    "smoothing_s": 0.4,
+    "standing_fraction": 0,
+    "turn_fraction": 0,
+    "curve_right_fraction": 0.5,
+    "turn_right_fraction": 0.5,
+    "turn_yaw_min": 0.3,
+    "turn_yaw_max": 1
+  },
+  "reset": {
+    "small_tilt_deg": 5,
+    "large_tilt_deg": 10,
+    "large_tilt_fraction": 0.1,
+    "randomize_yaw": true,
+    "joint_position_noise": 0.03,
+    "joint_velocity_noise": 0
+  },
+  "domain_randomization": {
+    "enabled": true,
+    "base_mass_scale_min": 0.8,
+    "base_mass_scale_max": 1.25,
+    "base_com_x": 0.05,
+    "base_com_y": 0.05,
+    "base_com_z": 0.01,
+    "robot_static_friction_min": 0.8,
+    "robot_static_friction_max": 0.8,
+    "robot_dynamic_friction_min": 0.6,
+    "robot_dynamic_friction_max": 0.6,
+    "robot_restitution_min": 0,
+    "robot_restitution_max": 0,
+    "material_buckets": 64
+  },
+  "actuators": {
+    "stiffness": 25,
+    "damping": 0.5,
+    "effort_limit": 23.5,
+    "velocity_limit": 30,
+    "armature": 0,
+    "soft_limit_factor": 0.9
+  },
+  "disturbance": {
+    "push_probability": 0.2,
+    "push_linear_velocity": 0.1,
+    "push_yaw_velocity": 0.1,
+    "push_interval_min_s": 6,
+    "push_interval_max_s": 10
+  },
+  "noise": {
+    "enabled": true,
+    "gyro": 0.1,
+    "gravity": 0.02,
+    "joint_position": 0.01,
+    "joint_velocity": 0.5
+  },
+  "rewards": {
+    "locomotion": 4,
+    "yaw": 0.5,
+    "diagonal_gait": 0.4,
+    "complete_gait_cycle": 0,
+    "reference_trot": 0,
+    "reference_trot_period_s": 0.32,
+    "foot_clearance": 0,
+    "target_foot_clearance_m": 0.08,
+    "nominal_foot_com_z_from_base_m": -0.30,
+    "foot_clearance_std": 0.03,
+    "air_time_variance_penalty": 0,
+    "diagonal_joint_symmetry": 0,
+    "diagonal_joint_symmetry_std": 0.04,
+    "uncommanded_motion_penalty": 0,
+    "prolonged_foot_air_penalty": -1,
+    "stability_penalty": -0.5,
+    "action_rate_penalty": -0.02,
+    "foot_slip_penalty": -0.25,
+    "undesired_contact_penalty": -1,
+    "fall_penalty": -8,
+    "velocity_tracking_std": 0.2,
+    "stationary_velocity_std": 0.05,
+    "yaw_tracking_std": 0.5,
+    "diagonal_gait_std": 0.1,
+    "max_foot_air_time_s": 0.45,
+    "max_foot_contact_time_s": 0.5,
+    "max_gait_cycle_interval_s": 3.0
+  },
+  "ppo": {
+    "learning_rate": 0.001,
+    "learning_rate_schedule": "adaptive",
+    "horizon_length": 24,
+    "minibatch_size": 12288,
+    "mini_epochs": 5,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "entropy_coefficient": 0.005,
+    "clip_range": 0.2,
+    "kl_threshold": 0.01,
+    "grad_norm": 1,
+    "critic_coefficient": 2,
+    "activation": "elu",
+    "hidden_units": [
+      128,
+      128,
+      128
+    ]
+  }
+}

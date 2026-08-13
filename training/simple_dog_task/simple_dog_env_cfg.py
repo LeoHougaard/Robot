@@ -5,6 +5,8 @@ solver and actuator settings while keeping the Publisher's mass, collision,
 geometry, and drive data.
 """
 
+import math
+
 from isaaclab_physx.physics import PhysxCfg
 
 import isaaclab.sim as sim_utils
@@ -18,11 +20,21 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
 from isaaclab.utils.configclass import configclass
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
 from simple_dog_tuning import load_tuning
+from robot_control_profile import load_control_profile, value as profile_value
 
 
-DOG_USD = "/workspace/projects/training/assets/simple_dog_training.usda"
+CONTROL_PROFILE = load_control_profile()
+ASSET_SOURCE = profile_value(CONTROL_PROFILE, "robot.asset_source", "Workspace USD")
+DOG_USD = profile_value(
+    CONTROL_PROFILE,
+    "robot.asset_usd",
+    "/workspace/projects/training/assets/simple_dog_training.usda",
+)
+if ASSET_SOURCE == "Isaac Lab built-in":
+    DOG_USD = f"{ISAACLAB_NUCLEUS_DIR}/Robots/Unitree/Go2/go2.usd"
 TUNING = load_tuning()
 
 # Stable free-standing pose found by a 1,024-environment GPU calibration and
@@ -39,6 +51,131 @@ CALIBRATED_JOINT_POS = {
     "_MD8PhymI8YJME2GAl": 0.1626079530,   # Back Left Knee
 }
 
+if CONTROL_PROFILE is not None:
+    CALIBRATED_JOINT_POS = {
+        joint["name"]: joint["rest_position"]
+        for joint in CONTROL_PROFILE["robot"]["joints"]
+    }
+
+JOINT_COUNT = len(CALIBRATED_JOINT_POS)
+JOINT_NAMES = tuple(CALIBRATED_JOINT_POS)
+JOINT_DIRECTIONS = tuple(
+    joint["direction"] for joint in CONTROL_PROFILE["robot"]["joints"]
+) if CONTROL_PROFILE is not None else (1,) * JOINT_COUNT
+JOINT_SEMANTICS = tuple(
+    joint["semantic"] for joint in CONTROL_PROFILE["robot"]["joints"]
+) if CONTROL_PROFILE is not None else ()
+SURFACE = profile_value(CONTROL_PROFILE, "environment.surface", "Mixed curriculum")
+
+
+def _start_rotation_quat():
+    roll, pitch, yaw = (
+        math.radians(value)
+        for value in profile_value(
+            CONTROL_PROFILE, "robot.start_rotation_deg", (0.0, 0.0, 0.0)
+        )
+    )
+    cr, sr = math.cos(roll / 2), math.sin(roll / 2)
+    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+    return (
+        cr * cp * cy + sr * sp * sy,
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+    )
+
+
+def _rough_sub_terrains():
+    flat = terrain_gen.MeshPlaneTerrainCfg(proportion=1.0)
+    random_rough = terrain_gen.HfRandomUniformTerrainCfg(
+        proportion=1.0,
+        noise_range=(
+            profile_value(CONTROL_PROFILE, "terrain.roughness_min", 0.0025),
+            profile_value(CONTROL_PROFILE, "terrain.roughness_max", 0.030),
+        ),
+        noise_step=0.0025,
+        border_width=0.20,
+    )
+    upward = terrain_gen.HfPyramidSlopedTerrainCfg(
+        proportion=0.5,
+        slope_range=(0.0, profile_value(CONTROL_PROFILE, "terrain.slope_max", 0.18)),
+        platform_width=1.0,
+        border_width=0.20,
+    )
+    downward = terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+        proportion=0.5,
+        slope_range=(0.0, profile_value(CONTROL_PROFILE, "terrain.slope_max", 0.18)),
+        platform_width=1.0,
+        border_width=0.20,
+    )
+    if SURFACE == "Flat":
+        return {"flat": flat}
+    if SURFACE == "Random rough":
+        return {"random_rough": random_rough}
+    if SURFACE == "Slopes":
+        return {"pyramid_slope": upward, "inverted_pyramid_slope": downward}
+    flat.proportion = 0.20
+    random_rough.proportion = 0.40
+    upward.proportion = 0.20
+    downward.proportion = 0.20
+    return {
+        "flat": flat,
+        "random_rough": random_rough,
+        "pyramid_slope": upward,
+        "inverted_pyramid_slope": downward,
+    }
+
+
+def _validation_sub_terrain():
+    if SURFACE == "Flat":
+        return {"flat": terrain_gen.MeshPlaneTerrainCfg(proportion=1.0)}
+    if SURFACE == "Slopes":
+        return {
+            "pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+                proportion=1.0,
+                slope_range=(0.0, profile_value(CONTROL_PROFILE, "terrain.slope_max", 0.18)),
+                platform_width=1.0,
+                border_width=0.20,
+            )
+        }
+    return {
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=1.0,
+            noise_range=(
+                profile_value(CONTROL_PROFILE, "terrain.roughness_min", 0.0025),
+                profile_value(CONTROL_PROFILE, "terrain.roughness_max", 0.030),
+            ),
+            noise_step=0.0025,
+            border_width=0.20,
+        )
+    }
+
+
+def _actuator_configs():
+    if CONTROL_PROFILE is None:
+        return {
+            "legs": ImplicitActuatorCfg(
+                joint_names_expr=[".*"],
+                effort_limit_sim=1.37,
+                velocity_limit_sim=8.0,
+                stiffness=22.0,
+                damping=0.8,
+                armature=0.001,
+            )
+        }
+    return {
+        f"joint_{index:02d}_{joint['semantic']}": ImplicitActuatorCfg(
+            joint_names_expr=[joint["name"]],
+            effort_limit_sim=joint["effort_limit"],
+            velocity_limit_sim=joint["velocity_limit"],
+            stiffness=joint["stiffness"],
+            damping=joint["damping"],
+            armature=joint["armature"],
+        )
+        for index, joint in enumerate(CONTROL_PROFILE["robot"]["joints"])
+    }
+
 
 SIMPLE_DOG_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
@@ -51,30 +188,32 @@ SIMPLE_DOG_CFG = ArticulationCfg(
             angular_damping=0.0,
             max_linear_velocity=10.0,
             max_angular_velocity=20.0,
-            max_depenetration_velocity=0.5,
+            max_depenetration_velocity=profile_value(
+                CONTROL_PROFILE, "physics.max_depenetration_velocity", 0.5
+            ),
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False,
-            solver_position_iteration_count=8,
-            solver_velocity_iteration_count=4,
+            enabled_self_collisions=profile_value(
+                CONTROL_PROFILE, "physics.self_collisions", False
+            ),
+            solver_position_iteration_count=profile_value(
+                CONTROL_PROFILE, "physics.solver_position_iterations", 8
+            ),
+            solver_velocity_iteration_count=profile_value(
+                CONTROL_PROFILE, "physics.solver_velocity_iterations", 4
+            ),
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.24),
+        pos=tuple(profile_value(CONTROL_PROFILE, "robot.start_position", (0.0, 0.0, 0.24))),
+        rot=_start_rotation_quat(),
         joint_pos=CALIBRATED_JOINT_POS,
         joint_vel={".*": 0.0},
     ),
-    actuators={
-        "legs": ImplicitActuatorCfg(
-            joint_names_expr=[".*"],
-            effort_limit_sim=1.37,
-            velocity_limit_sim=8.0,
-            stiffness=22.0,
-            damping=0.8,
-            armature=0.001,
-        )
-    },
-    soft_joint_pos_limit_factor=0.95,
+    actuators=_actuator_configs(),
+    soft_joint_pos_limit_factor=profile_value(
+        CONTROL_PROFILE, "actuators.soft_limit_factor", 0.95
+    ),
 )
 
 
@@ -84,7 +223,10 @@ SIMPLE_DOG_CFG = ArticulationCfg(
 SIMPLE_DOG_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     seed=42,
     curriculum=True,
-    size=(4.0, 4.0),
+    size=(
+        profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
+        profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
+    ),
     # The stock 10-20 m outer border is sized for much larger robots and made
     # this tiny dog's generated mesh exceed 1.3 million faces. RayCaster loads
     # that entire static mesh into Warp at initialization. Two metres still
@@ -97,27 +239,7 @@ SIMPLE_DOG_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     slope_threshold=0.75,
     difficulty_range=(0.0, 1.0),
     use_cache=False,
-    sub_terrains={
-        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.20),
-        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.40,
-            noise_range=(0.0025, 0.030),
-            noise_step=0.0025,
-            border_width=0.20,
-        ),
-        "pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.20,
-            slope_range=(0.0, 0.18),
-            platform_width=1.0,
-            border_width=0.20,
-        ),
-        "inverted_pyramid_slope": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.20,
-            slope_range=(0.0, 0.18),
-            platform_width=1.0,
-            border_width=0.20,
-        ),
-    },
+    sub_terrains=_rough_sub_terrains(),
 )
 
 # The headless video recorder in Isaac Lab 3.0 copies ViewerCfg eye/lookat as
@@ -127,7 +249,10 @@ SIMPLE_DOG_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
 SIMPLE_DOG_ROUGH_VALIDATION_TERRAIN_CFG = TerrainGeneratorCfg(
     seed=31415,
     curriculum=False,
-    size=(4.0, 4.0),
+    size=(
+        profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
+        profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
+    ),
     border_width=2.0,
     num_rows=1,
     num_cols=1,
@@ -136,36 +261,40 @@ SIMPLE_DOG_ROUGH_VALIDATION_TERRAIN_CFG = TerrainGeneratorCfg(
     slope_threshold=0.75,
     difficulty_range=(0.65, 0.65),
     use_cache=False,
-    sub_terrains={
-        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=1.0,
-            noise_range=(0.0025, 0.030),
-            noise_step=0.0025,
-            border_width=0.20,
-        ),
-    },
+    sub_terrains=_validation_sub_terrain(),
 )
 
 
 @configclass
 class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
-    episode_length_s = 12.0
-    decimation = 4
-    action_scale = 0.35
-    action_space = 8
-    observation_space = 38
+    episode_length_s = profile_value(
+        CONTROL_PROFILE, "environment.episode_length_s", 12.0
+    )
+    physics_hz = profile_value(CONTROL_PROFILE, "environment.physics_hz", 200)
+    control_hz = profile_value(CONTROL_PROFILE, "environment.control_hz", 50)
+    decimation = int(physics_hz / control_hz)
+    action_scale = profile_value(CONTROL_PROFILE, "environment.action_scale", 0.35)
+    action_space = JOINT_COUNT
+    observation_space = 14 + 3 * JOINT_COUNT
     state_space = 0
 
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 200,
+        dt=1 / physics_hz,
         render_interval=decimation,
-        physics=PhysxCfg(gpu_max_rigid_patch_count=2**18),
+        # 512 dogs traversing generated height fields reached roughly 284k
+        # simultaneous rigid-contact patches. Keep one power-of-two of bounded
+        # headroom so PhysX does not drop rough-terrain contacts mid-training.
+        physics=PhysxCfg(
+            gpu_max_rigid_patch_count=profile_value(
+                CONTROL_PROFILE, "physics.contact_patch_capacity", 2**19
+            )
+        ),
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=0.9,
-            restitution=0.0,
+            static_friction=profile_value(CONTROL_PROFILE, "environment.static_friction", 1.0),
+            dynamic_friction=profile_value(CONTROL_PROFILE, "environment.dynamic_friction", 0.9),
+            restitution=profile_value(CONTROL_PROFILE, "environment.restitution", 0.0),
         ),
     )
 
@@ -176,28 +305,90 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=0.9,
-            restitution=0.0,
+            static_friction=profile_value(CONTROL_PROFILE, "environment.static_friction", 1.0),
+            dynamic_friction=profile_value(CONTROL_PROFILE, "environment.dynamic_friction", 0.9),
+            restitution=profile_value(CONTROL_PROFILE, "environment.restitution", 0.0),
         ),
         debug_vis=False,
     )
 
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=512,
-        env_spacing=1.5,
+        env_spacing=profile_value(CONTROL_PROFILE, "environment.env_spacing", 1.5),
         replicate_physics=True,
     )
 
     robot: ArticulationCfg = SIMPLE_DOG_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/links/.*",
+        prim_path="/World/envs/env_.*/Robot/.*",
         history_length=3,
         update_period=0.005,
         track_air_time=True,
     )
     height_scanner = None
     height_observation_size = 0
+    joint_names = JOINT_NAMES
+    joint_directions = JOINT_DIRECTIONS
+    joint_semantics = JOINT_SEMANTICS
+    control_profile_active = CONTROL_PROFILE is not None
+    foot_links = tuple(
+        profile_value(
+            CONTROL_PROFILE,
+            f"robot.contacts.feet.{label}",
+            default,
+        )
+        for label, default in (
+            ("front_right", "_MdQLAKl_Scf81bKbb"),
+            ("front_left", "_MkA4XIXvGXiT_qjpE"),
+            ("back_right", "_Ml_IVwTR18YxKzP3h"),
+            ("back_left", "_M0BhnApLFcIwi9FiI"),
+        )
+    )
+    base_contact_pattern = profile_value(
+        CONTROL_PROFILE, "robot.contacts.base", "_MPiebr7IdhajYW6eO"
+    )
+    undesired_contact_pattern = profile_value(
+        CONTROL_PROFILE,
+        "robot.contacts.undesired",
+        "_MPiebr7IdhajYW6eO|_M0GXc29ZQLKLZRigV|_MDzoh4cCiQOb3LDc6|"
+        "_MFFQ2p25_Tl8Qbl6J|_MqjGc65gNtWvXfvxi",
+    )
+    forward_axis = tuple(
+        profile_value(CONTROL_PROFILE, "robot.forward_axis", (0.0, -1.0, 0.0))
+    )
+    domain_randomization_enabled = profile_value(
+        CONTROL_PROFILE, "domain_randomization.enabled", False
+    )
+    base_mass_scale = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_max", 1.0),
+    )
+    base_com_range = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.base_com_x", 0.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.base_com_y", 0.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.base_com_z", 0.0),
+    )
+    robot_static_friction_range = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.robot_static_friction_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.robot_static_friction_max", 1.0),
+    )
+    robot_dynamic_friction_range = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.robot_dynamic_friction_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.robot_dynamic_friction_max", 1.0),
+    )
+    robot_restitution_range = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.robot_restitution_min", 0.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.robot_restitution_max", 0.0),
+    )
+    material_buckets = profile_value(
+        CONTROL_PROFILE, "domain_randomization.material_buckets", 1
+    )
+    reset_joint_position_noise = profile_value(
+        CONTROL_PROFILE, "reset.joint_position_noise", 0.03
+    )
+    reset_joint_velocity_noise = profile_value(
+        CONTROL_PROFILE, "reset.joint_velocity_noise", 0.0
+    )
 
     # The Onshape assembly's physical front is body -Y: front hips are at
     # y=-0.125 m and back hips are at y=+0.125 m. Commands use a semantic
@@ -236,7 +427,9 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
         "undesired_contact_penalty_scale"
     ]
 
-    termination_height = 0.105
+    termination_height = profile_value(
+        CONTROL_PROFILE, "environment.termination_height", 0.105
+    )
     termination_projected_gravity_z = -0.55
     terrain_curriculum = False
     print_play_metrics = False

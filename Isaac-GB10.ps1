@@ -26,9 +26,9 @@ param(
     [switch]$ConfirmCleanup,
     [switch]$RemoveImages,
     [switch]$RemoveCaches,
-    [ValidatePattern("^/workspace/projects/training/logs/rl_games/simple_dog(_rough)?_velocity_direct/[A-Za-z0-9_./-]+\.pth$")]
+    [ValidatePattern("^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct)/[A-Za-z0-9_./-]+\.pth$")]
     [string]$Checkpoint = "/workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/2026-07-30_01-26-32/nn/simple_dog_velocity_direct.pth",
-    [ValidateSet("Flat", "Rough")]
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Rough")]
     [string]$Terrain = "Flat",
     [ValidatePattern("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]
     [string]$RobotName = "simple-8-joint-dog"

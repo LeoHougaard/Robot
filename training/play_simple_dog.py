@@ -6,6 +6,21 @@ import signal
 
 import simple_dog_task  # noqa: F401
 import simple_dog_task_v2  # noqa: F401
+from robot_control_profile import apply_agent_profile, load_control_profile
+
+import isaaclab_tasks.utils as isaac_task_utils
+
+
+control_profile = load_control_profile()
+original_resolve_task_config = isaac_task_utils.resolve_task_config
+
+
+def resolve_task_config_with_profile(*args, **kwargs):
+    env_cfg, agent_cfg = original_resolve_task_config(*args, **kwargs)
+    return env_cfg, apply_agent_profile(agent_cfg, control_profile)
+
+
+isaac_task_utils.resolve_task_config = resolve_task_config_with_profile
 
 # A non-fatal USR1 signal produces a Python stack dump in container logs.  This
 # keeps startup diagnosis evidence-based without enabling ptrace or running the
@@ -13,7 +28,10 @@ import simple_dog_task_v2  # noqa: F401
 faulthandler.register(signal.SIGUSR1, all_threads=True)
 
 
-runpy.run_path(
-    "/workspace/isaaclab/scripts/reinforcement_learning/rl_games/play.py",
-    run_name="__main__",
-)
+try:
+    runpy.run_path(
+        "/workspace/isaaclab/scripts/reinforcement_learning/rl_games/play.py",
+        run_name="__main__",
+    )
+finally:
+    isaac_task_utils.resolve_task_config = original_resolve_task_config

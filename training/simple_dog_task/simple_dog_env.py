@@ -23,43 +23,55 @@ from .simple_dog_env_cfg import SimpleDogFlatEnvCfg
 class SimpleDogEnv(DirectRLEnv):
     cfg: SimpleDogFlatEnvCfg
 
-    # Resolve every foot separately so reward pairing never depends on USD
-    # traversal order. The order is FR, FL, BR, BL.
-    _FOOT_LINKS = (
-        ("front_right", "_MdQLAKl_Scf81bKbb"),
-        ("front_left", "_MkA4XIXvGXiT_qjpE"),
-        ("back_right", "_Ml_IVwTR18YxKzP3h"),
-        ("back_left", "_M0BhnApLFcIwi9FiI"),
-    )
-    _UNDESIRED_CONTACT_PATTERN = (
-        "_MPiebr7IdhajYW6eO|_M0GXc29ZQLKLZRigV|_MDzoh4cCiQOb3LDc6|"
-        "_MFFQ2p25_Tl8Qbl6J|_MqjGc65gNtWvXfvxi"
-    )
-    _BASE_PATTERN = "_MPiebr7IdhajYW6eO"
-
     def __init__(self, cfg: SimpleDogFlatEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         action_dim = gym.spaces.flatdim(self.single_action_space)
+        if cfg.control_profile_active:
+            joint_ids = []
+            resolved_joint_names = []
+            for joint_name in cfg.joint_names:
+                ids, names = self._robot.find_joints(joint_name)
+                if len(ids) != 1:
+                    raise RuntimeError(
+                        f"Control profile joint {joint_name!r} resolved to {names}; "
+                        "expected exactly one articulation joint."
+                    )
+                joint_ids.append(ids[0])
+                resolved_joint_names.extend(names)
+            if len(set(joint_ids)) != action_dim:
+                raise RuntimeError(
+                    "Control profile must resolve to exactly one unique joint per "
+                    f"action; resolved {resolved_joint_names}."
+                )
+            self._policy_joint_ids = joint_ids
+        else:
+            self._policy_joint_ids = list(range(action_dim))
+        self._joint_directions = torch.tensor(
+            cfg.joint_directions, dtype=torch.float, device=self.device
+        ).unsqueeze(0)
         self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
         self._previous_actions = torch.zeros_like(self._actions)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
-        self._physical_forward_axis_b = torch.tensor(
-            (0.0, -1.0, 0.0), device=self.device
-        ).repeat(self.num_envs, 1)
-        self._target_forward_axis_w = torch.tensor(
-            (0.0, -1.0, 0.0), device=self.device
-        ).repeat(self.num_envs, 1)
-        self._target_lateral_axis_w = torch.tensor(
-            (1.0, 0.0, 0.0), device=self.device
-        ).repeat(self.num_envs, 1)
+        forward_axis = torch.tensor(cfg.forward_axis, device=self.device)
+        forward_axis = forward_axis / torch.linalg.vector_norm(forward_axis)
+        lateral_axis = torch.tensor(
+            (-forward_axis[1], forward_axis[0], 0.0), device=self.device
+        )
+        self._physical_forward_axis_b = forward_axis.repeat(self.num_envs, 1)
+        self._physical_lateral_axis_b = lateral_axis.repeat(self.num_envs, 1)
+        self._target_forward_axis_w = forward_axis.repeat(self.num_envs, 1)
+        self._target_lateral_axis_w = lateral_axis.repeat(self.num_envs, 1)
 
-        self._foot_labels = tuple(label for label, _ in self._FOOT_LINKS)
+        foot_links = tuple(
+            zip(("front_right", "front_left", "back_right", "back_left"), cfg.foot_links)
+        )
+        self._foot_labels = tuple(label for label, _ in foot_links)
         feet_sensor_ids = []
         feet_body_ids = []
         resolved_sensor_names = []
         resolved_body_names = []
-        for label, link_name in self._FOOT_LINKS:
+        for label, link_name in foot_links:
             sensor_ids, sensor_names = self._contact_sensor.find_sensors(link_name)
             body_ids, body_names = self._robot.find_bodies(link_name)
             if len(sensor_ids) != 1 or len(body_ids) != 1:
@@ -74,9 +86,19 @@ class SimpleDogEnv(DirectRLEnv):
         self._feet_sensor_ids = feet_sensor_ids
         self._feet_body_ids = feet_body_ids
         self._undesired_contact_sensor_ids, _ = self._contact_sensor.find_sensors(
-            self._UNDESIRED_CONTACT_PATTERN
+            cfg.undesired_contact_pattern
         )
-        self._base_sensor_ids, _ = self._contact_sensor.find_sensors(self._BASE_PATTERN)
+        self._base_sensor_ids, _ = self._contact_sensor.find_sensors(
+            cfg.base_contact_pattern
+        )
+        self._base_body_ids, base_body_names = self._robot.find_bodies(
+            cfg.base_contact_pattern
+        )
+        if not self._base_body_ids:
+            raise RuntimeError(
+                "The configured base contact expression did not resolve to a "
+                f"robot body: {base_body_names}"
+            )
         if self.cfg.terrain_curriculum:
             base_sensor_id_set = set(self._base_sensor_ids)
             self._undesired_contact_sensor_ids = [
@@ -89,6 +111,7 @@ class SimpleDogEnv(DirectRLEnv):
                 "Expected four physical foot links, found "
                 f"sensor={resolved_sensor_names}, bodies={resolved_body_names}"
             )
+        self._apply_startup_domain_randomization()
 
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -119,6 +142,85 @@ class SimpleDogEnv(DirectRLEnv):
         self._foot_landings = torch.zeros_like(self._foot_swing_steps)
         self._play_step_count = 0
         self._play_start_xy = None
+
+    def _apply_startup_domain_randomization(self) -> None:
+        """Apply the profile's per-environment physical variants once."""
+        if not self.cfg.domain_randomization_enabled:
+            return
+
+        env_ids = torch.arange(
+            self.num_envs, dtype=torch.int32, device=self.device
+        )
+        body_ids = torch.tensor(
+            self._base_body_ids, dtype=torch.int32, device=self.device
+        )
+
+        # Use a log-uniform factor so reciprocal under/over-estimates are
+        # sampled symmetrically and the setting scales to a replacement robot.
+        low_mass, high_mass = self.cfg.base_mass_scale
+        mass_scale = torch.exp(
+            torch.empty((self.num_envs, 1), device=self.device).uniform_(
+                torch.log(torch.tensor(low_mass, device=self.device)).item(),
+                torch.log(torch.tensor(high_mass, device=self.device)).item(),
+            )
+        )
+        default_mass = self._robot.data.body_mass.torch[
+            env_ids[:, None], body_ids
+        ].clone()
+        randomized_mass = default_mass * mass_scale
+        self._robot.set_masses_index(
+            masses=randomized_mass, body_ids=body_ids, env_ids=env_ids
+        )
+        default_inertia = self._robot.data.body_inertia.torch[
+            env_ids[:, None], body_ids
+        ].clone()
+        self._robot.set_inertias_index(
+            inertias=default_inertia * mass_scale.unsqueeze(-1),
+            body_ids=body_ids,
+            env_ids=env_ids,
+        )
+
+        com_limit = torch.tensor(
+            self.cfg.base_com_range, device=self.device
+        ).view(1, 1, 3)
+        coms = self._robot.data.body_com_pose_b.torch[
+            env_ids[:, None], body_ids
+        ].clone()
+        coms[:, :, :3] += (
+            2.0
+            * torch.rand(
+                (self.num_envs, len(self._base_body_ids), 3),
+                device=self.device,
+            )
+            - 1.0
+        ) * com_limit
+        self._robot.set_coms_index(
+            coms=coms, body_ids=body_ids, env_ids=env_ids
+        )
+
+        # PhysX limits unique materials, so sample a bounded reusable bucket
+        # table and assign one bucket independently to every collision shape.
+        bucket_count = self.cfg.material_buckets
+        material_buckets = torch.empty((bucket_count, 3), device="cpu")
+        material_buckets[:, 0].uniform_(*self.cfg.robot_static_friction_range)
+        material_buckets[:, 1].uniform_(*self.cfg.robot_dynamic_friction_range)
+        material_buckets[:, 1] = torch.minimum(
+            material_buckets[:, 0], material_buckets[:, 1]
+        )
+        material_buckets[:, 2].uniform_(*self.cfg.robot_restitution_range)
+        shape_count = self._robot.root_view.max_shapes
+        bucket_ids = torch.randint(
+            0, bucket_count, (self.num_envs, shape_count), device="cpu"
+        )
+        materials = wp.to_torch(
+            self._robot.root_view.get_material_properties()
+        )
+        cpu_env_ids = torch.arange(self.num_envs, dtype=torch.int32)
+        materials[cpu_env_ids] = material_buckets[bucket_ids]
+        self._robot.root_view.set_material_properties(
+            wp.from_torch(materials, dtype=wp.float32),
+            wp.from_torch(cpu_env_ids, dtype=wp.int32),
+        )
 
     def _setup_scene(self):
         if self.cfg.print_play_metrics:
@@ -151,12 +253,27 @@ class SimpleDogEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         self._actions = torch.clamp(actions, -1.0, 1.0)
+        directed_actions = self._actions * self._joint_directions
         self._processed_actions = (
-            self._robot.data.default_joint_pos.torch + self.cfg.action_scale * self._actions
+            self._robot.data.default_joint_pos.torch[:, self._policy_joint_ids]
+            + self.cfg.action_scale * directed_actions
         )
 
     def _apply_action(self):
-        self._robot.set_joint_position_target_index(target=self._processed_actions)
+        self._robot.set_joint_position_target_index(
+            target=self._processed_actions, joint_ids=self._policy_joint_ids
+        )
+
+    def _get_policy_joint_state(self) -> tuple[torch.Tensor, torch.Tensor]:
+        joint_position = (
+            self._robot.data.joint_pos.torch[:, self._policy_joint_ids]
+            - self._robot.data.default_joint_pos.torch[:, self._policy_joint_ids]
+        ) * self._joint_directions
+        joint_velocity = (
+            self._robot.data.joint_vel.torch[:, self._policy_joint_ids]
+            * self._joint_directions
+        )
+        return joint_position, joint_velocity
 
     def _get_physical_motion(self) -> tuple[torch.Tensor, ...]:
         """Return motion in the chassis' physical and fixed-world forward frames."""
@@ -166,8 +283,12 @@ class SimpleDogEnv(DirectRLEnv):
             self._robot.data.root_quat_w.torch, self._physical_forward_axis_b
         )
 
-        body_forward = -root_lin_vel_b[:, 1]
-        body_lateral = root_lin_vel_b[:, 0]
+        body_forward = torch.sum(
+            root_lin_vel_b * self._physical_forward_axis_b, dim=1
+        )
+        body_lateral = torch.sum(
+            root_lin_vel_b * self._physical_lateral_axis_b, dim=1
+        )
         world_forward = torch.sum(
             root_lin_vel_w * self._target_forward_axis_w, dim=1
         )
@@ -203,14 +324,15 @@ class SimpleDogEnv(DirectRLEnv):
             (body_forward, body_lateral, root_lin_vel_b[:, 2]), dim=1
         )
         heading_features = torch.stack((heading_alignment, heading_lateral), dim=1)
+        joint_position, joint_velocity = self._get_policy_joint_state()
         observation_terms = [
             physical_lin_vel_b,
             self._robot.data.root_ang_vel_b.torch,
             self._robot.data.projected_gravity_b.torch,
             self._commands,
             heading_features,
-            self._robot.data.joint_pos.torch - self._robot.data.default_joint_pos.torch,
-            0.1 * self._robot.data.joint_vel.torch,
+            joint_position,
+            0.1 * joint_velocity,
             self._actions,
         ]
         if self._height_scanner is not None:
@@ -649,8 +771,16 @@ class SimpleDogEnv(DirectRLEnv):
             self._commands[env_ids[stand_mask]] = 0.0
 
         joint_pos = self._robot.data.default_joint_pos.torch[env_ids].clone()
-        joint_pos += torch.empty_like(joint_pos).uniform_(-0.03, 0.03)
-        joint_vel = torch.zeros_like(self._robot.data.default_joint_vel.torch[env_ids])
+        joint_pos += torch.empty_like(joint_pos).uniform_(
+            -self.cfg.reset_joint_position_noise,
+            self.cfg.reset_joint_position_noise,
+        )
+        joint_vel = torch.empty_like(
+            self._robot.data.default_joint_vel.torch[env_ids]
+        ).uniform_(
+            -self.cfg.reset_joint_velocity_noise,
+            self.cfg.reset_joint_velocity_noise,
+        )
         root_pose = self._robot.data.default_root_pose.torch[env_ids].clone()
         root_velocity = self._robot.data.default_root_vel.torch[env_ids].clone()
         root_pose[:, :3] += self._terrain.env_origins[env_ids]

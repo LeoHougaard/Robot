@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot Control Center</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div><strong>Robot Control</strong><small>Isaac Lab · GB10</small></div>
+      </div>
+      <label class="settings-search"><span>⌕</span><input id="settings-search" type="search" placeholder="Find a setting…" autocomplete="off"></label>
+      <nav id="section-nav" aria-label="Settings sections"></nav>
+      <div class="sidebar-foot">
+        <label class="toggle-row"><span>Show advanced</span><input id="expert-toggle" type="checkbox"><i></i></label>
+        <a href="https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/index.html" target="_blank" rel="noreferrer">Isaac Lab reference ↗</a>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CONTROL PROFILE</p>
+          <div class="profile-line">
+            <select id="profile-select" aria-label="Robot profile"></select>
+            <span id="joint-count" class="quiet-pill"></span>
+          </div>
+        </div>
+        <div class="sync-cluster">
+          <div id="save-state" class="sync-item"><span class="dot"></span><div><strong>Saved profile</strong><small>Loading…</small></div></div>
+          <div id="runtime-state" class="sync-item"><span class="dot"></span><div><strong>Isaac runtime</strong><small>Checking GB10…</small></div></div>
+          <button id="refresh-status" class="icon-button" title="Refresh runtime status" aria-label="Refresh runtime status">↻</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <section class="content">
+          <div class="hero">
+            <div>
+              <p class="eyebrow" id="section-kicker">SETUP</p>
+              <h1 id="section-title">Robot setup</h1>
+              <p id="section-summary">The exact model and semantic mapping Isaac Lab will load.</p>
+            </div>
+            <button id="save-button" class="primary">Save profile</button>
+          </div>
+
+          <div id="messages" aria-live="polite"></div>
+          <div id="robot-panel"></div>
+          <div id="settings-panel"></div>
+        </section>
+
+        <aside class="run-rail">
+          <div class="run-card">
+            <div class="run-card-head"><span class="status-light" id="run-light"></span><div><p class="eyebrow">GB10 STATUS</p><h2 id="run-title">Checking…</h2></div></div>
+            <dl id="run-details">
+              <div><dt>Container</dt><dd>—</dd></div>
+              <div><dt>Task</dt><dd>—</dd></div>
+              <div><dt>Surface</dt><dd>—</dd></div>
+              <div><dt>Progress</dt><dd>—</dd></div>
+              <div><dt>Best reward</dt><dd>—</dd></div>
+              <div><dt>GPU</dt><dd>—</dd></div>
+              <div><dt>Profile</dt><dd>—</dd></div>
+            </dl>
+            <div class="run-actions">
+              <button id="start-training" class="start-button"><span>▶</span> Start training</button>
+              <button id="stop-training" class="danger-button">Stop</button>
+            </div>
+            <p class="run-note">Start always uses the saved profile. Stop preserves code, logs, and checkpoints.</p>
+          </div>
+
+          <div class="video-card">
+            <div class="video-head"><div><p class="eyebrow">LATEST ROLLOUT</p><h3>Robot playback</h3></div><button id="refresh-video">Fetch newest</button></div>
+            <div class="video-frame"><video id="training-video" controls muted playsinline></video><p id="video-empty">Fetch the newest rollout. If needed, one is rendered from the latest checkpoint after training finishes.</p></div>
+            <p id="video-context">Newest run: checking task and surface…</p>
+            <p>Reward tells you whether PPO found a score. Video tells you what behavior earned it.</p>
+          </div>
+
+          <div class="check-card">
+            <div class="check-title"><span>✓</span><h3>Launch checks</h3></div>
+            <ul id="launch-checks"></ul>
+          </div>
+
+          <div class="console-card">
+            <div><p class="eyebrow">LAST ACTION</p><button id="clear-console">Clear</button></div>
+            <pre id="console-output">No action yet.</pre>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <div class="dialog-icon">■</div>
+      <h2>Stop training?</h2>
+      <p>This stops the exact Isaac Lab container and frees the GPU. Run files and checkpoints remain on the GB10.</p>
+      <div><button value="cancel" class="secondary">Keep running</button><button value="confirm" class="danger-button">Stop training</button></div>
+    </form>
+  </dialog>
+  <script src="/app.js" defer></script>
+</body>
+</html>

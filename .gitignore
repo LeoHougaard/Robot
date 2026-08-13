@@ -23,6 +23,8 @@ Thumbs.db
 training/logs/
 training/runs/
 training/diagnostics/
+control_center/cache/
+.control-center-cache/
 training/assets/onshape/
 autoresearch/runs/
 autoresearch/escalations/
@@ -41,6 +43,9 @@ autoresearch/*.mp4
 *.onnx
 *.engine
 *.npz
+artifacts/deployments/
+artifacts/historical-runtime-*/
+artifacts/inward-knee-core-[0-9]*.png
 
 # Temporary files
 *.tmp

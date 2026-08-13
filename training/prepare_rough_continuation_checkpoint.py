@@ -17,15 +17,17 @@ def allowed_checkpoint(path: Path) -> bool:
         relative = path.resolve().relative_to(ALLOWED_ROOT)
     except ValueError:
         return False
-    return (
-        path.suffix == ".pth"
-        and relative.parts
-        and relative.parts[0]
-        in {
-            "simple_dog_velocity_direct",
-            "simple_dog_rough_velocity_direct",
-        }
-    )
+    if path.suffix != ".pth" or not relative.parts:
+        return False
+    experiment = relative.parts[0]
+    return experiment in {
+        "simple_dog_velocity_direct",
+        "simple_dog_rough_velocity_direct",
+    } or experiment.startswith("quadruped_v2_")
+
+
+def experiment_namespace(path: Path) -> str:
+    return path.resolve().relative_to(ALLOWED_ROOT).parts[0]
 
 
 def main() -> int:
@@ -38,6 +40,8 @@ def main() -> int:
 
     if not allowed_checkpoint(args.source) or not allowed_checkpoint(args.destination):
         raise SystemExit("Source and destination must stay below Simple Dog logs.")
+    if experiment_namespace(args.source) != experiment_namespace(args.destination):
+        raise SystemExit("Source and destination must use the same robot experiment namespace.")
     if not args.source.is_file():
         raise SystemExit(f"Source checkpoint does not exist: {args.source}")
     if args.destination.exists():

@@ -12,6 +12,21 @@ faulthandler.register(signal.SIGUSR1, all_threads=True)
 
 import simple_dog_task  # noqa: F401
 import simple_dog_task_v2  # noqa: F401
+from robot_control_profile import apply_agent_profile, load_control_profile
+
+
+control_profile = load_control_profile()
+import isaaclab_tasks.utils as isaac_task_utils
+
+original_resolve_task_config = isaac_task_utils.resolve_task_config
+
+
+def resolve_task_config_with_profile(*args, **kwargs):
+    env_cfg, agent_cfg = original_resolve_task_config(*args, **kwargs)
+    return env_cfg, apply_agent_profile(agent_cfg, control_profile)
+
+
+isaac_task_utils.resolve_task_config = resolve_task_config_with_profile
 
 
 deferred_checkpoint = os.environ.pop("SIMPLE_DOG_CHECKPOINT", "")
@@ -50,5 +65,6 @@ try:
         run_name="__main__",
     )
 finally:
+    isaac_task_utils.resolve_task_config = original_resolve_task_config
     if deferred_checkpoint:
         builtins.__import__ = original_import

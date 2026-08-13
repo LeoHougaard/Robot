@@ -17,9 +17,10 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
     throw "NVIDIA Sync SSH key was not found."
 }
 
-$identity = (& ssh @sshOptions $sshTarget "whoami").Trim()
+$identityOutput = & ssh -n @sshOptions $sshTarget "whoami"
+$identity = ($identityOutput -join "").Trim()
 if ($LASTEXITCODE -ne 0 -or $identity -ne "leo") {
-    throw "Refusing to continue because the remote identity is not exactly leo."
+    throw "Could not verify the GB10 as user leo. Check that gx10-ddb2.local is reachable."
 }
 
 $remoteHelper = "/home/leo/isaac-workspace/projects/training/simple-dog-gb10.sh"

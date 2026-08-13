@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/LeoHougaard/Robot-Training/actions/workflows/ci.yml/badge.svg)](https://github.com/LeoHougaard/Robot-Training/actions/workflows/ci.yml)
 
-Reinforcement-learning infrastructure for training a custom eight-joint
-quadruped in NVIDIA Isaac Lab.
+Reinforcement-learning infrastructure for training quadrupeds in NVIDIA Isaac
+Lab. The control-center workflow starts from Isaac Lab's official 12-DOF
+Unitree Go2 reference and provides a gated 12-DOF custom-robot profile.
 
 The project currently executes on an NVIDIA GB10/DGX Spark, but the repository
 is organized around the robot, training tasks, evaluation, and policy
@@ -18,6 +19,9 @@ promotion—not around the computer that runs them.
 - Runs bounded autoresearch cycles with deterministic checkpoint promotion.
 - Includes a second-generation training method with deployable observations,
   curved-path commands, disturbance recovery, and goal-completion stages.
+- Provides a local control-center UI for robot mapping, joint drives, surfaces,
+  physics, resets, rewards, PPO, run control, progress, best reward, and rollout
+  video.
 
 [Watch the first validated forward-walking policy](artifacts/simple-dog-walking/simple-dog-forward-walk.mp4).
 
@@ -72,6 +76,19 @@ After reviewing the license:
 .\Isaac-GB10.ps1 test-lab
 ```
 
+Open the local training control center:
+
+```powershell
+.\Start-RobotControlCenter.ps1
+```
+
+It starts from the official Isaac Lab Unitree Go2 12-DOF reference profile.
+The custom 12-DOF template cannot launch until its USD asset, semantic
+joint/contact mappings, and standing pose have been replaced and marked
+validated. See
+[control_center/README.md](control_center/README.md) for the setting map and
+workflow.
+
 Start V2 Core training:
 
 ```powershell
@@ -83,6 +100,12 @@ Inspect or stop it:
 ```powershell
 .\Get-SimpleDogTrainingStatus.ps1
 .\Stop-SimpleDogTraining.ps1
+```
+
+Deterministic promotion (runs only while training/playback is idle):
+
+```powershell
+.\Test-SimpleDogPolicy.ps1 -Stage Core -Checkpoint "<V2 checkpoint>" -ControlProfile ".\control_center\profiles\assembly-1-12dof.json"
 ```
 
 See [ISAAC-GB10.md](ISAAC-GB10.md) for backend setup, persistence, streaming,

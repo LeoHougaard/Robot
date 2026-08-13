@@ -29,8 +29,8 @@ try:
     import omni.kit.asset_converter
 
     inputs = sorted(args.input_dir.glob("*.gltf"))
-    if len(inputs) != 9:
-        raise RuntimeError(f"Expected 9 Publisher glTF files, found {len(inputs)}")
+    if not inputs:
+        raise RuntimeError(f"No Publisher glTF files found below {args.input_dir}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     context = omni.kit.asset_converter.AssetConverterContext()

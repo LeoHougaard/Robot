@@ -74,6 +74,21 @@ container; the container is reproducible runtime state, not a backup.
 
 ### Simple eight-joint dog training
 
+For an ergonomic front end over the same checked-in launchers and Isaac Lab
+configuration, run:
+
+```powershell
+.\Start-RobotControlCenter.ps1
+```
+
+The loopback-only control center edits a validated JSON profile, shows an
+explanation beside every technical setting, starts/stops training, reads live
+status and best reward, and retrieves the newest periodic Isaac Lab rollout
+video. The selected profile SHA is copied into each run directory, so the UI,
+launcher, and Isaac runtime can detect configuration drift. Full usage and the
+12-DOF replacement workflow are documented in
+[control_center/README.md](control_center/README.md).
+
 The imported `simple-8-joint-dog` has a direct Isaac Lab velocity-tracking task
 and RL-Games PPO configuration:
 
@@ -195,6 +210,8 @@ above 0.9994, and the robot advanced 2.2826 m with 0.0210 m lateral drift over
 # Start one robot with a fixed 0.25 m/s command and stream its following camera
 .\Start-SimpleDogPlayback.ps1 -AllowPrivateLanStreaming
 .\Start-SimpleDogPlayback.ps1 -AllowPrivateLanStreaming -Terrain Rough -Checkpoint "<rough-checkpoint>"
+.\Start-SimpleDogPlayback.ps1 -AllowPrivateLanStreaming -Terrain V2Core -Checkpoint "<V2-checkpoint>"
+.\Start-SimpleDogPlayback.ps1 -AllowPrivateLanStreaming -Terrain V2Rough -Checkpoint "<V2-checkpoint>"
 
 # Check the exact container and recent motion diagnostics
 .\Get-SimpleDogPlaybackStatus.ps1

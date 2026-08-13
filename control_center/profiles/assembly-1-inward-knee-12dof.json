@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "profile_id": "assembly-1-inward-knee-12dof",
+  "display_name": "Assembly 1 inward-knee fast trot (12 DOF)",
+  "robot": {
+    "asset_source": "Workspace USD",
+    "asset_usd": "/workspace/projects/assets/onshape/assembly-1-12dof/robot.usd",
+    "reference_task": "Isaac-Velocity-Flat-Spot-v0",
+    "semantic_direction_contract": "inward-knee-diagonal-v1",
+    "expected_joint_count": 12,
+    "ready_for_training": true,
+    "start_position": [0.0, 0.0, 0.24],
+    "start_rotation_deg": [0.0, 0.0, 0.0],
+    "forward_axis": [0.0, -1.0, 0.0],
+    "contacts": {
+      "base": "_MPiebr7IdhajYW6eO",
+      "undesired": "_Mhv5zt3lMxiizK3SJ|_MpnH2YHTyiQ_JyCZ4|_MUh0NA8R5y_ilsXJ6|_MxLtl6rYnPCgy9Bhh|_Mqv1zKhsEzD3iceNj|_MosOuh_Bt0Jd8Z_NG|_MQeiklgYrAy_a4DJW|_MZstmdATaM0AkPkNR",
+      "feet": {
+        "front_right": "_MbBQZAdjJlGER7cV8",
+        "front_left": "_Mo7_oagaRZ4I50x4j",
+        "back_right": "_M0efN_7uWNf7Aa7dg",
+        "back_left": "_MDx3QGFfjspcCr5Rg"
+      }
+    },
+    "joints": [
+      {"name":"_Mvx25ILSKOm67_Qlp","semantic":"front_right_hip_abduction","direction":1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MRX_rVH5k4iFAjkjf","semantic":"front_right_hip_flexion","direction":1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MIPVGm2_wq9Dp9xdF","semantic":"front_right_knee_flexion","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MQ77oFE3Ib12HHcxZ","semantic":"front_left_hip_abduction","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_M5cZki8QQP548_2PO","semantic":"front_left_hip_flexion","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_M18udUqKIWCqPFFLr","semantic":"front_left_knee_flexion","direction":1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_Mxym1EieCmD3VXMvm","semantic":"back_right_hip_abduction","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_M6fSK6pFE27LmB5RK","semantic":"back_right_hip_flexion","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MXk_Tu8uQgQS8HYno","semantic":"back_right_knee_flexion","direction":1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MOvU158RR_RztXQ_Z","semantic":"back_left_hip_abduction","direction":1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MsA1d57xUuCkOpqlh","semantic":"back_left_hip_flexion","direction":1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001},
+      {"name":"_MSb_K8nc7t3SWSsqP","semantic":"back_left_knee_flexion","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001}
+    ]
+  },
+  "training": {"stage":"V2Goal","num_envs":512,"max_iterations":1125,"checkpoint":"/workspace/projects/training/logs/rl_games/quadruped_v2_assembly_1_inward_knee_12dof/2026-08-12_22-17-01/nn/goal_balanced_refine_reset_lr5e-6.pth","seed":42,"record_video":false,"video_interval":5000,"video_length":400},
+  "environment": {"surface":"Flat","static_friction":1.0,"dynamic_friction":0.9,"restitution":0.0,"physics_hz":200,"control_hz":50,"action_scale":0.35,"action_delta_limit":0.24,"episode_length_s":12.0,"termination_height":0.10,"env_spacing":1.5},
+  "terrain": {"roughness_min":0.0025,"roughness_max":0.03,"slope_max":0.18,"tile_size":4.0},
+  "physics": {"solver_position_iterations":8,"solver_velocity_iterations":4,"self_collisions":false,"max_depenetration_velocity":0.5,"contact_patch_capacity":524288},
+  "commands": {"forward_min":0.15,"forward_max":0.40,"lateral_min":0.0,"lateral_max":0.0,"yaw_max":0.35,"straight_fraction":0.10,"low_speed_straight_fraction":0.15,"high_speed_straight_fraction":0.15,"hold_min_s":2.0,"hold_max_s":4.0,"smoothing_s":0.35,"standing_fraction":0.15,"turn_fraction":0.35,"curve_right_fraction":0.50,"turn_right_fraction":0.50,"turn_yaw_min":0.20,"turn_yaw_max":0.35},
+  "reset": {"small_tilt_deg":10.0,"large_tilt_deg":20.0,"large_tilt_fraction":0.20,"randomize_yaw":true,"joint_position_noise":0.03,"joint_velocity_noise":0.0},
+  "domain_randomization": {"enabled":true,"base_mass_scale_min":0.90,"base_mass_scale_max":1.10,"base_com_x":0.015,"base_com_y":0.015,"base_com_z":0.005,"robot_static_friction_min":0.70,"robot_static_friction_max":1.10,"robot_dynamic_friction_min":0.60,"robot_dynamic_friction_max":1.00,"robot_restitution_min":0.0,"robot_restitution_max":0.0,"material_buckets":32},
+  "actuators": {"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":8.0,"armature":0.001,"soft_limit_factor":0.90},
+  "disturbance": {"push_probability":0.35,"push_linear_velocity":0.25,"push_yaw_velocity":0.20,"push_interval_min_s":6.0,"push_interval_max_s":10.0},
+  "noise": {"enabled":true,"gyro":0.15,"gravity":0.04,"joint_position":0.01,"joint_velocity":0.80},
+  "rewards": {"locomotion":14.0,"yaw":8.0,"diagonal_gait":3.0,"complete_gait_cycle":10.0,"reference_trot":0.75,"reference_trot_period_s":0.36,"foot_clearance":2.0,"target_foot_clearance_m":0.025,"nominal_foot_com_z_from_base_m":-0.1304,"foot_clearance_std":0.012,"air_time_variance_penalty":-12.0,"diagonal_joint_symmetry":3.0,"diagonal_joint_symmetry_std":0.04,"uncommanded_motion_penalty":-25.0,"prolonged_foot_air_penalty":-8.0,"stability_penalty":-8.0,"action_rate_penalty":-0.50,"foot_slip_penalty":-8.0,"undesired_contact_penalty":-1.0,"fall_penalty":-8.0,"velocity_tracking_std":0.12,"stationary_velocity_std":0.05,"yaw_tracking_std":0.15,"diagonal_gait_std":0.10,"max_foot_air_time_s":0.35,"max_foot_contact_time_s":0.45,"max_gait_cycle_interval_s":0.70},
+  "ppo": {"learning_rate":0.000005,"learning_rate_schedule":"fixed","horizon_length":32,"minibatch_size":4096,"mini_epochs":5,"gamma":0.99,"gae_lambda":0.95,"entropy_coefficient":0.0001,"clip_range":0.2,"kl_threshold":0.01,"grad_norm":1.0,"critic_coefficient":2.0,"activation":"elu","hidden_units":[128,128,128]}
+}

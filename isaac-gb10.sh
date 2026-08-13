@@ -357,10 +357,15 @@ create_playback_container() {
   local terrain="${3:-flat}"
   local task="Isaac-Velocity-Flat-Simple-Dog-Direct-Play-v0"
   local playback_envs=1
-  [[ "$terrain" == "flat" || "$terrain" == "rough" ]] || die "Playback terrain must be flat or rough."
+  [[ "$terrain" == "flat" || "$terrain" == "rough" || "$terrain" == "v2core" || "$terrain" == "v2rough" ]] ||
+    die "Playback terrain must be flat, rough, v2core, or v2rough."
   if [[ "$terrain" == "rough" ]]; then
     task="Isaac-Velocity-Rough-Simple-Dog-Direct-Play-v0"
     playback_envs=4
+  elif [[ "$terrain" == "v2core" ]]; then
+    task="Isaac-Locomotion-V2-Simple-Dog-Direct-Play-v0"
+  elif [[ "$terrain" == "v2rough" ]]; then
+    task="Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-Play-v0"
   fi
   image_exists "$LAB_IMAGE" || die "Isaac Lab image is absent. Run setup first."
   ensure_project_directories
@@ -403,8 +408,17 @@ start_dog_playback() {
     "Dog playback needs Isaac Sim streaming. Re-run with -AllowPrivateLanStreaming after accepting that ports 49100/TCP and 47998/UDP have no authentication or encryption."
   local checkpoint="${2:-}"
   local terrain="${3:-flat}"
-  [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth || "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ]] || die \
+  [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || die \
     "Playback checkpoint must be a .pth file below the simple-dog log directory."
+  if [[ "$terrain" == "v2core" || "$terrain" == "v2rough" ]]; then
+    [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || die \
+      "V2 playback requires a V2 checkpoint."
+  else
+    [[ "$checkpoint" != /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || die \
+      "A V2 checkpoint requires a V2 playback task."
+  fi
   [[ -f "${PROJECTS_DIR}${checkpoint#/workspace/projects}" ]] || die \
     "Playback checkpoint does not exist: ${checkpoint}"
   [[ -f "${PROJECTS_DIR}/training/play_simple_dog.py" ]] || die \

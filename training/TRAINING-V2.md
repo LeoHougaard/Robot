@@ -22,10 +22,12 @@ passes, and no policy promotion based only on training reward.
   position/velocity, and previous action.
 - Excluded from the actor: simulator-truth base velocity, absolute position,
   absolute heading, terrain heights, and contacts.
-- Output: eight joint-position residuals tracked by the existing PD drives.
-- Command: forward speed and smoothly changing yaw rate. This describes the
-  tangent of a curved local path. A later path follower converts a requested
-  world `x, y, yaw` goal into these local commands.
+- Output: twelve joint-position residuals for the control-center quadruped,
+  tracked in explicit semantic order by the configured actuator model. The
+  preserved legacy V1 dog remains an independent eight-action task.
+- Command: body-frame forward/lateral speed and smoothly changing yaw rate.
+  A later path follower converts a requested world `x, y, yaw` goal into these
+  local commands.
 
 The gyro and projected-gravity inputs represent the main-body IMU. Projected
 gravity is not raw accelerometer data: hardware must derive it from an
@@ -36,6 +38,11 @@ and previous action. The actor needs no absolute yaw or measured base velocity.
 IMU state was already present in V1 simulation, so its absence did not cause
 the rough-simulation failure; a real robot without it would have a serious
 deployment mismatch.
+
+The control profile also owns startup domain randomization for base mass,
+center of mass, and robot contact material. These quantities are sampled once
+per parallel environment, while reset tilt, joint state, sensor noise, and
+timed pushes vary throughout training. All ranges remain visible in the UI.
 
 ## Reward
 
@@ -49,6 +56,9 @@ The two values are averaged. Everything else is secondary:
 
 - progress-gated yaw-rate tracking;
 - a small, progress-gated diagonal-pair timing reward;
+- removal of positive locomotion credit when any foot remains airborne beyond
+  a physically plausible swing window, plus a progress-gated excess-air-time
+  penalty;
 - base stability;
 - action-rate, foot-slip, and non-foot-contact penalties;
 - a one-time fall penalty.
@@ -60,6 +70,14 @@ so the signal remains dense. It is gated by actual progress and cannot pay a
 stationary robot. Isaac Lab's public Spot task uses this diagonal-pair
 structure; this does not mean Boston Dynamics has disclosed Spot's exact
 production reward.
+
+The all-foot guard uses contact timing only in the critic-side reward. Contacts
+and terrain heights remain excluded from the deployable actor input. The frame
+size is `9 + 3 * joint_count`; four frames produce 180 values for a 12-DOF
+quadruped. Checkpoints are namespaced by robot profile because observation and
+action dimensions must never be mixed.
+It therefore prevents a permanently lifted leg from hiding inside averaged
+gait terms without introducing a simulation-only deployment dependency.
 
 ## Stages
 
@@ -132,7 +150,12 @@ source/controller failures.
   -Checkpoint "<V2 checkpoint>"
 .\Start-SimpleDogTraining.ps1 -Terrain V2Goal -NumEnvs 512 -MaxIterations 1250 `
   -Checkpoint "<passing V2 Robust checkpoint>"
+.\Start-SimpleDogTraining.ps1 -Terrain V2Rough -NumEnvs 512 -MaxIterations 5000
 ```
+
+The fresh `V2Rough` form is an explicitly requested exploratory run, not a
+promotion shortcut around the Core, Robust, and Goal acceptance gates. Normal
+stage progression continues Rough from a passing V2 checkpoint.
 
 `MaxIterations` is the total PPO epoch target, so each continuation target
 must be higher than its source checkpoint epoch.

@@ -1,0 +1,287 @@
+"""Parse deterministic V2 rollout metrics and enforce promotion gates."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+from pathlib import Path
+
+
+EXPECTED = {
+    "core": ("straight", "left_curve", "right_curve", "fast", "slow"),
+    "robust": ("straight", "left_curve", "right_curve", "fast", "slow"),
+    "goal": ("stand", "turn_left", "turn_right", "walk_left", "walk_right", "stop"),
+}
+
+
+def parse_value(value: str):
+    if "," in value:
+        return [float(item) for item in value.split(",")]
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            return value
+
+
+def read_segments(path: Path) -> dict[str, dict]:
+    segments: dict[str, dict] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.startswith("EVAL_SEGMENT "):
+            continue
+        record = {}
+        for token in line.split()[1:]:
+            key, separator, value = token.partition("=")
+            if separator:
+                record[key] = parse_value(value)
+        name = record.get("name")
+        if isinstance(name, str):
+            segments[name] = record
+    return segments
+
+
+def add_failure(failures: list[str], name: str, message: str) -> None:
+    failures.append(f"{name}: {message}")
+
+
+def check_common(name: str, record: dict, failures: list[str]) -> None:
+    if int(record["resets"]) != 0:
+        add_failure(failures, name, f"reset/fall count is {record['resets']}")
+    if float(record["min_height"]) < 0.10:
+        add_failure(failures, name, f"minimum body height is {record['min_height']:.3f} m")
+
+
+def check_walking(name: str, record: dict, failures: list[str]) -> None:
+    command_forward = float(record["command_forward"])
+    mean_forward = float(record["mean_body_forward"])
+    if mean_forward < 0.70 * command_forward:
+        add_failure(
+            failures,
+            name,
+            f"forward tracking is {mean_forward:.3f} for {command_forward:.3f} m/s",
+        )
+    maximum_forward = max(1.30 * command_forward, command_forward + 0.05)
+    if mean_forward > maximum_forward:
+        add_failure(
+            failures,
+            name,
+            f"forward overspeed is {mean_forward:.3f} for {command_forward:.3f} m/s",
+        )
+    if float(record["mean_abs_body_lateral"]) > 0.10:
+        add_failure(
+            failures,
+            name,
+            f"mean lateral speed is {record['mean_abs_body_lateral']:.3f} m/s",
+        )
+    command_yaw = float(record["command_yaw"])
+    # A curved trajectory is expected to move laterally in the segment's
+    # starting world frame. Body-frame lateral velocity remains gated above;
+    # world-frame lateral displacement is a drift gate only for straight runs.
+    if abs(command_yaw) < 0.05 and abs(float(record["lateral_displacement"])) > 0.35:
+        add_failure(
+            failures,
+            name,
+            f"segment lateral drift is {record['lateral_displacement']:.3f} m",
+        )
+    mean_yaw = float(record["mean_yaw_rate"])
+    if abs(mean_yaw - command_yaw) > 0.12:
+        add_failure(
+            failures,
+            name,
+            f"yaw-rate tracking is {mean_yaw:.3f} for {command_yaw:.3f} rad/s",
+        )
+    expected_heading = command_yaw * int(record["steps"]) * 0.02
+    heading_error = math.remainder(
+        float(record["heading_delta"]) - expected_heading, 2.0 * math.pi
+    )
+    if abs(heading_error) > 0.45:
+        add_failure(
+            failures,
+            name,
+            f"heading error is {heading_error:.3f} rad",
+        )
+    swing = record["swing_fraction_frflbrbl"]
+    landings = record["landings_frflbrbl"]
+    for index, label in enumerate(("FR", "FL", "BR", "BL")):
+        if not 0.03 <= float(swing[index]) <= 0.95:
+            add_failure(
+                failures, name, f"{label} swing fraction is {float(swing[index]):.3f}"
+            )
+        if int(landings[index]) < 1:
+            add_failure(failures, name, f"{label} did not land")
+
+
+def check_stationary(name: str, record: dict, failures: list[str]) -> None:
+    if abs(float(record["mean_body_forward"])) > 0.06:
+        add_failure(
+            failures,
+            name,
+            f"mean forward speed while stopped is {record['mean_body_forward']:.3f} m/s",
+        )
+    if float(record["mean_abs_body_lateral"]) > 0.06:
+        add_failure(
+            failures,
+            name,
+            f"mean lateral speed while stopped is {record['mean_abs_body_lateral']:.3f} m/s",
+        )
+    if abs(float(record["mean_yaw_rate"])) > 0.08:
+        add_failure(
+            failures,
+            name,
+            f"mean yaw rate while stopped is {record['mean_yaw_rate']:.3f} rad/s",
+        )
+
+
+def check_turn(name: str, record: dict, failures: list[str]) -> None:
+    if abs(float(record["mean_body_forward"])) > 0.08:
+        add_failure(
+            failures,
+            name,
+            f"translation during turn is {record['mean_body_forward']:.3f} m/s",
+        )
+    if float(record["mean_abs_body_lateral"]) > 0.08:
+        add_failure(
+            failures,
+            name,
+            f"lateral motion during turn is {record['mean_abs_body_lateral']:.3f} m/s",
+        )
+    command_yaw = float(record["command_yaw"])
+    mean_yaw = float(record["mean_yaw_rate"])
+    if abs(mean_yaw - command_yaw) > 0.12:
+        add_failure(
+            failures,
+            name,
+            f"yaw-rate tracking is {mean_yaw:.3f} for {command_yaw:.3f} rad/s",
+        )
+    expected_heading = command_yaw * int(record["steps"]) * 0.02
+    heading_error = math.remainder(
+        float(record["heading_delta"]) - expected_heading, 2.0 * math.pi
+    )
+    if abs(heading_error) > 0.45:
+        add_failure(failures, name, f"heading error is {heading_error:.3f} rad")
+    swing = record["swing_fraction_frflbrbl"]
+    landings = record["landings_frflbrbl"]
+    for index, label in enumerate(("FR", "FL", "BR", "BL")):
+        if not 0.03 <= float(swing[index]) <= 0.95:
+            add_failure(
+                failures, name, f"{label} swing fraction is {float(swing[index]):.3f}"
+            )
+        if int(landings[index]) < 1:
+            add_failure(failures, name, f"{label} did not land")
+
+
+def check_gait_quality(
+    name: str,
+    record: dict,
+    failures: list[str],
+    *,
+    vertical_speed_limit: float,
+) -> None:
+    """Reject motion that passes commands by sliding or violent action jumps."""
+    # This is mean COM speed per stance foot, not the previous sum across all
+    # contacting feet. A per-foot metric is comparable across trot/duty phases.
+    if float(record["mean_foot_slip"]) > 0.30:
+        add_failure(
+            failures, name,
+            f"mean foot slip is {record['mean_foot_slip']:.3f} m/s",
+        )
+    if float(record["mean_action_rate"]) > 2.50:
+        add_failure(
+            failures, name,
+            f"mean squared action change is {record['mean_action_rate']:.3f}",
+        )
+    if float(record["max_action_step"]) > 0.42:
+        add_failure(
+            failures, name,
+            f"maximum normalized action step is {record['max_action_step']:.3f}",
+        )
+    if float(record["mean_abs_vertical_speed"]) > vertical_speed_limit:
+        add_failure(
+            failures, name,
+            "mean vertical speed is "
+            f"{record['mean_abs_vertical_speed']:.3f} m/s "
+            f"(limit {vertical_speed_limit:.3f})",
+        )
+    swing = [float(value) for value in record["swing_fraction_frflbrbl"]]
+    swing_limit = 0.20 if float(record["command_forward"]) > 0.05 else 0.25
+    if max(swing) - min(swing) > swing_limit:
+        add_failure(
+            failures, name,
+            "four-foot swing fractions are unbalanced "
+            f"({','.join(f'{value:.3f}' for value in swing)})",
+        )
+    landings = [int(value) for value in record["landings_frflbrbl"]]
+    if max(landings) - min(landings) > 3:
+        add_failure(
+            failures, name,
+            "four-foot landing counts are unbalanced "
+            f"({','.join(str(value) for value in landings)})",
+        )
+
+
+def evaluate(
+    stage: str, segments: dict[str, dict], *, require_gait_quality: bool = False
+) -> dict:
+    expected = EXPECTED[stage]
+    failures: list[str] = []
+    missing = [name for name in expected if name not in segments]
+    if missing:
+        failures.append(f"missing evaluation segments: {', '.join(missing)}")
+        return {"stage": stage, "passed": False, "failures": failures, "segments": segments}
+
+    for name in expected:
+        record = segments[name]
+        check_common(name, record, failures)
+        command_forward = float(record["command_forward"])
+        command_yaw = float(record["command_yaw"])
+        if command_forward > 0.05:
+            check_walking(name, record, failures)
+        elif abs(command_yaw) > 0.05:
+            check_turn(name, record, failures)
+        else:
+            check_stationary(name, record, failures)
+        if require_gait_quality and (command_forward > 0.05 or abs(command_yaw) > 0.05):
+            # Robust evaluation injects repeated planar velocity impulses and
+            # begins from an 8-degree tilt. Permit the bounded recovery
+            # transient while leaving the unperturbed Core/Goal gait limit at
+            # 0.100 m/s.
+            check_gait_quality(
+                name,
+                record,
+                failures,
+                vertical_speed_limit=0.115 if stage == "robust" else 0.100,
+            )
+    return {
+        "stage": stage,
+        "passed": not failures,
+        "failures": failures,
+        "segments": {name: segments[name] for name in expected},
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("console_log", type=Path)
+    parser.add_argument("--stage", choices=tuple(EXPECTED), required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--require-gait-quality", action="store_true")
+    args = parser.parse_args()
+
+    result = evaluate(
+        args.stage,
+        read_segments(args.console_log),
+        require_gait_quality=args.require_gait_quality,
+    )
+    payload = json.dumps(result, indent=2, sort_keys=True)
+    print(payload)
+    if args.output:
+        args.output.write_text(payload + "\n", encoding="utf-8")
+    if not result["passed"]:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

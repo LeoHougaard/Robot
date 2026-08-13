@@ -29,6 +29,9 @@ case "$terrain" in
   v2goal)
     readonly TASK_NAME="Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0"
     ;;
+  v2rough)
+    readonly TASK_NAME="Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0"
+    ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
     exit 2
@@ -61,6 +64,26 @@ printf '%s\n' "$TASK_NAME" >"${run_dir}/task"
 printf '%s\n' "$num_envs" >"${run_dir}/num_envs"
 printf '%s\n' "$max_iterations" >"${run_dir}/max_iterations"
 
+if [[ -n "${SIMPLE_DOG_CONTROL_PROFILE:-}" ]]; then
+  [[ "$SIMPLE_DOG_CONTROL_PROFILE" == /workspace/projects/training/control_profiles/*.json ]] || {
+    printf 'Control profile is outside the training control_profiles directory: %s\n' \
+      "$SIMPLE_DOG_CONTROL_PROFILE" >&2
+    exit 2
+  }
+  [[ -f "$SIMPLE_DOG_CONTROL_PROFILE" ]] || {
+    printf 'Control profile does not exist: %s\n' "$SIMPLE_DOG_CONTROL_PROFILE" >&2
+    exit 2
+  }
+  cp "$SIMPLE_DOG_CONTROL_PROFILE" "${run_dir}/control_profile.json"
+  printf '%s\n' "${SIMPLE_DOG_CONTROL_PROFILE_SHA:-unknown}" >"${run_dir}/profile_sha"
+  /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 - <<'PY' >"${run_dir}/profile_id"
+import json
+import os
+with open(os.environ["SIMPLE_DOG_CONTROL_PROFILE"], encoding="utf-8") as handle:
+    print(json.load(handle)["profile_id"])
+PY
+fi
+
 on_signal() {
   printf 'interrupted\n' >"${run_dir}/status"
   exit 130
@@ -70,17 +93,20 @@ trap on_signal INT TERM
 if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
   [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
-     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || {
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] || {
     printf 'Checkpoint is outside the simple-dog log directory: %s\n' "$SIMPLE_DOG_CHECKPOINT" >&2
     exit 2
   }
   if [[ "$terrain" == v2* ]]; then
-    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || {
+    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
+       "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] || {
       printf 'V2 terrain requires a V2 checkpoint because policy observations differ.\n' >&2
       exit 2
     }
   else
-    [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || {
+    [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth &&
+       "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] || {
       printf 'A V2 checkpoint cannot be loaded into a V1 task.\n' >&2
       exit 2
     }
@@ -110,6 +136,15 @@ if [[ -n "${SIMPLE_DOG_TUNING_CONFIG:-}" ]]; then
   cp "$SIMPLE_DOG_TUNING_CONFIG" "${run_dir}/requested_tuning.json"
 fi
 
+video_args=()
+if [[ "${SIMPLE_DOG_RECORD_VIDEO:-0}" == 1 ]]; then
+  video_args=(
+    --video
+    "--video_interval=${SIMPLE_DOG_VIDEO_INTERVAL:-5000}"
+    "--video_length=${SIMPLE_DOG_VIDEO_LENGTH:-400}"
+  )
+fi
+
 set +e
 PYTHONUNBUFFERED=1 \
 PYTHONPATH="$TRAINING_ROOT" \
@@ -118,6 +153,7 @@ PYTHONPATH="$TRAINING_ROOT" \
   --task="$TASK_NAME" \
   --num_envs="$num_envs" \
   --max_iterations="$max_iterations" \
+  "${video_args[@]}" \
   --viz=none \
   >"${run_dir}/console.log" 2>&1
 exit_code=$?
