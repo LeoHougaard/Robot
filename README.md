@@ -20,7 +20,7 @@ The current firmware is written for serial bus servos such as the Waveshare/Feet
 
    ```powershell
    pio run -t upload
-   pio device monitor -b 115200
+   pio device monitor -b 460800
    ```
 
 4. Open `ui/index.html` in Chrome or Edge.
@@ -79,7 +79,7 @@ If multiple servos move together when you command only one, they share the same 
 
 ## Serial Protocol
 
-Every command is one JSON object. Over serial it is followed by a newline; over Wi-Fi it is sent as the body of `POST /api/command`.
+Every command is one JSON object. Over 460800-baud serial it is followed by a newline; over Wi-Fi it is sent as the body of `POST /api/command`.
 
 Examples:
 
@@ -100,6 +100,9 @@ Examples:
 {"cmd":"home","id":1}
 {"cmd":"home","all":true}
 {"cmd":"stop"}
+{"cmd":"policy_arm","confirm":"CALIBRATED_AND_LIFTED"}
+{"cmd":"policy_frame","seq":1,"targets":{"1":180,"2":180,"3":180,"4":180,"5":180,"6":180,"7":180,"8":180,"9":180,"10":180,"11":180,"12":180}}
+{"cmd":"policy_disarm"}
 {"cmd":"config_get"}
 {"cmd":"config_set","servos":[{"id":1,"name":"hip A","min":0,"max":240,"home":120,"invert":false,"enabled":true}]}
 {"cmd":"play","loop":false,"steps":[{"ms":400,"poses":{"1":90,"2":150}},{"ms":400,"poses":{"1":120,"2":120}}]}
@@ -111,6 +114,7 @@ Responses are also JSON lines and include `ok`, `state`, `config`, or `error` me
 
 - Power the servos from the board's servo power input. USB-C is for ESP32 data/power only unless your board documentation says otherwise.
 - Start with the servo horns removed or the robot lifted so a bad range cannot bind the linkage.
+- Learned-policy commands remain locked until all 12 servos and the IMU are calibrated. Follow `policy_runtime/README.md`; never bypass its lifted-robot first test.
 - Use conservative min/max angles until each joint is mechanically verified.
 - To capture limits, support the leg so it cannot fall, use a low torque percentage, jog slowly to each mechanical endpoint, then set Min or Max in the setup flow. The setup panel tracks the commanded setup angle, so endpoint setup does not depend on servo readback working.
 - If your servos are ST3215/ST-series serial bus servos, IDs must be unique. The defaults assume IDs 1 and 2.
@@ -121,4 +125,5 @@ Responses are also JSON lines and include `ok`, `state`, `config`, or `error` me
 firmware/robot-dog-control/  ESP32 PlatformIO firmware
 ui/index.html               Standalone browser UI
 docs/COMMANDS.md            Protocol details
+policy_runtime/             Learned-policy calibration and goal control
 ```

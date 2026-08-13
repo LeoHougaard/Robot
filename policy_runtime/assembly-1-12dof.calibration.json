@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "robot": "assembly-1-12dof",
+  "calibrated": false,
+  "control_hz": 50,
+  "action_scale_rad": 0.25,
+  "imu": {
+    "calibrated": false,
+    "body_axis_from_sensor_axis": null,
+    "gyro_bias_dps": null,
+    "gravity_sign": null
+  },
+  "joints": [
+    {"policy_index": 0, "semantic": "front_right_hip_abduction", "servo_id": 7, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 1, "semantic": "front_right_hip_flexion", "servo_id": 8, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 2, "semantic": "front_right_knee_flexion", "servo_id": 9, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 3, "semantic": "front_left_hip_abduction", "servo_id": 1, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 4, "semantic": "front_left_hip_flexion", "servo_id": 2, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 5, "semantic": "front_left_knee_flexion", "servo_id": 3, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 6, "semantic": "back_right_hip_abduction", "servo_id": 4, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 7, "semantic": "back_right_hip_flexion", "servo_id": 5, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 8, "semantic": "back_right_knee_flexion", "servo_id": 6, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 9, "semantic": "back_left_hip_abduction", "servo_id": 10, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 10, "semantic": "back_left_hip_flexion", "servo_id": 11, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null},
+    {"policy_index": 11, "semantic": "back_left_knee_flexion", "servo_id": 12, "zero_deg": null, "servo_degrees_per_policy_radian": null, "min_deg": null, "max_deg": null}
+  ]
+}

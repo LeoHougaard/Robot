@@ -90,9 +90,13 @@ static constexpr uint8_t STS_GOAL_SPEED_ADDR = 0x2E;
 static constexpr uint8_t STS_TORQUE_LIMIT_ADDR = 0x30;
 static constexpr uint8_t STS_LOCK_ADDR = 0x37;
 static constexpr uint8_t STS_PRESENT_POSITION_ADDR = 0x38;
+static constexpr uint8_t STS_PRESENT_STATE_BYTES = 4;
 static constexpr uint16_t STS_TORQUE_LIMIT_MAX = 1000;
 static constexpr uint8_t STS_MODE_SERVO = 0;
 static constexpr uint8_t STS_MODE_MOTOR = 1;
+static constexpr uint16_t POLICY_FRAME_TIMEOUT_MS = 120;
+static constexpr uint8_t POLICY_MAX_FEEDBACK_FAILURES = 3;
+static constexpr float POLICY_MAX_TARGET_STEP_DEG = 6.0f;
 
 struct ServoConfig {
   uint8_t id = 0;
@@ -177,6 +181,14 @@ struct ServoIdChangeResult {
   bool ok = false;
 };
 
+struct PolicyControlState {
+  bool armed = false;
+  uint32_t lastFrameAt = 0;
+  uint32_t lastSequence = 0;
+  uint8_t feedbackFailures = 0;
+  bool savedMonitorEnabled[MAX_SERVOS] = {false};
+};
+
 struct DefaultServoDef {
   uint8_t id;
   const char *name;
@@ -256,6 +268,50 @@ public:
     if (!readResponse(id, response, sizeof(response), 20)) return false;
     position = response[5] | (static_cast<uint16_t>(response[6]) << 8);
     return true;
+  }
+
+  bool syncReadPositionSpeed(
+    const uint8_t *ids,
+    uint8_t count,
+    uint16_t *positions,
+    int16_t *speeds,
+    bool *received
+  ) {
+    if (!bus || !ids || !positions || !speeds || !received || count == 0) return false;
+    if (count > MAX_SERVOS) count = MAX_SERVOS;
+
+    uint8_t params[2 + MAX_SERVOS];
+    params[0] = STS_PRESENT_POSITION_ADDR;
+    params[1] = STS_PRESENT_STATE_BYTES;
+    for (uint8_t i = 0; i < count; i++) {
+      params[2 + i] = ids[i];
+      received[i] = false;
+    }
+
+    clearRx();
+    writePacket(0xFE, 0x82, params, count + 2);
+
+    uint8_t replies = 0;
+    uint32_t startedAt = millis();
+    while (replies < count && millis() - startedAt < 12) {
+      uint8_t responseId = 0;
+      uint8_t data[STS_PRESENT_STATE_BYTES];
+      if (!readDataResponse(responseId, data, sizeof(data), 3)) continue;
+
+      for (uint8_t i = 0; i < count; i++) {
+        if (ids[i] != responseId || received[i]) continue;
+        uint16_t rawPosition = data[0] | (static_cast<uint16_t>(data[1]) << 8);
+        uint16_t rawSpeed = data[2] | (static_cast<uint16_t>(data[3]) << 8);
+        positions[i] = rawPosition;
+        speeds[i] = (rawSpeed & 0x8000)
+          ? -static_cast<int16_t>(rawSpeed & 0x7FFF)
+          : static_cast<int16_t>(rawSpeed);
+        received[i] = true;
+        replies++;
+        break;
+      }
+    }
+    return replies == count;
   }
 
   bool ping(uint8_t id) {
@@ -393,6 +449,37 @@ private:
     return false;
   }
 
+  bool readDataResponse(uint8_t &id, uint8_t *data, uint8_t dataLen, uint16_t timeoutMs) {
+    if (!bus || !data || dataLen == 0 || dataLen > 8) return false;
+
+    uint8_t buffer[14];
+    uint8_t expectedLen = dataLen + 6;
+    uint8_t index = 0;
+    uint32_t startedAt = millis();
+    while (millis() - startedAt < timeoutMs) {
+      if (!bus->available()) {
+        delayMicroseconds(100);
+        continue;
+      }
+      uint8_t value = bus->read();
+      if (index == 0 && value != 0xFF) continue;
+      if (index == 1 && value != 0xFF) {
+        index = 0;
+        continue;
+      }
+      buffer[index++] = value;
+      if (index < expectedLen) continue;
+      if (buffer[3] != dataLen + 2 || buffer[4] != 0) return false;
+      uint16_t sum = 0;
+      for (uint8_t i = 2; i < expectedLen - 1; i++) sum += buffer[i];
+      if (static_cast<uint8_t>(~sum) != buffer[expectedLen - 1]) return false;
+      id = buffer[2];
+      memcpy(data, &buffer[5], dataLen);
+      return true;
+    }
+    return false;
+  }
+
   bool readStatus(uint8_t id, uint8_t *buffer, uint8_t expectedLen, uint16_t timeoutMs) {
     uint8_t index = 0;
     uint32_t startedAt = millis();
@@ -438,6 +525,7 @@ MotorChannel motors[] = {
 };
 static constexpr uint8_t MOTOR_COUNT = sizeof(motors) / sizeof(motors[0]);
 ServoIdentifyJob identifyJob;
+PolicyControlState policyControl;
 uint8_t programStepCount = 0;
 uint8_t currentStep = 0;
 bool programPlaying = false;
@@ -817,6 +905,246 @@ void readAllServoAngles(bool setupRange = false) {
   }
 }
 
+void stopAllServoVelocities();
+void stopAllServoMotors();
+bool sampleImu();
+
+bool syncReadConfiguredServoState(int16_t *rawSpeeds, bool *received) {
+  if (servoCount != MAX_SERVOS) return false;
+
+  uint8_t ids[MAX_SERVOS];
+  uint16_t positions[MAX_SERVOS] = {0};
+  for (uint8_t i = 0; i < servoCount; i++) {
+    ids[i] = servos[i].id;
+    rawSpeeds[i] = 0;
+    received[i] = false;
+  }
+
+  bool complete = servoBus.syncReadPositionSpeed(
+    ids, servoCount, positions, rawSpeeds, received
+  );
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (!received[i]) continue;
+    servos[i].measuredAngle = busPositionToMeasuredAngle(servos[i], positions[i]);
+    servos[i].hasMeasuredAngle = true;
+  }
+  return complete;
+}
+
+void sendPolicyState(uint32_t sequence, const int16_t *rawSpeeds, const bool *received) {
+  DynamicJsonDocument doc(2048);
+  doc["type"] = "policy_state";
+  doc["armed"] = policyControl.armed;
+  doc["seq"] = sequence;
+  doc["sample_ms"] = imuState.sampleMs;
+  JsonArray ids = doc["ids"].to<JsonArray>();
+  JsonArray angles = doc["angles_deg"].to<JsonArray>();
+  JsonArray speeds = doc["raw_speeds"].to<JsonArray>();
+  JsonArray feedback = doc["feedback"].to<JsonArray>();
+  for (uint8_t i = 0; i < servoCount; i++) {
+    ids.add(servos[i].id);
+    if (received[i]) angles.add(servos[i].measuredAngle);
+    else angles.add(nullptr);
+    speeds.add(rawSpeeds[i]);
+    feedback.add(received[i]);
+  }
+  JsonArray accel = doc["accel_mg"].to<JsonArray>();
+  JsonArray gyro = doc["gyro_dps"].to<JsonArray>();
+  for (uint8_t i = 0; i < 3; i++) {
+    accel.add(imuState.accel[i]);
+    gyro.add(imuState.gyro[i]);
+  }
+  sendJson(doc);
+}
+
+bool policyHardwareReady(String &reason) {
+  if (servoCount != MAX_SERVOS) {
+    reason = "policy requires exactly 12 configured servos";
+    return false;
+  }
+  bool idSeen[MAX_SERVOS + 1] = {false};
+  for (uint8_t i = 0; i < servoCount; i++) {
+    ServoConfig &servo = servos[i];
+    if (!servo.enabled || servo.id == 0 || servo.id > MAX_SERVOS || idSeen[servo.id]) {
+      reason = "policy requires enabled unique servo ids 1 through 12";
+      return false;
+    }
+    if (!(servo.minAngle < servo.homeAngle && servo.homeAngle < servo.maxAngle)) {
+      reason = "each policy servo needs calibrated min, home, and max angles";
+      return false;
+    }
+    if (
+      servo.minAngle <= 0.01f && servo.maxAngle >= 359.99f &&
+      fabsf(servo.homeAngle - 180.0f) <= 0.01f
+    ) {
+      reason = "policy refuses the uncalibrated 0/180/360 servo defaults";
+      return false;
+    }
+    if (servo.torqueLimit == 0 || servo.torqueLimit >= STS_TORQUE_LIMIT_MAX) {
+      reason = "policy requires a deliberate nonzero reduced torque limit on every servo";
+      return false;
+    }
+    idSeen[servo.id] = true;
+  }
+  for (uint8_t id = 1; id <= MAX_SERVOS; id++) {
+    if (!idSeen[id]) {
+      reason = "policy servo ids must cover 1 through 12";
+      return false;
+    }
+  }
+  if (!imuState.available) {
+    reason = "policy requires the onboard IMU";
+    return false;
+  }
+  return true;
+}
+
+void disarmPolicy(const char *reason, bool notify) {
+  bool wasArmed = policyControl.armed;
+  policyControl.armed = false;
+  policyControl.lastFrameAt = 0;
+  policyControl.feedbackFailures = 0;
+  if (wasArmed) {
+    for (uint8_t i = 0; i < servoCount; i++) {
+      servos[i].monitorEnabled = policyControl.savedMonitorEnabled[i];
+      servos[i].nextMonitorAt = 0;
+    }
+  }
+  if (notify && wasArmed) {
+    StaticJsonDocument<256> doc;
+    doc["type"] = "policy_disarmed";
+    doc["reason"] = reason;
+    sendJson(doc);
+  }
+}
+
+void handlePolicyArm(JsonDocument &doc) {
+  const char *confirmation = doc["confirm"] | "";
+  if (strcmp(confirmation, "CALIBRATED_AND_LIFTED") != 0) {
+    sendError("policy_arm requires confirm CALIBRATED_AND_LIFTED");
+    return;
+  }
+  String reason;
+  if (!policyHardwareReady(reason)) {
+    sendError(reason.c_str());
+    return;
+  }
+
+  programPlaying = false;
+  stopAllServoVelocities();
+  stopAllServoMotors();
+  for (uint8_t i = 0; i < servoCount; i++) ensureServoMode(servos[i]);
+
+  int16_t rawSpeeds[MAX_SERVOS] = {0};
+  bool received[MAX_SERVOS] = {false};
+  if (!syncReadConfiguredServoState(rawSpeeds, received) || !sampleImu()) {
+    sendError("policy arm failed synchronized servo or IMU feedback");
+    return;
+  }
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (
+      servos[i].measuredAngle < servos[i].minAngle ||
+      servos[i].measuredAngle > servos[i].maxAngle
+    ) {
+      sendError("a measured servo angle is outside its calibrated limits");
+      return;
+    }
+  }
+  for (uint8_t i = 0; i < servoCount; i++) {
+    servos[i].lastAngle = servos[i].measuredAngle;
+    policyControl.savedMonitorEnabled[i] = servos[i].monitorEnabled;
+    servos[i].monitorEnabled = false;
+    // Enter position mode at the measured pose before torque is enabled. This
+    // prevents an arm operation from snapping toward a stale target.
+    setServoMode(servos[i], false);
+    servoBus.setTorqueLimit(servos[i].id, servos[i].torqueLimit);
+    servoBus.moveTo(
+      servos[i].id,
+      angleToBusPosition(servos[i], servos[i].measuredAngle),
+      1,
+      0
+    );
+    servoBus.setTorque(servos[i].id, true);
+  }
+
+  policyControl.armed = true;
+  policyControl.lastFrameAt = millis();
+  policyControl.lastSequence = 0;
+  policyControl.feedbackFailures = 0;
+  sendPolicyState(0, rawSpeeds, received);
+}
+
+void handlePolicyFrame(JsonDocument &doc) {
+  if (!policyControl.armed) {
+    sendError("policy is not armed");
+    return;
+  }
+  uint32_t sequence = doc["seq"] | 0;
+  if (sequence == 0 || sequence <= policyControl.lastSequence) {
+    sendError("policy frame sequence must increase");
+    return;
+  }
+  if (!doc["targets"].is<JsonObject>()) {
+    sendError("policy_frame requires targets keyed by servo id");
+    return;
+  }
+
+  JsonObject targets = doc["targets"].as<JsonObject>();
+  uint8_t ids[MAX_SERVOS];
+  uint16_t positions[MAX_SERVOS];
+  float nextAngles[MAX_SERVOS];
+  for (uint8_t i = 0; i < servoCount; i++) {
+    ServoConfig &servo = servos[i];
+    char key[4];
+    snprintf(key, sizeof(key), "%u", servo.id);
+    if (!targets[key].is<float>() && !targets[key].is<int>()) {
+      sendError("policy frame must contain all 12 numeric servo targets");
+      return;
+    }
+    float target = targets[key].as<float>();
+    if (target < servo.minAngle || target > servo.maxAngle) {
+      sendError("policy target is outside a calibrated servo limit");
+      return;
+    }
+    if (fabsf(target - servo.lastAngle) > POLICY_MAX_TARGET_STEP_DEG) {
+      sendError("policy target step exceeds 6 degrees");
+      return;
+    }
+    ids[i] = servo.id;
+    nextAngles[i] = target;
+    positions[i] = angleToBusPosition(servo, target);
+  }
+
+  servoBus.syncMoveTo(ids, positions, servoCount, 1200, 30);
+  for (uint8_t i = 0; i < servoCount; i++) servos[i].lastAngle = nextAngles[i];
+  policyControl.lastSequence = sequence;
+  policyControl.lastFrameAt = millis();
+
+  int16_t rawSpeeds[MAX_SERVOS] = {0};
+  bool received[MAX_SERVOS] = {false};
+  bool feedbackComplete = syncReadConfiguredServoState(rawSpeeds, received);
+  bool imuComplete = sampleImu();
+  if (feedbackComplete && imuComplete) {
+    policyControl.feedbackFailures = 0;
+  } else {
+    policyControl.feedbackFailures++;
+    if (policyControl.feedbackFailures >= POLICY_MAX_FEEDBACK_FAILURES) {
+      disarmPolicy("feedback lost", true);
+      return;
+    }
+  }
+  sendPolicyState(sequence, rawSpeeds, received);
+}
+
+void runPolicyWatchdog() {
+  if (
+    policyControl.armed &&
+    millis() - policyControl.lastFrameAt > POLICY_FRAME_TIMEOUT_MS
+  ) {
+    disarmPolicy("frame timeout; holding last targets", true);
+  }
+}
+
 void stopAllServoVelocities() {
   for (uint8_t i = 0; i < servoCount; i++) {
     servos[i].velocityDps = 0;
@@ -951,7 +1279,7 @@ void runServoVelocities() {
 }
 
 void runServoMonitors() {
-  if (programPlaying) return;
+  if (programPlaying || policyControl.armed) return;
 
   uint32_t now = millis();
   for (uint8_t i = 0; i < servoCount; i++) {
@@ -1123,7 +1451,7 @@ bool sampleImu() {
 }
 
 void runImuMonitor() {
-  if (!imuState.monitorEnabled || millis() < imuState.nextSampleAt) return;
+  if (policyControl.armed || !imuState.monitorEnabled || millis() < imuState.nextSampleAt) return;
   imuState.nextSampleAt = millis() + imuState.intervalMs;
 
   if (sampleImu()) {
@@ -1638,6 +1966,15 @@ void handleCommand(const String &line) {
   }
 
   const char *cmd = doc["cmd"] | "";
+  bool allowedWhilePolicyArmed =
+    strcmp(cmd, "policy_frame") == 0 ||
+    strcmp(cmd, "policy_disarm") == 0 ||
+    strcmp(cmd, "hello") == 0 ||
+    strcmp(cmd, "stop") == 0;
+  if (policyControl.armed && !allowedWhilePolicyArmed) {
+    sendError("manual command rejected while policy is armed");
+    return;
+  }
   if (strcmp(cmd, "hello") == 0) {
     DynamicJsonDocument response(4096);
     response["type"] = "hello";
@@ -1645,6 +1982,8 @@ void handleCommand(const String &line) {
     response["uptime_ms"] = millis();
     response["wifi"] = WiFi.isConnected();
     response["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
+    response["policyArmed"] = policyControl.armed;
+    response["policyFrameTimeoutMs"] = POLICY_FRAME_TIMEOUT_MS;
     JsonObject imu = response["imu"].to<JsonObject>();
     imu["available"] = imuState.available;
     imu["monitor"] = imuState.monitorEnabled;
@@ -1698,10 +2037,18 @@ void handleCommand(const String &line) {
     }
     sendOk("home");
   } else if (strcmp(cmd, "stop") == 0) {
+    disarmPolicy("stop command", true);
     programPlaying = false;
     stopAllServoVelocities();
     stopAllServoMotors();
     sendOk("stop");
+  } else if (strcmp(cmd, "policy_arm") == 0) {
+    handlePolicyArm(doc);
+  } else if (strcmp(cmd, "policy_frame") == 0) {
+    handlePolicyFrame(doc);
+  } else if (strcmp(cmd, "policy_disarm") == 0) {
+    disarmPolicy("host request", true);
+    sendOk("policy_disarm");
   } else if (strcmp(cmd, "play") == 0) {
     startProgram(doc);
   } else if (strcmp(cmd, "wifi_set") == 0) {
@@ -1916,7 +2263,7 @@ void setupWiFiAndOta() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(460800);
   delay(300);
   loadConfig();
   setupMotors();
@@ -1933,13 +2280,14 @@ void loop() {
   ArduinoOTA.handle();
   webServer.handleClient();
   pollSerial();
+  runPolicyWatchdog();
   runProgram();
   runServoVelocities();
   runServoIdentify();
   runServoMonitors();
   runImuMonitor();
 
-  if (millis() - lastStateAt > STATE_INTERVAL_MS) {
+  if (!policyControl.armed && millis() - lastStateAt > STATE_INTERVAL_MS) {
     lastStateAt = millis();
     sendState();
   }

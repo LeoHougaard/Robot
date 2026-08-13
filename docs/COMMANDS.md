@@ -1,6 +1,6 @@
 # Robot Dog Commands
 
-The UI and ESP32 use the same newline-delimited JSON command objects over USB serial at `115200` baud and over the Wi-Fi HTTP bridge.
+The UI and ESP32 use the same newline-delimited JSON command objects over USB serial at `460800` baud and over the Wi-Fi HTTP bridge.
 
 ## Wi-Fi HTTP Bridge
 
@@ -243,6 +243,41 @@ Moves one servo or all enabled servos to their configured home angle.
 ```
 
 Stops program playback. It does not cut servo torque, because that can make a leg collapse unexpectedly. Use `servo_torque` when you intentionally want to release a servo for setup or limit capture.
+
+`policy_arm`
+
+```json
+{"cmd":"policy_arm","confirm":"CALIBRATED_AND_LIFTED"}
+```
+
+Enters the guarded 50 Hz learned-policy transport. It succeeds only with 12
+unique enabled IDs 1-12, non-default calibrated min/home/max values, live
+synchronized position/speed feedback from every servo, a live IMU, and the
+exact lifted-robot confirmation. It stops manual programs and servo monitors
+without moving the joints.
+
+`policy_frame`
+
+```json
+{"cmd":"policy_frame","seq":1,"targets":{"1":180,"2":180,"3":180,"4":180,"5":180,"6":180,"7":180,"8":180,"9":180,"10":180,"11":180,"12":180}}
+```
+
+Sends one absolute-degree target for every servo. Sequence numbers must
+increase. The firmware rejects missing values, calibrated-limit violations,
+and changes over 6 degrees from the previous 20 ms frame. The response is a
+`policy_state` JSON line containing synchronized servo angles, raw speed
+registers, feedback flags, and IMU acceleration (mg) and gyro (degrees/s).
+Three incomplete feedback frames disarm policy control. A host pause over
+120 ms also disarms it and holds the last target.
+
+`policy_disarm`
+
+```json
+{"cmd":"policy_disarm"}
+```
+
+Leaves policy control while holding the last commanded joint positions. The
+ordinary `stop` command also disarms policy control.
 
 `play`
 

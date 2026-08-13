@@ -2935,7 +2935,7 @@
 
       boardConfigFresh = false;
       port = await navigator.serial.requestPort();
-      await port.open({ baudRate: 115200 });
+      await port.open({ baudRate: 460800 });
       const textEncoder = new TextEncoderStream();
       textEncoder.readable.pipeTo(port.writable);
       writer = textEncoder.writable.getWriter();

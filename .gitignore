@@ -1,6 +1,9 @@
 .pio/
 .pioenvs/
 .piolibdeps/
+.venv/
+__pycache__/
+*.pyc
 
 .vscode/
 .venv-sim/
