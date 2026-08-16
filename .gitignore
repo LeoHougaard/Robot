@@ -1,0 +1,9 @@
+.gradle/
+.kotlin/
+.idea/
+.android-sdk/
+.tooling/
+local.properties
+/gradle/gradle-daemon-jvm.properties
+**/build/
+*.iml

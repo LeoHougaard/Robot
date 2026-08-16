@@ -1,0 +1,10 @@
+Pixel Robot is a purpose-built Android adaptation informed by OpenBot's
+phone-as-robot-controller architecture.
+
+OpenBot
+Copyright (c) OpenBot contributors
+https://github.com/ob-f/OpenBot
+Licensed under the MIT License.
+
+No car-specific OpenBot application code or bundled models are included.
+
