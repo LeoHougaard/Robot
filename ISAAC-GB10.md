@@ -5,7 +5,8 @@ This setup deliberately separates the two jobs:
 - **Isaac Sim 6.0.1** provides the streamed GUI used to import and prepare an
   Onshape assembly.
 - **Isaac Lab 3.0.0-beta2-post1** provides the pinned, headless ARM64 training
-  environment.
+  environment with both the stable PhysX backend and the beta Newton/MuJoCo-Warp
+  backend.
 - The same pinned Lab image runs one streamed, single-environment policy review
   in the separate `isaac-lab-dog-stream` container.
 - Both see `/home/leo/isaac-workspace/projects` on the GB10 as
@@ -29,6 +30,7 @@ then explicitly accept it while installing:
 ```powershell
 .\Isaac-GB10.ps1 setup -AcceptNvidiaEula
 .\Isaac-GB10.ps1 test-lab
+.\Isaac-GB10.ps1 test-newton
 ```
 
 Setup pulls about 25 GB of compressed ARM64 images. Extracted images and warmed
@@ -38,9 +40,25 @@ shader/Python caches need substantially more disk. The helper requires at least
 The first command records acceptance at
 `/home/leo/isaac-workspace/.nvidia-eula-accepted`. It does not opt in to NVIDIA
 telemetry. `test-lab` runs one iteration of the official Cartpole PhysX/RSL-RL
-training path. Both containers remain non-root. Isaac Lab uses Leo's host UID
-1001 with the image's runtime GID 1000, and its named volumes are initialized
-for that identity; Isaac Sim retains NVIDIA's UID/GID 1234.
+training path; `test-newton` runs the same bounded check with Newton's
+MuJoCo-Warp solver. Both containers remain non-root. Isaac Lab uses Leo's host
+UID 1001 with the image's runtime GID 1000, and its named volumes are
+initialized for that identity; Isaac Sim retains NVIDIA's UID/GID 1234.
+
+## Newton status
+
+Newton is included in the pinned Isaac Lab image and Isaac Sim 6.0.1. NVIDIA
+currently classifies the Isaac Lab integration as beta and the Isaac Sim
+integration as experimental. The official stock Newton smoke test is part of
+this setup, but the promoted dog policies remain on PhysX until the custom USD,
+contact behavior, training task, and deterministic promotion suite pass a
+separate Newton migration. This preserves the known-working V1 policy and avoids
+silently changing the dynamics behind existing checkpoints.
+
+The reusable Lab container deliberately has no Docker health check. It is an
+idle execution shell between jobs, while the official base-image health check
+expects a continuously running Isaac application and otherwise reports a false
+`unhealthy` state. Training status is checked from the actual trainer process.
 
 ## Everyday training commands
 
@@ -372,6 +390,8 @@ preserves `/home/leo/isaac-workspace/projects`.
 - [Isaac Lab installation and DGX Spark notes](https://isaac-sim.github.io/IsaacLab/develop/source/setup/installation/index.html)
 - [Isaac Lab Docker guide](https://isaac-sim.github.io/IsaacLab/develop/source/features/docker_cloud.html)
 - [Isaac Lab quickstart and training CLI](https://isaac-sim.github.io/IsaacLab/develop/source/setup/quickstart.html)
+- [Isaac Lab Newton backend](https://isaac-sim.github.io/IsaacLab/release/3.0.0-beta2/source/overview/core-concepts/physical-backends/newton/index.html)
+- [Isaac Sim Newton backend](https://docs.isaacsim.omniverse.nvidia.com/6.0.1/physics/newton_physics.html)
 - [Onshape importer and physics preparation](https://docs.omniverse.nvidia.com/extensions/latest/ext_onshape.html)
 - [Onshape Omniverse Publisher documentation](https://onovpub-prod.westus2.cloudapp.azure.com/help/)
 - [Onshape native URDF export](https://www.onshape.com/en/blog/cloud-native-cad-software-automatic-updates-new-features)

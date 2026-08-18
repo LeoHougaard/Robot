@@ -1,5 +1,11 @@
 FROM nvcr.io/nvidia/isaac-lab:3.0.0-beta2-post1@sha256:07a349c0aa9cadbb33b82fc9428be334084f384db21b7b0bf9f3ff6c2ee876c9
 
+# This derived container is an idle execution shell between training runs, not
+# an Isaac application process. The base image health check waits for an
+# AppReady log entry and therefore marks the intentionally idle container
+# unhealthy. Workload launchers perform their own process-level checks.
+HEALTHCHECK NONE
+
 USER 0:0
 
 # The official image contains uid/gid 1000. Leo is uid 1001 on the GB10, so
@@ -11,6 +17,7 @@ RUN printf '%s\n' 'leo:x:1001:1000:Leo:/root:/bin/bash' >> /etc/passwd \
 
 LABEL com.leo.workload="isaac-gb10" \
       com.leo.role="isaac-lab-runtime" \
-      com.leo.base-digest="sha256:07a349c0aa9cadbb33b82fc9428be334084f384db21b7b0bf9f3ff6c2ee876c9"
+      com.leo.base-digest="sha256:07a349c0aa9cadbb33b82fc9428be334084f384db21b7b0bf9f3ff6c2ee876c9" \
+      com.leo.physics-backends="physx,newton_mjwarp"
 
 USER 1000:1000

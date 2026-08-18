@@ -2,16 +2,16 @@
 set -Eeuo pipefail
 
 readonly WORKLOAD_LABEL="com.leo.workload=isaac-gb10"
-readonly CONFIG_VERSION="6"
+readonly CONFIG_VERSION="7"
 readonly WORKSPACE_ROOT="/home/leo/isaac-workspace"
 readonly PROJECTS_DIR="${WORKSPACE_ROOT}/projects"
 readonly EULA_MARKER="${WORKSPACE_ROOT}/.nvidia-eula-accepted"
 readonly LAB_DOCKERFILE="${WORKSPACE_ROOT}/bin/Dockerfile.isaac-lab-gb10"
 readonly ROBOT_VALIDATOR="${PROJECTS_DIR}/training/tools/validate-onshape-robot.py"
 
-# Pinned ARM64 manifests verified from NGC on 2026-07-29.
+# Latest released ARM64 manifests verified from NGC on 2026-08-14.
 readonly LAB_BASE_IMAGE="nvcr.io/nvidia/isaac-lab:3.0.0-beta2-post1@sha256:07a349c0aa9cadbb33b82fc9428be334084f384db21b7b0bf9f3ff6c2ee876c9"
-readonly LAB_IMAGE="leo/isaac-lab-gb10:3.0.0-beta2-post1-uid1001-v1"
+readonly LAB_IMAGE="leo/isaac-lab-gb10:3.0.0-beta2-post1-uid1001-v2"
 readonly SIM_IMAGE="nvcr.io/nvidia/isaac-sim:6.0.1@sha256:202697359628d8c06305f174d125cdcfd2e47a0815a571c1e2405253ef3e08eb"
 readonly LAB_CONTAINER="isaac-lab-gb10"
 readonly SIM_CONTAINER="isaac-sim-onshape"
@@ -251,6 +251,20 @@ test_lab() {
       --num_envs=16 \
       --max_iterations=1 \
       physics=physx
+}
+
+test_newton() {
+  start_lab
+  printf 'Running a one-iteration Newton/MuJoCo-Warp RSL-RL Cartpole smoke test...\n'
+  docker container exec \
+    --workdir /workspace/isaaclab \
+    "$LAB_CONTAINER" \
+    ./isaaclab.sh train \
+      --rl_library rsl_rl \
+      --task=Isaac-Cartpole-Direct-v0 \
+      --num_envs=16 \
+      --max_iterations=1 \
+      physics=newton_mjwarp
 }
 
 test_robot() {
@@ -574,7 +588,7 @@ setup() {
     --entrypoint /usr/bin/nvidia-smi \
     "$LAB_IMAGE"
 
-  printf 'Setup complete. Run test-lab for a one-iteration functional training test.\n'
+  printf 'Setup complete. Run test-lab and test-newton for functional backend tests.\n'
   status
 }
 
@@ -637,7 +651,7 @@ usage() {
 Usage: isaac-gb10.sh COMMAND
 
   setup --accept-nvidia-eula
-  start-lab | stop-lab | shell | test-lab
+  start-lab | stop-lab | shell | test-lab | test-newton
   test-robot ROBOT_NAME
   start-onshape --allow-private-lan-streaming | stop-onshape | logs-onshape
   start-dog-playback --allow-private-lan-streaming CHECKPOINT | stop-dog-playback | logs-dog-playback
@@ -657,6 +671,7 @@ main() {
     stop-lab) stop_container "$LAB_CONTAINER" ;;
     shell) shell_lab ;;
     test-lab) test_lab ;;
+    test-newton) test_newton ;;
     test-robot) test_robot "$@" ;;
     start-onshape) start_onshape "$@" ;;
     stop-onshape) stop_container "$SIM_CONTAINER" ;;

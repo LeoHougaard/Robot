@@ -7,6 +7,7 @@ param(
         "stop-lab",
         "shell",
         "test-lab",
+        "test-newton",
         "test-robot",
         "start-onshape",
         "stop-onshape",

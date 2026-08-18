@@ -14,6 +14,8 @@ promotion—not around the computer that runs them.
 
 - Imports and validates an Onshape quadruped assembly.
 - Trains flat and rough-terrain locomotion with RL-Games PPO.
+- Provides pinned PhysX and beta Newton/MuJoCo-Warp Isaac Lab backends while
+  retaining PhysX for promoted dog policies.
 - Streams trained policies through Isaac Sim WebRTC.
 - Preserves checkpoints, metrics, videos, and provenance outside containers.
 - Runs bounded autoresearch cycles with deterministic checkpoint promotion.
