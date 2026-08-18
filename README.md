@@ -32,8 +32,8 @@ once:
 
 1. Core flat-ground locomotion and smooth curved-path following.
 2. Robustness to modest tilt, pushes, and sensor noise.
-3. Low-speed, stopping, and turn-in-place commands for final `x, y, yaw`
-   completion through a deterministic path follower.
+3. Full forward/reverse/strafe/turn commands for final `x, y, yaw` completion
+   through a deterministic pose controller above the learned policy.
 4. Rough-terrain locomotion after the flat regression suite passes.
 5. Self-righting as a separately trained and selected recovery skill.
 

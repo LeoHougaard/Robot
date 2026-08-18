@@ -29,7 +29,9 @@ $copies = @(
     @{ Local = "training\simple-dog-gb10.sh"; Remote = $remoteTraining },
     @{ Local = "training\render_simple_dog_playback.sh"; Remote = $remoteTraining },
     @{ Local = "training\play_simple_dog.py"; Remote = $remoteTraining },
+    @{ Local = "training\pose_goal_controller.py"; Remote = $remoteTraining },
     @{ Local = "training\robot_control_profile.py"; Remote = $remoteTraining },
+    @{ Local = "training\simple_dog_task_v2\simple_dog_v2_env.py"; Remote = "$remoteTraining/simple_dog_task_v2" },
     @{ Local = "training\simple_dog_task_v2\simple_dog_v2_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_v2" }
 )
 foreach ($copy in $copies) {

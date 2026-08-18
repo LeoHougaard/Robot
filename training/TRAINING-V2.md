@@ -2,8 +2,8 @@
 
 V2 deliberately solves one problem at a time. Its first policy learns
 sustained, steerable locomotion and mild stumble recovery. A deterministic
-path follower handles global navigation; rough terrain and self-righting are
-later stages with separate acceptance gates.
+pose controller handles global navigation above the learned policy; rough
+terrain and self-righting are later stages with separate acceptance gates.
 
 ## What V2 keeps and fixes
 
@@ -26,8 +26,12 @@ passes, and no policy promotion based only on training reward.
   tracked in explicit semantic order by the configured actuator model. The
   preserved legacy V1 dog remains an independent eight-action task.
 - Command: body-frame forward/lateral speed and smoothly changing yaw rate.
-  A later path follower converts a requested world `x, y, yaw` goal into these
-  local commands.
+  The Goal and Rough stages sample a requested world `x, y, yaw` pose, compute
+  its error in the robot frame, and convert it to these local commands with
+  `pose_goal_controller.py`. This follows Isaac Lab's `UniformPose2dCommand`
+  pattern while preserving the checkpoint-compatible actor observation.
+  Goal sampling deliberately includes pure forward, reverse, left-strafe,
+  right-strafe, left-turn, and right-turn cases plus combined planar motion.
 
 The gyro and projected-gravity inputs represent the main-body IMU. Projected
 gravity is not raw accelerometer data: hardware must derive it from an
@@ -39,8 +43,9 @@ IMU state was already present in V1 simulation, so its absence did not cause
 the rough-simulation failure; a real robot without it would have a serious
 deployment mismatch.
 
-The control profile also owns startup domain randomization for base mass,
-center of mass, and robot contact material. These quantities are sampled once
+The control profile also owns startup domain randomization for chassis and
+individual link masses, center of mass, robot contact material, and independent
+per-joint drive, torque, and speed limits. These quantities are sampled once
 per parallel environment, while reset tilt, joint state, sensor noise, and
 timed pushes vary throughout training. All ranges remain visible in the UI.
 
@@ -110,11 +115,20 @@ pushes and measures recovery time.
 
 ### 3. Goal completion
 
-Continue Robust with the same policy and reward. Add a small mix of low-speed,
-stop, and turn-in-place commands. This is what lets the deterministic path
-follower taper speed near `x, y` and set the final yaw; Core alone is only a
-moving-path follower. Standing reward is available only when the command asks
-for it, while diagonal timing remains gated off.
+Continue Robust with the same policy and reward. Each environment samples a
+world-frame `x, y, yaw` goal around the robot. The deployable pose controller
+turns toward the position, drives and tapers speed, stops inside the position
+tolerance, settles the requested final heading, and holds before resampling.
+The actor still receives only body-frame velocity commands, so deployment uses
+the same controller above the policy with odometry or another localization
+estimate. Standing reward is available only when the controller asks for it,
+while diagonal timing remains gated off.
+
+Promotion additionally requires a deterministic mobility screen on a held-out
+rough tile: forward, reverse, strafe left/right, turn left/right, diagonal
+translation, combined translation/turning, and stop. Each direction is checked
+for signed velocity tracking and displacement; scalar training reward cannot
+waive these gates.
 
 ### 4. Rough locomotion
 
@@ -162,3 +176,16 @@ must be higher than its source checkpoint epoch.
 
 The existing status and stop commands are unchanged. V1 tasks and checkpoints
 remain separate.
+
+At deployment, a command inside the configured planar and yaw deadbands must
+slew to the normalized stance action validated for that robot profile. The
+stance action is applied through the normal hardware-equivalent slew limit.
+This command-conditioned safety contract is used in both simulation and the
+exported hardware metadata so an idle actor cannot park a foot in the air or
+preserve another stationary reward loophole.
+
+Velocity tracking remains dense while a movement command is active. Do not
+gate all positive task credit on a previously completed gait cycle: that makes
+the planted-foot policy a sparse-reward trap. Gait-cycle, phase-duration,
+clearance, slip, and held-out promotion terms shape and validate the discovered
+motion independently.

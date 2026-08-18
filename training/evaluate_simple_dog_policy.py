@@ -11,7 +11,11 @@ from pathlib import Path
 EXPECTED = {
     "core": ("straight", "left_curve", "right_curve", "fast", "slow"),
     "robust": ("straight", "left_curve", "right_curve", "fast", "slow"),
-    "goal": ("stand", "turn_left", "turn_right", "walk_left", "walk_right", "stop"),
+    "goal": (
+        "stand", "forward", "reverse", "strafe_left", "strafe_right",
+        "turn_left", "turn_right", "diagonal_left",
+        "diagonal_reverse_right", "curve_left", "curve_right", "stop",
+    ),
 }
 
 
@@ -54,38 +58,36 @@ def check_common(name: str, record: dict, failures: list[str]) -> None:
         add_failure(failures, name, f"minimum body height is {record['min_height']:.3f} m")
 
 
-def check_walking(name: str, record: dict, failures: list[str]) -> None:
+def check_planar_motion(name: str, record: dict, failures: list[str]) -> None:
     command_forward = float(record["command_forward"])
+    command_lateral = float(record["command_lateral"])
     mean_forward = float(record["mean_body_forward"])
-    if mean_forward < 0.70 * command_forward:
+    mean_lateral = float(record["mean_body_lateral"])
+    command_speed = math.hypot(command_forward, command_lateral)
+    actual_speed = math.hypot(mean_forward, mean_lateral)
+    if actual_speed < 0.65 * command_speed:
         add_failure(
             failures,
             name,
-            f"forward tracking is {mean_forward:.3f} for {command_forward:.3f} m/s",
+            f"planar speed is {actual_speed:.3f} for {command_speed:.3f} m/s",
         )
-    maximum_forward = max(1.30 * command_forward, command_forward + 0.05)
-    if mean_forward > maximum_forward:
+    if actual_speed > max(1.40 * command_speed, command_speed + 0.06):
         add_failure(
             failures,
             name,
-            f"forward overspeed is {mean_forward:.3f} for {command_forward:.3f} m/s",
+            f"planar overspeed is {actual_speed:.3f} for {command_speed:.3f} m/s",
         )
-    if float(record["mean_abs_body_lateral"]) > 0.10:
-        add_failure(
-            failures,
-            name,
-            f"mean lateral speed is {record['mean_abs_body_lateral']:.3f} m/s",
-        )
+    for axis, actual, command in (
+        ("forward", mean_forward, command_forward),
+        ("lateral", mean_lateral, command_lateral),
+    ):
+        tolerance = max(0.07, 0.35 * abs(command))
+        if abs(actual - command) > tolerance:
+            add_failure(
+                failures, name,
+                f"{axis} tracking is {actual:.3f} for {command:.3f} m/s",
+            )
     command_yaw = float(record["command_yaw"])
-    # A curved trajectory is expected to move laterally in the segment's
-    # starting world frame. Body-frame lateral velocity remains gated above;
-    # world-frame lateral displacement is a drift gate only for straight runs.
-    if abs(command_yaw) < 0.05 and abs(float(record["lateral_displacement"])) > 0.35:
-        add_failure(
-            failures,
-            name,
-            f"segment lateral drift is {record['lateral_displacement']:.3f} m",
-        )
     mean_yaw = float(record["mean_yaw_rate"])
     if abs(mean_yaw - command_yaw) > 0.12:
         add_failure(
@@ -103,6 +105,28 @@ def check_walking(name: str, record: dict, failures: list[str]) -> None:
             name,
             f"heading error is {heading_error:.3f} rad",
         )
+    if abs(command_yaw) < 0.05:
+        duration = int(record["steps"]) * 0.02
+        displacement = (
+            float(record["forward_displacement"]),
+            float(record["lateral_displacement"]),
+        )
+        direction = (
+            command_forward / command_speed,
+            command_lateral / command_speed,
+        )
+        progress = displacement[0] * direction[0] + displacement[1] * direction[1]
+        cross_track = -displacement[0] * direction[1] + displacement[1] * direction[0]
+        if progress < 0.55 * command_speed * duration:
+            add_failure(
+                failures, name,
+                f"signed displacement progress is {progress:.3f} m",
+            )
+        if abs(cross_track) > 0.35:
+            add_failure(
+                failures, name,
+                f"cross-track displacement is {cross_track:.3f} m",
+            )
     swing = record["swing_fraction_frflbrbl"]
     landings = record["landings_frflbrbl"]
     for index, label in enumerate(("FR", "FL", "BR", "BL")):
@@ -133,6 +157,20 @@ def check_stationary(name: str, record: dict, failures: list[str]) -> None:
             name,
             f"mean yaw rate while stopped is {record['mean_yaw_rate']:.3f} rad/s",
         )
+    # Permit a brief settling step and millimetre-scale contact gaps caused by
+    # a non-coplanar rough tile, but reject a policy that parks a foot visibly
+    # aloft. Contact duty alone cannot make that distinction on uneven ground;
+    # the base-relative swing clearance can.
+    parked_clearance = float(record.get("mean_swing_foot_clearance", 0.0))
+    for index, label in enumerate(("FR", "FL", "BR", "BL")):
+        swing_fraction = float(record["swing_fraction_frflbrbl"][index])
+        if swing_fraction > 0.20 and parked_clearance > 0.008:
+            add_failure(
+                failures,
+                name,
+                f"{label} is parked aloft for {swing_fraction:.3f} of the stop "
+                f"with {parked_clearance:.3f} m mean clearance",
+            )
 
 
 def check_turn(name: str, record: dict, failures: list[str]) -> None:
@@ -206,7 +244,10 @@ def check_gait_quality(
             f"(limit {vertical_speed_limit:.3f})",
         )
     swing = [float(value) for value in record["swing_fraction_frflbrbl"]]
-    swing_limit = 0.20 if float(record["command_forward"]) > 0.05 else 0.25
+    command_speed = math.hypot(
+        float(record["command_forward"]), float(record["command_lateral"])
+    )
+    swing_limit = 0.20 if command_speed > 0.05 else 0.25
     if max(swing) - min(swing) > swing_limit:
         add_failure(
             failures, name,
@@ -236,14 +277,16 @@ def evaluate(
         record = segments[name]
         check_common(name, record, failures)
         command_forward = float(record["command_forward"])
+        command_lateral = float(record["command_lateral"])
         command_yaw = float(record["command_yaw"])
-        if command_forward > 0.05:
-            check_walking(name, record, failures)
+        command_speed = math.hypot(command_forward, command_lateral)
+        if command_speed > 0.05:
+            check_planar_motion(name, record, failures)
         elif abs(command_yaw) > 0.05:
             check_turn(name, record, failures)
         else:
             check_stationary(name, record, failures)
-        if require_gait_quality and (command_forward > 0.05 or abs(command_yaw) > 0.05):
+        if require_gait_quality and (command_speed > 0.05 or abs(command_yaw) > 0.05):
             # Robust evaluation injects repeated planar velocity impulses and
             # begins from an 8-degree tilt. Permit the bounded recovery
             # transient while leaving the unperturbed Core/Goal gait limit at

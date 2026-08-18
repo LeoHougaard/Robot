@@ -35,8 +35,8 @@ case "$stage" in
     ;;
   goal)
     task="Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-Eval-v0"
-    video_length=1100
-    expected_segments=6
+    video_length=1950
+    expected_segments=12
     ;;
   *) printf 'Stage must be core, robust, or goal.\n' >&2; exit 2 ;;
 esac

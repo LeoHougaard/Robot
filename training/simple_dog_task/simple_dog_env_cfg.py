@@ -363,6 +363,22 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
         profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_min", 1.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_max", 1.0),
     )
+    link_mass_scale = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.link_mass_scale_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.link_mass_scale_max", 1.0),
+    )
+    actuator_drive_scale = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.actuator_drive_scale_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.actuator_drive_scale_max", 1.0),
+    )
+    actuator_effort_scale = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.actuator_effort_scale_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.actuator_effort_scale_max", 1.0),
+    )
+    actuator_velocity_scale = (
+        profile_value(CONTROL_PROFILE, "domain_randomization.actuator_velocity_scale_min", 1.0),
+        profile_value(CONTROL_PROFILE, "domain_randomization.actuator_velocity_scale_max", 1.0),
+    )
     base_com_range = (
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_x", 0.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_y", 0.0),

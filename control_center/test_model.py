@@ -102,6 +102,27 @@ class ControlProfileTests(unittest.TestCase):
         result = validate_profile(profile)
         self.assertTrue(any("base mass scale" in error for error in result["errors"]))
 
+    def test_actuator_randomization_ranges_are_ordered(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["domain_randomization"]["actuator_effort_scale_min"] = 1.1
+        profile["domain_randomization"]["actuator_effort_scale_max"] = 0.9
+        result = validate_profile(profile)
+        self.assertTrue(any("actuator effort scale" in error for error in result["errors"]))
+
+    def test_stationary_stance_action_matches_policy_contract(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["environment"]["stationary_stance_action"] = [0.0] * 11 + [1.2]
+        result = validate_profile(profile)
+        self.assertTrue(any("stationary_stance_action" in error for error in result["errors"]))
+
+    def test_goal_stage_requires_full_mobility_command_ranges(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["training"]["stage"] = "V2Goal"
+        profile["environment"]["surface"] = "Flat"
+        profile["commands"]["forward_min"] = 0.0
+        result = validate_profile(profile)
+        self.assertTrue(any("fixed full-mobility" in error for error in result["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,26 @@ active() {
   docker exec "$CONTAINER" pgrep -f '[t]rain_simple_dog.py' >/dev/null 2>&1
 }
 
+clear_stale_hub_lock() {
+  # Isaac's camera recorder can leave this zero-byte lock behind after Kit has
+  # exited. A later SimulationApp startup then waits indefinitely even though
+  # no Hub process exists. Remove only the current container user's lock, and
+  # only after verifying that no Hub process is alive.
+  docker exec --user 0 "$CONTAINER" sh -c '
+    # Match executable names, not arbitrary command-line text containing the
+    # lock path. Wrapper commands made the previous substring check see itself.
+    if ! pgrep -x omni.hub >/dev/null 2>&1 &&
+       ! pgrep -x omni-hub >/dev/null 2>&1 &&
+       ! pgrep -x hub >/dev/null 2>&1 &&
+       ! pgrep -x hub-daemon >/dev/null 2>&1; then
+      # The container is configured to run as leo, while the bundled Isaac
+      # runtime inherits the image account name isaac-sim and uses that lock.
+      # Remove only these two exact per-user lock files.
+      rm -f -- /tmp/hub-leo.lock /tmp/hub-isaac-sim.lock
+    fi
+  '
+}
+
 latest_run() {
   find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null |
     sort |
@@ -39,6 +59,7 @@ render_latest_video() {
     printf 'Training is still running. A rollout can be rendered as soon as PPO releases Isaac Sim.\n' >&2
     return 3
   fi
+  clear_stale_hub_lock
   latest="$(latest_run || true)"
   [[ -n "$latest" ]] || { printf 'No training run is available to render.\n' >&2; return 2; }
   experiment="$(
@@ -163,6 +184,8 @@ start_training() {
     status_training
     return 3
   fi
+
+  clear_stale_hub_lock
 
   before="$(latest_run || true)"
   docker exec -d \

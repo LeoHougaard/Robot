@@ -33,11 +33,12 @@ Settings are grouped by the part of the workflow they affect:
 - **Surface:** flat, random rough, slopes, or mixed curriculum; height range,
   slope, tile size, friction, and restitution.
 - **Motion & timing:** policy rate, action range, forward/lateral/yaw/standing/
-  turn commands, hold time, and smoothing.
+  turn commands, hold time, smoothing, and stationary-command deadbands.
 - **Start & reset:** world start position/orientation, episode duration, fall
   height, randomized tilt/heading, and joint-state perturbations.
-- **Domain randomization:** chassis mass scale, center-of-mass offsets, robot
-  friction/restitution ranges, and PhysX material buckets.
+- **Domain randomization:** chassis and per-link mass scales, per-joint drive/
+  torque/speed response, center-of-mass offsets, robot friction/restitution
+  ranges, and PhysX material buckets.
 - **Actuators:** stiffness, damping, effort, velocity, armature, and soft-limit
   margin. Global edits are copied to every joint; the robot table then permits
   per-joint overrides.
@@ -83,10 +84,11 @@ For the custom robot:
    the repository's deterministic acceptance gates pass.
 
 Launch validation rejects any joint count other than 12, template placeholders,
-wrong semantic maps, unsafe asset paths, invalid rates/ranges, checkpoints from
-a different robot profile, and curriculum stage/surface mismatches. Isaac Lab
-performs another asset/profile check inside the container before constructing
-the scene.
+wrong semantic maps, unsafe asset paths, invalid rates/ranges, malformed stance
+actions, Goal/Rough profiles that cannot cover the fixed omnidirectional screen,
+checkpoints from a different robot profile, and curriculum stage/surface
+mismatches. Isaac Lab performs another asset/profile check inside the container
+before constructing the scene.
 
 ## Monitoring and video
 

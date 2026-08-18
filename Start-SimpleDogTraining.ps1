@@ -23,7 +23,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$sshTarget = "leo@gx10-ddb2.local"
+$sshHost = $null
+foreach ($attempt in 1..3) {
+    try {
+        $sshHost = [System.Net.Dns]::GetHostAddresses("gx10-ddb2.local") |
+            Where-Object AddressFamily -eq InterNetwork |
+            Select-Object -First 1 -ExpandProperty IPAddressToString
+    }
+    catch {
+        $sshHost = $null
+    }
+    if ($sshHost) { break }
+    Start-Sleep -Seconds 1
+}
+if (-not $sshHost) {
+    throw "Could not resolve gx10-ddb2.local to an IPv4 address."
+}
+$sshTarget = "leo@$sshHost"
 $keyPath = Join-Path $env:LOCALAPPDATA "NVIDIA Corporation\Sync\config\nvsync.key"
 $localTraining = Join-Path $PSScriptRoot "training"
 $remoteTraining = "/home/leo/isaac-workspace/projects/training"
@@ -37,7 +53,8 @@ $sshOptions = @(
     "-o", "IdentitiesOnly=yes",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
-    "-o", "StrictHostKeyChecking=yes"
+    "-o", "StrictHostKeyChecking=yes",
+    "-o", "HostKeyAlias=gx10-ddb2.local"
 )
 
 if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
@@ -126,6 +143,7 @@ if ($LASTEXITCODE -ne 0) {
 $copies = @(
     @{ Local = Join-Path $localTraining "train_simple_dog.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "play_simple_dog.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "pose_goal_controller.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "evaluate_simple_dog_policy.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "evaluate_simple_dog_policy.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "export_v2_policy.py"; Remote = $remoteTraining },

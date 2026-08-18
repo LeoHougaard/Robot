@@ -8,6 +8,7 @@ import torch
 
 from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
 
+from pose_goal_controller import pose_error_to_velocity_command, wrap_to_pi
 from simple_dog_task.simple_dog_env import SimpleDogEnv
 from .simple_dog_v2_env_cfg import SimpleDogV2CoreEnvCfg
 
@@ -35,10 +36,30 @@ class SimpleDogV2Env(SimpleDogEnv):
         ]
 
         self._command_targets = self._commands.clone()
+        if len(self.cfg.stationary_stance_action) != self.cfg.action_space:
+            raise ValueError(
+                "stationary_stance_action must contain one normalized value "
+                "per policy joint"
+            )
+        self._stationary_stance_action = torch.tensor(
+            self.cfg.stationary_stance_action,
+            dtype=self._actions.dtype,
+            device=self.device,
+        )
         self._command_steps_remaining = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
         )
         self._push_steps_remaining = torch.zeros_like(
+            self._command_steps_remaining
+        )
+        self._goal_position_w = torch.zeros(
+            self.num_envs, 2, device=self.device
+        )
+        self._goal_heading_w = torch.zeros(self.num_envs, device=self.device)
+        self._goal_steps_remaining = torch.zeros_like(
+            self._command_steps_remaining
+        )
+        self._goal_hold_steps_remaining = torch.zeros_like(
             self._command_steps_remaining
         )
         self._observation_history = torch.zeros(
@@ -70,9 +91,11 @@ class SimpleDogV2Env(SimpleDogEnv):
         self._evaluation_segment_index = -1
         self._evaluation_segment_steps = 0
         self._evaluation_body_forward_sum = 0.0
+        self._evaluation_body_lateral_sum = 0.0
         self._evaluation_body_lateral_abs_sum = 0.0
         self._evaluation_yaw_rate_sum = 0.0
         self._evaluation_foot_slip_sum = 0.0
+        self._evaluation_swing_foot_clearance_sum = 0.0
         self._evaluation_action_rate_sum = 0.0
         self._evaluation_max_action_step = 0.0
         self._evaluation_vertical_speed_abs_sum = 0.0
@@ -141,6 +164,236 @@ class SimpleDogV2Env(SimpleDogEnv):
         return torch.randint(
             low, high + 1, (count,), device=self.device, dtype=torch.long
         )
+
+    def _planar_body_axes(
+        self, env_ids: torch.Tensor, root_quat_w: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        forward_w = quat_apply(
+            root_quat_w, self._physical_forward_axis_b[env_ids]
+        )[:, :2]
+        lateral_w = quat_apply(
+            root_quat_w, self._physical_lateral_axis_b[env_ids]
+        )[:, :2]
+        forward_w /= torch.linalg.vector_norm(
+            forward_w, dim=1, keepdim=True
+        ).clamp_min(1.0e-6)
+        lateral_w /= torch.linalg.vector_norm(
+            lateral_w, dim=1, keepdim=True
+        ).clamp_min(1.0e-6)
+        return forward_w, lateral_w
+
+    def _pose_goal_errors(
+        self,
+        env_ids: torch.Tensor,
+        *,
+        root_position_w: torch.Tensor | None = None,
+        root_quat_w: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if root_position_w is None:
+            root_position_w = self._robot.data.root_pos_w.torch[env_ids]
+        if root_quat_w is None:
+            root_quat_w = self._robot.data.root_quat_w.torch[env_ids]
+        forward_w, lateral_w = self._planar_body_axes(env_ids, root_quat_w)
+        delta_w = self._goal_position_w[env_ids] - root_position_w[:, :2]
+        position_error_b = torch.stack(
+            (
+                torch.sum(delta_w * forward_w, dim=1),
+                torch.sum(delta_w * lateral_w, dim=1),
+            ),
+            dim=1,
+        )
+        current_heading_w = torch.atan2(forward_w[:, 1], forward_w[:, 0])
+        heading_error_b = wrap_to_pi(
+            self._goal_heading_w[env_ids] - current_heading_w
+        )
+        return position_error_b, heading_error_b
+
+    def _pose_goal_velocity_targets(
+        self,
+        position_error_b: torch.Tensor,
+        heading_error_b: torch.Tensor,
+    ) -> torch.Tensor:
+        curriculum_fraction = min(
+            1.0,
+            max(
+                0.0,
+                float(getattr(self, "common_step_counter", 0))
+                / max(1, int(self.cfg.pose_goal_curriculum_steps)),
+            ),
+        )
+        novel_speed_scale = (
+            self.cfg.pose_goal_novel_speed_scale_start
+            + (1.0 - self.cfg.pose_goal_novel_speed_scale_start)
+            * curriculum_fraction
+        )
+        return pose_error_to_velocity_command(
+            position_error_b,
+            heading_error_b,
+            max_forward_speed=float(self.cfg.command_forward[1]),
+            max_reverse_speed=(
+                max(0.0, -float(self.cfg.command_forward[0]))
+                * novel_speed_scale
+            ),
+            max_lateral_speed=(
+                max(abs(value) for value in self.cfg.command_lateral)
+                * novel_speed_scale
+            ),
+            max_yaw_rate=max(abs(value) for value in self.cfg.command_yaw),
+            position_tolerance=self.cfg.pose_goal_position_tolerance,
+            heading_tolerance=self.cfg.pose_goal_heading_tolerance,
+            distance_gain=self.cfg.pose_goal_distance_gain,
+            final_heading_gain=self.cfg.pose_goal_final_heading_gain,
+        )
+
+    def _sample_pose_goals(
+        self,
+        env_ids: torch.Tensor,
+        *,
+        root_position_w: torch.Tensor | None = None,
+        root_quat_w: torch.Tensor | None = None,
+        immediate: bool,
+    ) -> None:
+        count = len(env_ids)
+        if root_position_w is None:
+            root_position_w = self._robot.data.root_pos_w.torch[env_ids]
+        if root_quat_w is None:
+            root_quat_w = self._robot.data.root_quat_w.torch[env_ids]
+        forward_w, lateral_w = self._planar_body_axes(env_ids, root_quat_w)
+
+        distance = torch.empty(count, device=self.device).uniform_(
+            *self.cfg.pose_goal_distance
+        )
+        bearing = torch.empty(count, device=self.device).uniform_(
+            *self.cfg.pose_goal_bearing
+        )
+        curriculum_fraction = min(
+            1.0,
+            max(
+                0.0,
+                float(getattr(self, "common_step_counter", 0))
+                / max(1, int(self.cfg.pose_goal_curriculum_steps)),
+            ),
+        )
+        novel_fraction = (
+            self.cfg.pose_goal_novel_fraction_start
+            + (
+                self.cfg.pose_goal_novel_fraction_end
+                - self.cfg.pose_goal_novel_fraction_start
+            )
+            * curriculum_fraction
+        )
+        novel_mask = torch.rand(count, device=self.device) < novel_fraction
+        turn_mask = (~novel_mask) & (
+            torch.rand(count, device=self.device)
+            < self.cfg.pose_goal_familiar_turn_fraction
+        )
+        familiar_forward_mask = (~novel_mask) & (~turn_mask)
+        bearing[familiar_forward_mask] = 0.0
+
+        novel_count = int(torch.sum(novel_mask).item())
+        if novel_count:
+            # Cardinal modes are balanced across reverse, left strafe, and
+            # right strafe. Mixed planar/heading goals are sampled separately
+            # so a stalled axis can receive most of the curriculum without
+            # deleting general pose-goal coverage.
+            novel_modes = torch.randint(0, 3, (novel_count,), device=self.device)
+            mixed_mask = (
+                torch.rand(novel_count, device=self.device)
+                < self.cfg.pose_goal_mixed_fraction
+            )
+            novel_modes[mixed_mask] = 3
+            novel_bearings = bearing[novel_mask]
+            novel_bearings[novel_modes == 0] = math.pi
+            novel_bearings[novel_modes == 1] = 0.5 * math.pi
+            novel_bearings[novel_modes == 2] = -0.5 * math.pi
+            bearing[novel_mask] = novel_bearings
+        distance[turn_mask] = 0.0
+        position_error_b = torch.stack(
+            (distance * torch.cos(bearing), distance * torch.sin(bearing)),
+            dim=1,
+        )
+        self._goal_position_w[env_ids] = (
+            root_position_w[:, :2]
+            + position_error_b[:, 0:1] * forward_w
+            + position_error_b[:, 1:2] * lateral_w
+        )
+
+        current_heading_w = torch.atan2(forward_w[:, 1], forward_w[:, 0])
+        heading_error_b = torch.empty(count, device=self.device).uniform_(
+            *self.cfg.pose_goal_heading
+        )
+        cardinal_novel_mask = novel_mask.clone()
+        if novel_count:
+            cardinal_novel_mask[novel_mask] = novel_modes != 3
+        heading_error_b[familiar_forward_mask | cardinal_novel_mask] = 0.0
+        turn_count = int(torch.sum(turn_mask).item())
+        if turn_count:
+            turn_magnitude = torch.empty(
+                turn_count, device=self.device
+            ).uniform_(*self.cfg.pose_goal_turn_angle)
+            turn_sign = torch.where(
+                torch.rand(turn_count, device=self.device) < 0.5,
+                -torch.ones(turn_count, device=self.device),
+                torch.ones(turn_count, device=self.device),
+            )
+            heading_error_b[turn_mask] = turn_magnitude * turn_sign
+        self._goal_heading_w[env_ids] = wrap_to_pi(
+            current_heading_w + heading_error_b
+        )
+        self._goal_steps_remaining[env_ids] = self._random_step_counts(
+            count, self.cfg.pose_goal_duration_s
+        )
+        self._goal_hold_steps_remaining[env_ids] = 0
+
+        targets = self._pose_goal_velocity_targets(
+            position_error_b, heading_error_b
+        )
+        self._command_targets[env_ids] = targets
+        if immediate:
+            self._commands[env_ids] = targets
+
+    def _update_pose_goal_targets(self) -> None:
+        env_ids = torch.arange(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._goal_steps_remaining -= 1
+        was_holding = self._goal_hold_steps_remaining > 0
+        self._goal_hold_steps_remaining = torch.clamp(
+            self._goal_hold_steps_remaining - 1, min=0
+        )
+        finished_holding = was_holding & (
+            self._goal_hold_steps_remaining == 0
+        )
+        timed_out = self._goal_steps_remaining <= 0
+        resample = finished_holding | timed_out
+        resample_ids = torch.nonzero(resample, as_tuple=False).squeeze(-1)
+        if len(resample_ids):
+            self._sample_pose_goals(resample_ids, immediate=False)
+
+        position_error_b, heading_error_b = self._pose_goal_errors(env_ids)
+        reached = (
+            torch.linalg.vector_norm(position_error_b, dim=1)
+            <= self.cfg.pose_goal_position_tolerance
+        ) & (
+            torch.abs(heading_error_b)
+            <= self.cfg.pose_goal_heading_tolerance
+        )
+        entering_hold = reached & (self._goal_hold_steps_remaining == 0)
+        entering_ids = torch.nonzero(
+            entering_hold, as_tuple=False
+        ).squeeze(-1)
+        if len(entering_ids):
+            self._goal_hold_steps_remaining[entering_ids] = (
+                self._random_step_counts(
+                    len(entering_ids), self.cfg.pose_goal_hold_s
+                )
+            )
+
+        targets = self._pose_goal_velocity_targets(
+            position_error_b, heading_error_b
+        )
+        targets[self._goal_hold_steps_remaining > 0] = 0.0
+        self._command_targets[:] = targets
 
     def _sample_command_targets(
         self, env_ids: torch.Tensor, *, immediate: bool
@@ -243,12 +496,15 @@ class SimpleDogV2Env(SimpleDogEnv):
             self._command_targets[:] = self._commands
             return
 
-        self._command_steps_remaining -= 1
-        due = torch.nonzero(
-            self._command_steps_remaining <= 0, as_tuple=False
-        ).squeeze(-1)
-        if len(due):
-            self._sample_command_targets(due, immediate=False)
+        if self.cfg.pose_goal_training:
+            self._update_pose_goal_targets()
+        else:
+            self._command_steps_remaining -= 1
+            due = torch.nonzero(
+                self._command_steps_remaining <= 0, as_tuple=False
+            ).squeeze(-1)
+            if len(due):
+                self._sample_command_targets(due, immediate=False)
 
         alpha = min(
             1.0,
@@ -303,10 +559,27 @@ class SimpleDogV2Env(SimpleDogEnv):
         self._previous_actions = self._actions.clone()
         self._apply_smooth_commands()
         self._apply_random_pushes()
+        # The locomotion actor had discovered that it could remain motionless
+        # on three feet while permanently holding the rear-right foot aloft.
+        # This command-only safety layer removes that reward loophole and is
+        # physically deployable: a real controller has the same command and
+        # can apply the same deadband before its servo targets are formed.
+        stationary_command = (
+            torch.linalg.vector_norm(self._commands[:, :2], dim=1)
+            <= self.cfg.stationary_planar_deadband
+        ) & (
+            torch.abs(self._commands[:, 2])
+            <= self.cfg.stationary_yaw_deadband
+        )
+        safe_actions = torch.where(
+            stationary_command.unsqueeze(1),
+            self._stationary_stance_action.unsqueeze(0),
+            actions,
+        )
         # Apply the hardware-equivalent slew limit before the action enters
         # both simulation and observation history.
         limited_actions = torch.clamp(
-            actions,
+            safe_actions,
             self._previous_actions - self.cfg.action_delta_limit,
             self._previous_actions + self.cfg.action_delta_limit,
         )
@@ -485,13 +758,27 @@ class SimpleDogV2Env(SimpleDogEnv):
         )
 
         yaw_error = torch.abs(self._commands[:, 2] - root_ang_vel_b[:, 2])
-        # Center the yaw objective so a gait that rotates the wrong way is
-        # worse than providing no useful yaw response.  The previous positive-
-        # only exponential still paid a substantial reward to the observed
-        # fixed clockwise gait, which then ignored left/straight/right commands.
-        yaw_tracking = 2.0 * torch.exp(
-            -yaw_error / self.cfg.yaw_tracking_std
-        ) - 1.0
+        yaw_quality = torch.exp(-yaw_error / self.cfg.yaw_tracking_std)
+        stationary_yaw_quality = torch.exp(
+            -torch.abs(requested_yaw) / self.cfg.yaw_tracking_std
+        )
+        # As with planar tracking, standing still must earn zero task credit.
+        # The former +10/s reward for zero yaw made no-motion a strong optimum
+        # during reverse and strafe commands. For a zero-yaw command, retain
+        # only a bounded penalty for unwanted rotation.
+        centered_yaw_tracking = (
+            (yaw_quality - stationary_yaw_quality)
+            / (1.0 - stationary_yaw_quality).clamp_min(0.10)
+        )
+        uncommanded_yaw = -torch.clamp(
+            torch.abs(root_ang_vel_b[:, 2])
+            / max(self.cfg.yaw_tracking_std, 1.0e-6),
+            0.0,
+            1.0,
+        )
+        yaw_tracking = torch.where(
+            turning_command, centered_yaw_tracking, uncommanded_yaw
+        )
         safe_yaw_speed = torch.abs(requested_yaw).clamp_min(0.05)
         signed_yaw_progress = torch.clamp(
             root_ang_vel_b[:, 2] * torch.sign(requested_yaw) / safe_yaw_speed,
@@ -507,8 +794,6 @@ class SimpleDogV2Env(SimpleDogEnv):
             max=1.0,
         )
         # Give both turn directions the same explicit signed-progress signal.
-        # Tracking error alone left a local optimum where a policy could stand
-        # still during a pure-yaw command and collect the stationary reward.
         # As with linear speed, penalize rotation beyond the requested rate so
         # saturating signed progress cannot make an uncontrolled spin optimal.
         pure_turn_command = turning_command & ~moving_command
@@ -533,8 +818,19 @@ class SimpleDogV2Env(SimpleDogEnv):
             self._robot.data.root_pos_w.torch[:, 2]
             - self._terrain.env_origins[:, 2]
         )
+        # Match the termination rule in the base environment. The imported
+        # articulation produces a known false chassis contact against the
+        # shared generated heightfield while its root is upright at normal
+        # height. Charging a fall penalty for a contact we deliberately do not
+        # terminate made rough-terrain continuation collapse even though its
+        # measured fall termination count stayed zero.
+        terminate_on_base_contact = (
+            torch.zeros_like(base_contact)
+            if self.cfg.terrain_curriculum
+            else base_contact
+        )
         fell = (
-            base_contact
+            terminate_on_base_contact
             | (root_height < self.cfg.termination_height)
             | (
                 projected_gravity[:, 2]
@@ -596,8 +892,11 @@ class SimpleDogV2Env(SimpleDogEnv):
         # Reward-hack guard: once any foot exceeds a plausible swing time,
         # exponentially remove positive locomotion credit. Negative/zero
         # locomotion remains unchanged, so holding a leg up cannot make poor
-        # motion look less bad. The separate penalty is progress-gated to
-        # avoid creating an incentive to terminate a stationary episode.
+        # motion look less bad. Ground-contact duration is relevant only while
+        # walking, but an overlong airborne foot is always invalid: otherwise
+        # stand/stop can park one leg aloft with no penalty. During stand the
+        # normal +8/s stationary reward still exceeds the bounded -6/s
+        # single-foot penalty, so staying upright remains better than falling.
         excess_foot_air = torch.clamp(
             current_air_time - self.cfg.max_foot_air_time_s,
             min=0.0,
@@ -620,16 +919,12 @@ class SimpleDogV2Env(SimpleDogEnv):
             -swing_duty_variance
             / max(self.cfg.diagonal_gait_std**2, 1.0e-6)
         )
-        motion_duty_gate = torch.where(
-            moving_command | turning_command,
-            duty_balance,
-            torch.ones_like(duty_balance),
-        )
-        moving_locomotion = torch.where(
-            moving_locomotion > 0.0,
-            moving_locomotion * all_feet_cycle_gate * motion_duty_gate,
-            moving_locomotion,
-        )
+        # Keep commanded velocity tracking dense. Gating all positive credit
+        # on a previously completed four-foot cycle trapped reverse/strafe at
+        # the planted-foot policy: it needed a gait before motion could earn
+        # reward, but needed motion reward to discover the gait. The explicit
+        # overlong-phase penalties, gait terms, and deterministic promotion
+        # suite continue to reject dragging and held-foot loopholes.
         curve_progress_gate = torch.where(
             moving_command,
             torch.clamp(signed_progress, 0.0, 1.0),
@@ -638,10 +933,19 @@ class SimpleDogV2Env(SimpleDogEnv):
         yaw_tracking = torch.where(
             yaw_tracking > 0.0,
             yaw_tracking
-            * all_feet_cycle_gate
-            * motion_duty_gate
             * curve_progress_gate,
             yaw_tracking,
+        )
+        # A zero command means a supported four-foot stand, not merely a body
+        # whose velocity happens to be zero. Scale only positive stationary
+        # credit by grounded-foot fraction; three-leg standing receives 75%
+        # before the separate overlong-air penalty, while unstable negative
+        # stationary reward is never made less negative.
+        grounded_foot_fraction = feet_contact.float().mean(dim=1)
+        stationary_locomotion = torch.where(
+            stationary_locomotion > 0.0,
+            stationary_locomotion * grounded_foot_fraction,
+            stationary_locomotion,
         )
         locomotion = torch.where(
             moving_command, moving_locomotion, stationary_locomotion
@@ -655,8 +959,13 @@ class SimpleDogV2Env(SimpleDogEnv):
             0.25 * active_motion_command.float(),
         )
         prolonged_foot_air = (
-            torch.sum(excess_foot_air + excess_foot_contact, dim=1)
-            * active_gait_gate
+            torch.sum(excess_foot_air, dim=1)
+            * torch.where(
+                active_motion_command,
+                active_gait_gate,
+                torch.ones_like(active_gait_gate),
+            )
+            + torch.sum(excess_foot_contact, dim=1) * active_gait_gate
         )
         diagonal_gait = self._dense_diagonal_gait_reward(
             current_air_time, current_contact_time
@@ -694,11 +1003,29 @@ class SimpleDogV2Env(SimpleDogEnv):
                 ) / self.cfg.foot_clearance_std
             )
         )
+        # Clearance credit is for a plausible swing, never for parking a foot
+        # aloft. Once a foot exceeds the configured swing duration its own
+        # clearance credit decays, alongside the existing explicit penalty.
+        plausible_swing_gate = torch.exp(
+            -excess_foot_air / self.cfg.foot_air_gate_std
+        )
         airborne_count = actual_air.float().sum(dim=1).clamp_min(1.0)
         foot_clearance = (
-            (clearance_quality * actual_air.float()).sum(dim=1)
+            (
+                clearance_quality
+                * plausible_swing_gate
+                * actual_air.float()
+            ).sum(dim=1)
             / airborne_count
         ) * active_gait_gate
+        mean_swing_foot_clearance = (
+            torch.clamp(
+                foot_com_z_from_base
+                - self.cfg.nominal_foot_com_z_from_base_m,
+                min=0.0,
+            )
+            * actual_air.float()
+        ).sum(dim=1) / airborne_count
 
         air_time_variance = swing_duty_variance * active_gait_gate
 
@@ -723,16 +1050,23 @@ class SimpleDogV2Env(SimpleDogEnv):
         diagonal_joint_symmetry = torch.exp(
             -diagonal_pair_error / self.cfg.diagonal_joint_symmetry_std
         ) * active_gait_gate
-        # Grade diagonal phase agreement instead of paying only an exact
-        # all-four binary match. The former +/-1 cliff made rapid stomping and
-        # sliding worth more than smooth commanded locomotion. Either diagonal
-        # phase may lead; three correctly phased feet now earn partial credit,
-        # while a two-two mismatch earns zero rather than a large penalty.
+        # Grade diagonal phase agreement without rewarding an isolated raised
+        # foot. Either diagonal phase may lead, but each member of a diagonal
+        # pair must share its partner's contact state. The previous pure phase
+        # match gave a one-leg-air pose +0.5 because three individual feet
+        # happened to match one phase; that encouraged parking one foot aloft.
         phase_match = torch.mean((actual_air == desired_air).float(), dim=1)
         inverted_match = 1.0 - phase_match
-        reference_trot = 2.0 * torch.maximum(
-            phase_match, inverted_match
-        ) - 1.0
+        diagonal_pair_consistency = 0.5 * (
+            (actual_air[:, 0] == actual_air[:, 3]).float()
+            + (actual_air[:, 1] == actual_air[:, 2]).float()
+        )
+        reference_trot = (
+            2.0
+            * torch.maximum(phase_match, inverted_match)
+            * diagonal_pair_consistency
+            - 1.0
+        )
         reference_trot *= torch.maximum(
             progress_gate,
             0.25 * active_motion_command.float(),
@@ -778,10 +1112,19 @@ class SimpleDogV2Env(SimpleDogEnv):
         )
         # Reward only another completed set of four landings, measured by the
         # least-used foot. Repeatedly cycling three legs cannot earn this term.
+        # A small command-only bootstrap lets a stationary policy discover a
+        # complete reverse/lateral cycle before it has made measurable body
+        # progress. The main diagonal-pair trot prior remains fully progress
+        # gated, and the bootstrap is still bounded by the existing slip,
+        # action, stability, and overlong swing/contact penalties.
+        gait_cycle_gate = torch.maximum(
+            progress_gate,
+            0.10 * active_motion_command.float(),
+        )
         # Suppress the initial all-feet contact pulse after an episode reset.
         complete_gait_cycle = (
             complete_gait_cycle
-            * progress_gate
+            * gait_cycle_gate
             * (self._survival_steps > 5.0).float()
         )
 
@@ -870,6 +1213,7 @@ class SimpleDogV2Env(SimpleDogEnv):
                 body_lateral=body_lateral,
                 yaw_rate=root_ang_vel_b[:, 2],
                 foot_slip=mean_stance_foot_slip,
+                swing_foot_clearance=mean_swing_foot_clearance,
                 action_rate=action_rate,
                 max_action_step=torch.amax(
                     torch.abs(self._actions - self._previous_actions), dim=1
@@ -890,9 +1234,22 @@ class SimpleDogV2Env(SimpleDogEnv):
                 swing_fraction = self._foot_swing_steps[0] / max(
                     float(self.episode_length_buf[0].item()), 1.0
                 )
+                goal_metrics = ""
+                if self.cfg.pose_goal_training:
+                    goal_position_error_b, goal_heading_error_b = (
+                        self._pose_goal_errors(
+                            torch.zeros(1, dtype=torch.long, device=self.device)
+                        )
+                    )
+                    goal_metrics = (
+                        f"goal_error_x={goal_position_error_b[0, 0].item():.4f} "
+                        f"goal_error_y={goal_position_error_b[0, 1].item():.4f} "
+                        f"goal_error_yaw={goal_heading_error_b[0].item():.4f} "
+                    )
                 print(
                     "PLAY_METRICS "
                     f"step={self._play_step_count} "
+                    f"{goal_metrics}"
                     f"command_forward={self._commands[0, 0].item():.4f} "
                     f"command_lateral={self._commands[0, 1].item():.4f} "
                     f"command_yaw={self._commands[0, 2].item():.4f} "
@@ -916,9 +1273,11 @@ class SimpleDogV2Env(SimpleDogEnv):
         self._evaluation_segment_index = segment_index
         self._evaluation_segment_steps = 0
         self._evaluation_body_forward_sum = 0.0
+        self._evaluation_body_lateral_sum = 0.0
         self._evaluation_body_lateral_abs_sum = 0.0
         self._evaluation_yaw_rate_sum = 0.0
         self._evaluation_foot_slip_sum = 0.0
+        self._evaluation_swing_foot_clearance_sum = 0.0
         self._evaluation_action_rate_sum = 0.0
         self._evaluation_max_action_step = 0.0
         self._evaluation_vertical_speed_abs_sum = 0.0
@@ -973,9 +1332,12 @@ class SimpleDogV2Env(SimpleDogEnv):
             f"command_lateral={float(segment[3]):.4f} "
             f"command_yaw={float(segment[4]):.4f} "
             f"mean_body_forward={self._evaluation_body_forward_sum / steps:.4f} "
+            f"mean_body_lateral={self._evaluation_body_lateral_sum / steps:.4f} "
             f"mean_abs_body_lateral={self._evaluation_body_lateral_abs_sum / steps:.4f} "
             f"mean_yaw_rate={self._evaluation_yaw_rate_sum / steps:.4f} "
             f"mean_foot_slip={self._evaluation_foot_slip_sum / steps:.4f} "
+            f"mean_swing_foot_clearance="
+            f"{self._evaluation_swing_foot_clearance_sum / steps:.4f} "
             f"mean_action_rate={self._evaluation_action_rate_sum / steps:.4f} "
             f"max_action_step={self._evaluation_max_action_step:.4f} "
             f"mean_abs_vertical_speed="
@@ -1000,6 +1362,7 @@ class SimpleDogV2Env(SimpleDogEnv):
         body_lateral: torch.Tensor,
         yaw_rate: torch.Tensor,
         foot_slip: torch.Tensor,
+        swing_foot_clearance: torch.Tensor,
         action_rate: torch.Tensor,
         max_action_step: torch.Tensor,
         vertical_speed: torch.Tensor,
@@ -1024,9 +1387,13 @@ class SimpleDogV2Env(SimpleDogEnv):
 
         self._evaluation_segment_steps += 1
         self._evaluation_body_forward_sum += body_forward[0].item()
+        self._evaluation_body_lateral_sum += body_lateral[0].item()
         self._evaluation_body_lateral_abs_sum += abs(body_lateral[0].item())
         self._evaluation_yaw_rate_sum += yaw_rate[0].item()
         self._evaluation_foot_slip_sum += foot_slip[0].item()
+        self._evaluation_swing_foot_clearance_sum += (
+            swing_foot_clearance[0].item()
+        )
         self._evaluation_action_rate_sum += action_rate[0].item()
         self._evaluation_max_action_step = max(
             self._evaluation_max_action_step, max_action_step[0].item()
@@ -1068,7 +1435,8 @@ class SimpleDogV2Env(SimpleDogEnv):
                 "Metrics/mean_heading_error"
             )
 
-        self._sample_command_targets(env_ids, immediate=True)
+        if not self.cfg.pose_goal_training:
+            self._sample_command_targets(env_ids, immediate=True)
         if self._evaluation_segments:
             elapsed = self._play_step_count
             for segment in self._evaluation_segments:
@@ -1127,3 +1495,10 @@ class SimpleDogV2Env(SimpleDogEnv):
         self._robot.write_root_velocity_to_sim_index(
             root_velocity=root_velocity, env_ids=env_ids
         )
+        if self.cfg.pose_goal_training:
+            self._sample_pose_goals(
+                env_ids,
+                root_position_w=root_pose,
+                root_quat_w=root_pose[:, 3:7],
+                immediate=True,
+            )

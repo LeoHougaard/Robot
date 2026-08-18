@@ -157,13 +157,16 @@ class SimpleDogEnv(DirectRLEnv):
 
         # Use a log-uniform factor so reciprocal under/over-estimates are
         # sampled symmetrically and the setting scales to a replacement robot.
-        low_mass, high_mass = self.cfg.base_mass_scale
-        mass_scale = torch.exp(
-            torch.empty((self.num_envs, 1), device=self.device).uniform_(
-                torch.log(torch.tensor(low_mass, device=self.device)).item(),
-                torch.log(torch.tensor(high_mass, device=self.device)).item(),
+        def log_uniform(shape: tuple[int, ...], bounds: tuple[float, float]):
+            low, high = bounds
+            return torch.exp(
+                torch.empty(shape, device=self.device).uniform_(
+                    torch.log(torch.tensor(low, device=self.device)).item(),
+                    torch.log(torch.tensor(high, device=self.device)).item(),
+                )
             )
-        )
+
+        mass_scale = log_uniform((self.num_envs, 1), self.cfg.base_mass_scale)
         default_mass = self._robot.data.body_mass.torch[
             env_ids[:, None], body_ids
         ].clone()
@@ -177,6 +180,81 @@ class SimpleDogEnv(DirectRLEnv):
         self._robot.set_inertias_index(
             inertias=default_inertia * mass_scale.unsqueeze(-1),
             body_ids=body_ids,
+            env_ids=env_ids,
+        )
+
+        # A payload changes the chassis mass, while manufacturing tolerances
+        # affect each remaining link independently. Scaling inertia with mass
+        # preserves the authored shape instead of inventing a new geometry.
+        base_id_set = set(self._base_body_ids)
+        link_body_ids = [
+            body_id
+            for body_id in range(len(self._robot.body_names))
+            if body_id not in base_id_set
+        ]
+        if link_body_ids:
+            link_ids = torch.tensor(
+                link_body_ids, dtype=torch.int32, device=self.device
+            )
+            link_scale = log_uniform(
+                (self.num_envs, len(link_body_ids)), self.cfg.link_mass_scale
+            )
+            link_mass = self._robot.data.body_mass.torch[
+                env_ids[:, None], link_ids
+            ].clone()
+            self._robot.set_masses_index(
+                masses=link_mass * link_scale,
+                body_ids=link_ids,
+                env_ids=env_ids,
+            )
+            link_inertia = self._robot.data.body_inertia.torch[
+                env_ids[:, None], link_ids
+            ].clone()
+            self._robot.set_inertias_index(
+                inertias=link_inertia * link_scale.unsqueeze(-1),
+                body_ids=link_ids,
+                env_ids=env_ids,
+            )
+
+        # Sample every actuator independently. This includes left/right
+        # mismatch, which a single robot-wide multiplier would miss.
+        joint_ids = torch.tensor(
+            self._policy_joint_ids, dtype=torch.int32, device=self.device
+        )
+        joint_shape = (self.num_envs, len(self._policy_joint_ids))
+        drive_scale = log_uniform(joint_shape, self.cfg.actuator_drive_scale)
+        effort_scale = log_uniform(joint_shape, self.cfg.actuator_effort_scale)
+        velocity_scale = log_uniform(joint_shape, self.cfg.actuator_velocity_scale)
+        stiffness = self._robot.data.joint_stiffness.torch[
+            env_ids[:, None], joint_ids
+        ].clone()
+        damping = self._robot.data.joint_damping.torch[
+            env_ids[:, None], joint_ids
+        ].clone()
+        effort_limits = self._robot.data.joint_effort_limits.torch[
+            env_ids[:, None], joint_ids
+        ].clone()
+        velocity_limits = self._robot.data.joint_vel_limits.torch[
+            env_ids[:, None], joint_ids
+        ].clone()
+        self._robot.write_joint_stiffness_to_sim_index(
+            stiffness=stiffness * drive_scale,
+            joint_ids=joint_ids,
+            env_ids=env_ids,
+        )
+        self._robot.write_joint_damping_to_sim_index(
+            damping=damping * drive_scale,
+            joint_ids=joint_ids,
+            env_ids=env_ids,
+        )
+        self._robot.write_joint_effort_limit_to_sim_index(
+            limits=effort_limits * effort_scale,
+            joint_ids=joint_ids,
+            env_ids=env_ids,
+        )
+        self._robot.write_joint_velocity_limit_to_sim_index(
+            limits=velocity_limits * velocity_scale,
+            joint_ids=joint_ids,
             env_ids=env_ids,
         )
 

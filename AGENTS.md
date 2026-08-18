@@ -71,7 +71,7 @@ Onshape:
 ## Training rules
 
 - Preserve V1 as the known working flat policy.
-- Keep V2 checkpoints separate; their 132-value observation differs from V1.
+- Keep V2 checkpoints separate; their 180-value observation differs from V1.
 - V2 order is Core, Robust, Goal completion, Rough, then separate recovery.
 - Actor observations must be physically deployable: body IMU estimate, joint
   position/velocity, command, and previous action history.

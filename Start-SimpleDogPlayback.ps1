@@ -49,6 +49,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $copies = @(
     @{ Local = "training\play_simple_dog.py"; Remote = $remoteTraining },
+    @{ Local = "training\pose_goal_controller.py"; Remote = $remoteTraining },
     @{ Local = "training\simple_dog_tuning.py"; Remote = $remoteTraining },
     @{ Local = "training\simple_dog_task\__init__.py"; Remote = "$remoteTraining/simple_dog_task" },
     @{ Local = "training\simple_dog_task\simple_dog_env.py"; Remote = "$remoteTraining/simple_dog_task" },

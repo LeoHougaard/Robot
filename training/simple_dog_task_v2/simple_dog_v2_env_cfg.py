@@ -33,6 +33,21 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
     action_delta_limit = profile_value(
         CONTROL_PROFILE, "environment.action_delta_limit", 0.34
     )
+    # When all commanded axes are inside these deadbands, use the profile's
+    # calibrated four-foot stance instead of allowing an actor to exploit a
+    # motionless three-leg stance. The same command-only rule is part of the
+    # exported hardware contract.
+    stationary_planar_deadband = profile_value(
+        CONTROL_PROFILE, "environment.stationary_planar_deadband", 0.02
+    )
+    stationary_yaw_deadband = profile_value(
+        CONTROL_PROFILE, "environment.stationary_yaw_deadband", 0.03
+    )
+    stationary_stance_action = tuple(profile_value(
+        CONTROL_PROFILE,
+        "environment.stationary_stance_action",
+        (0.0,) * JOINT_COUNT,
+    ))
 
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=512,
@@ -90,6 +105,44 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
     command_smoothing_time_s = profile_value(
         CONTROL_PROFILE, "commands.smoothing_s", 0.40
     )
+
+    # Goal stages sample a planar world-frame destination and continuously
+    # convert its body-frame x/y/heading error to the actor's unchanged,
+    # hardware-deployable velocity command.  Keeping this false in Core and
+    # Robust preserves their existing command curriculum.
+    pose_goal_training = False
+    pose_goal_distance = (0.40, 1.25)
+    pose_goal_bearing = (-3.141592653589793, 3.141592653589793)
+    pose_goal_heading = (-3.141592653589793, 3.141592653589793)
+    pose_goal_duration_s = (7.0, 11.0)
+    pose_goal_hold_s = (0.60, 1.00)
+    # Preserve the inherited forward/turn gait while progressively introducing
+    # reverse, lateral, and mixed goals.  DirectRLEnv's common step counter is
+    # reset for every continuation, so this curriculum also restarts cleanly
+    # when a checkpoint is resumed.
+    pose_goal_novel_fraction_start = profile_value(
+        CONTROL_PROFILE, "commands.goal_novel_fraction_start", 0.70
+    )
+    pose_goal_novel_fraction_end = profile_value(
+        CONTROL_PROFILE, "commands.goal_novel_fraction_end", 0.80
+    )
+    pose_goal_novel_speed_scale_start = profile_value(
+        CONTROL_PROFILE, "commands.goal_novel_speed_scale_start", 1.00
+    )
+    pose_goal_curriculum_steps = profile_value(
+        CONTROL_PROFILE, "commands.goal_curriculum_steps", 3200
+    )
+    pose_goal_familiar_turn_fraction = profile_value(
+        CONTROL_PROFILE, "commands.goal_familiar_turn_fraction", 0.25
+    )
+    pose_goal_mixed_fraction = profile_value(
+        CONTROL_PROFILE, "commands.goal_mixed_fraction", 0.25
+    )
+    pose_goal_turn_angle = (0.40, 1.50)
+    pose_goal_position_tolerance = 0.10
+    pose_goal_heading_tolerance = 0.12
+    pose_goal_distance_gain = 0.80
+    pose_goal_final_heading_gain = 1.50
 
     # Deterministic acceptance schedules are used only by the play tasks.
     # Each entry is (name, policy steps, forward m/s, lateral m/s, yaw rad/s).
@@ -232,7 +285,9 @@ class SimpleDogV2RobustEnvCfg(SimpleDogV2CoreEnvCfg):
 
 @configclass
 class SimpleDogV2GoalEnvCfg(SimpleDogV2RobustEnvCfg):
-    """Add the stop and turn-in-place commands needed by a pose controller."""
+    """Reach sampled world-frame x/y/heading goals through a pose controller."""
+
+    pose_goal_training = True
 
     command_forward = (
         profile_value(CONTROL_PROFILE, "commands.forward_min", 0.05),
@@ -247,8 +302,8 @@ class SimpleDogV2GoalEnvCfg(SimpleDogV2RobustEnvCfg):
 
 
 @configclass
-class SimpleDogV2RoughEnvCfg(SimpleDogV2CoreEnvCfg):
-    """Exploratory V2 locomotion on the existing mild terrain curriculum."""
+class SimpleDogV2RoughEnvCfg(SimpleDogV2GoalEnvCfg):
+    """Continue Goal locomotion on a mild terrain curriculum."""
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -266,9 +321,6 @@ class SimpleDogV2RoughEnvCfg(SimpleDogV2CoreEnvCfg):
         debug_vis=False,
     )
     terrain_curriculum = True
-    standing_command_fraction = profile_value(
-        CONTROL_PROFILE, "commands.standing_fraction", 0.0
-    )
 
     # Rough V2 deliberately remains proprioceptive: the terrain is real, but
     # no simulator-only height samples are added to the profile-sized actor input
@@ -342,15 +394,46 @@ class SimpleDogV2RobustEvalEnvCfg(SimpleDogV2CoreEvalEnvCfg):
 
 @configclass
 class SimpleDogV2GoalEvalEnvCfg(SimpleDogV2PlayEnvCfg):
-    """Deterministic Goal promotion suite including stop and pure rotation."""
+    """Full planar-mobility promotion suite on held-out rough ground."""
+
+    # Goal acceptance must exercise the same kind of mildly uneven surface as
+    # training. The former inherited plane made directional metrics useful but
+    # produced a misleading flat rollout in the shared viewer.
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=SIMPLE_DOG_ROUGH_VALIDATION_TERRAIN_CFG,
+        max_init_terrain_level=0,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=profile_value(
+                CONTROL_PROFILE, "environment.static_friction", 1.0
+            ),
+            dynamic_friction=profile_value(
+                CONTROL_PROFILE, "environment.dynamic_friction", 0.9
+            ),
+            restitution=profile_value(
+                CONTROL_PROFILE, "environment.restitution", 0.0
+            ),
+        ),
+        debug_vis=False,
+    )
 
     evaluation_segments = (
-        ("stand", 150, 0.0, 0.0, 0.0),
-        ("turn_left", 200, 0.0, 0.0, 0.30),
-        ("turn_right", 200, 0.0, 0.0, -0.30),
-        ("walk_left", 200, min(0.30, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.30)), 0.0, 0.30),
-        ("walk_right", 200, min(0.30, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.30)), 0.0, -0.30),
-        ("stop", 150, 0.0, 0.0, 0.0),
+        ("stand", 100, 0.0, 0.0, 0.0),
+        ("forward", 175, 0.22, 0.0, 0.0),
+        ("reverse", 175, -0.18, 0.0, 0.0),
+        ("strafe_left", 175, 0.0, 0.16, 0.0),
+        ("strafe_right", 175, 0.0, -0.16, 0.0),
+        ("turn_left", 175, 0.0, 0.0, 0.25),
+        ("turn_right", 175, 0.0, 0.0, -0.25),
+        ("diagonal_left", 175, 0.16, 0.12, 0.0),
+        ("diagonal_reverse_right", 175, -0.14, -0.12, 0.0),
+        ("curve_left", 175, 0.16, 0.08, 0.25),
+        ("curve_right", 175, 0.16, -0.08, -0.25),
+        ("stop", 100, 0.0, 0.0, 0.0),
     )
 
 
@@ -390,6 +473,12 @@ class SimpleDogV2RoughPlayEnvCfg(SimpleDogV2RoughEnvCfg):
     command_yaw = (0.0, 0.0)
     command_hold_s = (60.0, 60.0)
     command_smoothing_time_s = 0.01
+    # A fixed relative pose makes playback repeatable and visibly exercises
+    # turning, translation, stopping, and final-heading control.
+    pose_goal_distance = (0.75, 0.75)
+    pose_goal_bearing = (0.60, 0.60)
+    pose_goal_heading = (1.00, 1.00)
+    pose_goal_duration_s = (60.0, 60.0)
     reset_small_tilt_deg = 0.0
     reset_large_tilt_deg = 0.0
     reset_large_tilt_fraction = 0.0

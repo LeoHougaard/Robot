@@ -10,6 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -77,6 +78,8 @@ FIELD_GROUPS: list[dict[str, Any]] = [
             {"path": "environment.control_hz", "label": "Policy rate", "type": "number", "min": 10, "max": 200, "step": 5, "unit": "Hz", "description": "How often the policy sends joint targets. It must divide the physics rate exactly and must match the eventual hardware controller."},
             {"path": "environment.action_scale", "label": "Action range", "type": "number", "min": 0.01, "max": 1.5, "step": 0.01, "unit": "rad", "description": "Maximum joint-position residual around the calibrated standing pose. Too large makes violent actions easy; too small can prevent useful steps."},
             {"path": "environment.action_delta_limit", "label": "Action slew limit", "type": "number", "min": 0.01, "max": 2.0, "step": 0.01, "unit": "normalized/frame", "description": "Largest policy-action change allowed per control frame. This must match the real controller's per-frame servo safety limit."},
+            {"path": "environment.stationary_planar_deadband", "label": "Stationary planar deadband", "type": "number", "min": 0, "max": 0.25, "step": 0.005, "unit": "m/s", "description": "Commands inside this planar-speed deadband slew to the validated four-foot stance action."},
+            {"path": "environment.stationary_yaw_deadband", "label": "Stationary yaw deadband", "type": "number", "min": 0, "max": 0.30, "step": 0.005, "unit": "rad/s", "description": "Commands inside both stationary deadbands use the same four-foot stance contract in simulation and deployment."},
             {"path": "commands.forward_min", "label": "Minimum forward speed", "type": "number", "min": -3, "max": 2, "step": 0.01, "unit": "m/s", "description": "Smallest commanded body-forward velocity. Negative values train reverse motion."},
             {"path": "commands.forward_max", "label": "Maximum forward speed", "type": "number", "min": 0.01, "max": 3, "step": 0.01, "unit": "m/s", "description": "Largest commanded forward velocity. Increase only after stable slower locomotion passes evaluation."},
             {"path": "commands.lateral_min", "label": "Minimum lateral speed", "type": "number", "min": -3, "max": 3, "step": 0.01, "unit": "m/s", "description": "Smallest sideways command in the robot's semantic body frame."},
@@ -120,11 +123,19 @@ FIELD_GROUPS: list[dict[str, Any]] = [
     {
         "id": "randomization",
         "title": "Domain randomization",
-        "summary": "Vary mass, center of mass, and robot contact material across parallel Isaac Lab environments.",
+        "summary": "Vary masses, actuator response, center of mass, and contact material across parallel Isaac Lab environments.",
         "fields": [
             {"path": "domain_randomization.enabled", "label": "Domain randomization", "type": "boolean", "description": "Samples physical variants once per parallel environment. This is the mass/friction randomization shown in NVIDIA's quadruped workflow."},
             {"path": "domain_randomization.base_mass_scale_min", "label": "Base mass scale minimum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Smallest multiplicative chassis-mass factor. Scale is safer than adding kilograms when swapping robot sizes."},
             {"path": "domain_randomization.base_mass_scale_max", "label": "Base mass scale maximum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Largest multiplicative chassis-mass factor. Inertia is scaled consistently with mass."},
+            {"path": "domain_randomization.link_mass_scale_min", "label": "Link mass scale minimum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Smallest independent mass factor for each non-chassis link; inertia is scaled with it."},
+            {"path": "domain_randomization.link_mass_scale_max", "label": "Link mass scale maximum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Largest independent mass factor for each non-chassis link."},
+            {"path": "domain_randomization.actuator_drive_scale_min", "label": "Actuator drive scale minimum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Smallest per-joint stiffness and damping factor, representing drive-response variation."},
+            {"path": "domain_randomization.actuator_drive_scale_max", "label": "Actuator drive scale maximum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Largest per-joint stiffness and damping factor."},
+            {"path": "domain_randomization.actuator_effort_scale_min", "label": "Actuator torque scale minimum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Smallest independent factor applied to each joint's torque limit."},
+            {"path": "domain_randomization.actuator_effort_scale_max", "label": "Actuator torque scale maximum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Largest independent factor applied to each joint's torque limit."},
+            {"path": "domain_randomization.actuator_velocity_scale_min", "label": "Actuator speed scale minimum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Smallest independent factor applied to each joint's speed limit."},
+            {"path": "domain_randomization.actuator_velocity_scale_max", "label": "Actuator speed scale maximum", "type": "number", "min": 0.1, "max": 3, "step": 0.01, "description": "Largest independent factor applied to each joint's speed limit."},
             {"path": "domain_randomization.base_com_x", "label": "Base COM X range", "type": "number", "min": 0, "max": 0.5, "step": 0.005, "unit": "m", "expert": True, "description": "Symmetric center-of-mass offset along body X, sampled between minus and plus this value."},
             {"path": "domain_randomization.base_com_y", "label": "Base COM Y range", "type": "number", "min": 0, "max": 0.5, "step": 0.005, "unit": "m", "expert": True, "description": "Symmetric center-of-mass offset along body Y."},
             {"path": "domain_randomization.base_com_z", "label": "Base COM Z range", "type": "number", "min": 0, "max": 0.5, "step": 0.005, "unit": "m", "expert": True, "description": "Symmetric center-of-mass offset along body Z."},
@@ -344,6 +355,23 @@ def validate_profile(profile: object, *, for_launch: bool = False) -> dict[str, 
             if joint.get("direction") not in (-1, 1):
                 errors.append(f"robot.joints[{index}].direction must be -1 or 1.")
 
+    environment = profile.get("environment", {})
+    stance_action = environment.get("stationary_stance_action")
+    if (
+        not isinstance(stance_action, list)
+        or len(stance_action) != expected
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or not -1.0 <= value <= 1.0
+            for value in stance_action
+        )
+    ):
+        errors.append(
+            "environment.stationary_stance_action must contain 12 finite normalized values within [-1, 1]."
+        )
+
     asset_source = robot.get("asset_source", "") if isinstance(robot, dict) else ""
     asset = robot.get("asset_usd", "") if isinstance(robot, dict) else ""
     if asset_source == "Isaac Lab built-in":
@@ -413,6 +441,10 @@ def validate_profile(profile: object, *, for_launch: bool = False) -> dict[str, 
     randomization = profile["domain_randomization"]
     for minimum, maximum, label in (
         ("base_mass_scale_min", "base_mass_scale_max", "base mass scale"),
+        ("link_mass_scale_min", "link_mass_scale_max", "link mass scale"),
+        ("actuator_drive_scale_min", "actuator_drive_scale_max", "actuator drive scale"),
+        ("actuator_effort_scale_min", "actuator_effort_scale_max", "actuator effort scale"),
+        ("actuator_velocity_scale_min", "actuator_velocity_scale_max", "actuator velocity scale"),
         ("robot_static_friction_min", "robot_static_friction_max", "robot static friction"),
         ("robot_dynamic_friction_min", "robot_dynamic_friction_max", "robot dynamic friction"),
         ("robot_restitution_min", "robot_restitution_max", "robot restitution"),
@@ -427,6 +459,20 @@ def validate_profile(profile: object, *, for_launch: bool = False) -> dict[str, 
         errors.append("terrain.roughness_min cannot exceed terrain.roughness_max.")
     stage = profile["training"]["stage"]
     surface = profile["environment"]["surface"]
+    if stage in ("V2Goal", "V2Rough"):
+        mobility_requirements = (
+            ("commands.forward_min", profile["commands"]["forward_min"], -0.18, "at most"),
+            ("commands.forward_max", profile["commands"]["forward_max"], 0.22, "at least"),
+            ("commands.lateral_min", profile["commands"]["lateral_min"], -0.16, "at most"),
+            ("commands.lateral_max", profile["commands"]["lateral_max"], 0.16, "at least"),
+            ("commands.yaw_max", profile["commands"]["yaw_max"], 0.25, "at least"),
+        )
+        for path, value, required, comparison in mobility_requirements:
+            invalid = value > required if comparison == "at most" else value < required
+            if invalid:
+                errors.append(
+                    f"{stage} requires {path} to be {comparison} {required} for the fixed full-mobility promotion screen."
+                )
     if stage != "V2Rough" and surface != "Flat":
         errors.append(f"{stage} is a flat-ground acceptance stage; select Flat or switch to V2Rough.")
     if stage == "V2Rough" and surface == "Flat":

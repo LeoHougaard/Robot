@@ -5,10 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
-
-import numpy as np
-import torch
 
 
 TENSOR_KEYS = {
@@ -24,6 +22,21 @@ TENSOR_KEYS = {
     "bout": "a2c_network.mu.bias",
 }
 
+REQUIRED_GOAL_COMMANDS = {
+    "stand": (0.0, 0.0, 0.0),
+    "forward": (0.22, 0.0, 0.0),
+    "reverse": (-0.18, 0.0, 0.0),
+    "strafe_left": (0.0, 0.16, 0.0),
+    "strafe_right": (0.0, -0.16, 0.0),
+    "turn_left": (0.0, 0.0, 0.25),
+    "turn_right": (0.0, 0.0, -0.25),
+    "diagonal_left": (0.16, 0.12, 0.0),
+    "diagonal_reverse_right": (-0.14, -0.12, 0.0),
+    "curve_left": (0.16, 0.08, 0.25),
+    "curve_right": (0.16, -0.08, -0.25),
+    "stop": (0.0, 0.0, 0.0),
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -33,16 +46,106 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def elu(value: np.ndarray) -> np.ndarray:
+def elu(value):
+    import numpy as np
+
     return np.where(value > 0.0, value, np.expm1(value))
 
 
-def numpy_actor(observation: np.ndarray, arrays: dict[str, np.ndarray]) -> np.ndarray:
+def numpy_actor(observation, arrays: dict[str, object]):
+    import numpy as np
+
     value = (observation - arrays["obs_mean"]) / np.sqrt(arrays["obs_var"] + 1.0e-5)
     value = np.clip(value, -5.0, 5.0)
     for index in range(3):
         value = elu(arrays[f"w{index}"] @ value + arrays[f"b{index}"])
     return np.clip(arrays["wout"] @ value + arrays["bout"], -1.0, 1.0)
+
+
+def deployment_contract(
+    *,
+    forward_min: float,
+    forward_max: float,
+    lateral_min: float,
+    lateral_max: float,
+    yaw_max: float,
+    planar_deadband: float,
+    yaw_deadband: float,
+    stance_action: list[float],
+) -> tuple[dict[str, list[float]], dict[str, object]]:
+    """Validate and build the hardware command and stationary-action contract."""
+
+    values = (
+        forward_min, forward_max, lateral_min, lateral_max, yaw_max,
+        planar_deadband, yaw_deadband, *stance_action,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Export contract values must be finite.")
+    if not -0.18 <= forward_min <= 0.0:
+        raise ValueError("Validated forward minimum must be within [-0.18, 0] m/s.")
+    if not 0.0 < forward_max <= 0.22:
+        raise ValueError("Validated forward maximum must be within (0, 0.22] m/s.")
+    if not -0.16 <= lateral_min <= 0.0:
+        raise ValueError("Validated lateral minimum must be within [-0.16, 0] m/s.")
+    if not 0.0 <= lateral_max <= 0.16:
+        raise ValueError("Validated lateral maximum must be within [0, 0.16] m/s.")
+    if not 0.0 < yaw_max <= 0.25:
+        raise ValueError("Validated yaw limit must be within (0, 0.25] rad/s.")
+    if not 0.0 <= planar_deadband <= 0.25:
+        raise ValueError("Stationary planar deadband must be within [0, 0.25] m/s.")
+    if not 0.0 <= yaw_deadband <= 0.30:
+        raise ValueError("Stationary yaw deadband must be within [0, 0.30] rad/s.")
+    if len(stance_action) != 12 or any(not -1.0 <= value <= 1.0 for value in stance_action):
+        raise ValueError(
+            "Stationary stance action must contain 12 normalized values within [-1, 1]."
+        )
+    command_limits = {
+        "forward_m_s": [forward_min, forward_max],
+        "lateral_m_s": [lateral_min, lateral_max],
+        "yaw_rate_rad_s": [-yaw_max, yaw_max],
+    }
+    stationary_contract = {
+        "behavior": "slew_to_validated_four_foot_stance_action",
+        "normalized_stance_action": stance_action,
+        "planar_command_deadband_m_s": planar_deadband,
+        "yaw_command_deadband_rad_s": yaw_deadband,
+    }
+    return command_limits, stationary_contract
+
+
+def validate_goal_evaluation(evaluation: object) -> None:
+    """Reject stale Goal results that predate the full mobility screen."""
+
+    if not isinstance(evaluation, dict) or not evaluation.get("passed"):
+        raise ValueError("Refusing to export a policy without a passing evaluation result.")
+    if evaluation.get("stage") != "goal":
+        raise ValueError("Real-robot export requires a passing Goal evaluation.")
+    segments = evaluation.get("segments")
+    if not isinstance(segments, dict):
+        raise ValueError("Goal evaluation has no segment evidence.")
+    missing = [name for name in REQUIRED_GOAL_COMMANDS if name not in segments]
+    if missing:
+        raise ValueError(
+            "Goal evaluation predates the full mobility screen; missing: "
+            + ", ".join(missing)
+        )
+    for name, expected in REQUIRED_GOAL_COMMANDS.items():
+        segment = segments[name]
+        if not isinstance(segment, dict):
+            raise ValueError(f"Goal evaluation segment {name!r} is invalid.")
+        try:
+            actual = tuple(
+                float(segment.get(key, math.nan))
+                for key in ("command_forward", "command_lateral", "command_yaw")
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Goal evaluation segment {name!r} has invalid command evidence."
+            ) from exc
+        if any(abs(left - right) > 1.0e-6 for left, right in zip(actual, expected)):
+            raise ValueError(
+                f"Goal evaluation segment {name!r} used {actual}, expected {expected}."
+            )
 
 
 def main() -> None:
@@ -52,20 +155,44 @@ def main() -> None:
     parser.add_argument("--profile-id", required=True)
     parser.add_argument("--profile-sha", required=True)
     parser.add_argument("--evaluation", type=Path, required=True)
-    parser.add_argument("--validated-forward-max", type=float, default=0.18)
+    parser.add_argument("--validated-forward-min", type=float, default=-0.18)
+    parser.add_argument("--validated-forward-max", type=float, default=0.22)
+    parser.add_argument("--validated-lateral-min", type=float, default=-0.16)
+    parser.add_argument("--validated-lateral-max", type=float, default=0.16)
     parser.add_argument("--validated-yaw-max", type=float, default=0.25)
+    parser.add_argument("--stationary-planar-deadband", type=float, default=0.02)
+    parser.add_argument("--stationary-yaw-deadband", type=float, default=0.03)
+    parser.add_argument(
+        "--stationary-stance-action",
+        type=float,
+        nargs=12,
+        required=True,
+        help="Normalized 12-joint stance action validated for the robot profile.",
+    )
     args = parser.parse_args()
 
-    if not 0.0 < args.validated_forward_max <= 0.25:
-        raise SystemExit("Validated forward limit must be within (0, 0.25] m/s.")
-    if not 0.0 < args.validated_yaw_max <= 0.30:
-        raise SystemExit("Validated yaw limit must be within (0, 0.30] rad/s.")
+    try:
+        command_limits, stationary_contract = deployment_contract(
+            forward_min=args.validated_forward_min,
+            forward_max=args.validated_forward_max,
+            lateral_min=args.validated_lateral_min,
+            lateral_max=args.validated_lateral_max,
+            yaw_max=args.validated_yaw_max,
+            planar_deadband=args.stationary_planar_deadband,
+            yaw_deadband=args.stationary_yaw_deadband,
+            stance_action=args.stationary_stance_action,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     evaluation = json.loads(args.evaluation.read_text(encoding="utf-8"))
-    if not evaluation.get("passed"):
-        raise SystemExit("Refusing to export a policy without a passing evaluation result.")
-    if evaluation.get("stage") != "goal":
-        raise SystemExit("Real-robot export requires a passing Goal evaluation.")
+    try:
+        validate_goal_evaluation(evaluation)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    import numpy as np
+    import torch
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     model = checkpoint["model"]
@@ -134,14 +261,8 @@ def main() -> None:
         "action_clip": [-1.0, 1.0],
         "action_scale_rad": 0.25,
         "control_hz": 50,
-        "validated_command_limits": {
-            "forward_m_s": [0.0, args.validated_forward_max],
-            "lateral_m_s": [0.0, 0.0],
-            "yaw_rate_rad_s": [
-                -args.validated_yaw_max,
-                args.validated_yaw_max,
-            ],
-        },
+        "stationary_action_contract": stationary_contract,
+        "validated_command_limits": command_limits,
         "activation": "elu",
         "normalization_epsilon": 1.0e-5,
         "normalization_clip": [-5.0, 5.0],
