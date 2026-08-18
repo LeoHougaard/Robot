@@ -134,12 +134,20 @@ main { min-width: 0; }
 .run-note { color: #69747a; font-size: 9px; line-height: 1.5; margin: 10px 0 0; }
 .video-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .video-head h3 { font-size: 12px; margin: 0; }
+.video-actions { display: flex; align-items: center; gap: 11px; }
 .video-head button { color: var(--green); background: transparent; border: 0; font-size: 9px; }
 .video-frame { aspect-ratio: 16 / 9; display: grid; place-items: center; background: #080a0b; border: 1px solid var(--line-soft); border-radius: 5px; overflow: hidden; position: relative; }
 .video-frame video { width: 100%; height: 100%; display: none; background: #000; }
 .video-frame video.video-visible { display: block; }
 .video-frame p { color: #596369; font-size: 9px; text-align: center; padding: 20px; }
 .video-card > p { color: #69747a; font-size: 9px; line-height: 1.45; margin: 9px 0 0; }
+.video-card.expanded { position: fixed; z-index: 100; inset: 24px; margin: 0; padding: 20px; display: flex; flex-direction: column; background: #0d1012; border-color: #4c6335; box-shadow: 0 24px 100px rgba(0,0,0,.92); }
+.video-card.expanded .video-head h3 { font-size: 18px; }
+.video-card.expanded .video-frame { flex: 1; min-height: 0; aspect-ratio: auto; }
+.video-card.expanded .video-frame video { object-fit: contain; }
+.video-card.expanded > p { font-size: 11px; }
+body.video-expanded { overflow: hidden; }
+body.video-expanded::before { content: ""; position: fixed; z-index: 99; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(5px); }
 .check-title { display: flex; align-items: center; gap: 8px; }
 .check-title span { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: var(--green); background: var(--green-soft); font-size: 10px; }
 .check-title h3 { margin: 0; font-size: 12px; }
@@ -183,4 +191,5 @@ dialog form > div:last-child { display: flex; justify-content: center; gap: 8px;
   .workspace { min-width: 0; width: 100%; }
   .settings-grid, .run-rail, .robot-overview { grid-template-columns: minmax(0, 1fr); }
   .hero { align-items: center; }
+  .video-card.expanded { inset: 8px; padding: 12px; }
 }

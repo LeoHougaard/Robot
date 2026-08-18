@@ -234,9 +234,19 @@ async function refreshVideo() {
     if (!result.ok) throw new Error(result.output || "No video is available.");
     video.src = `/api/video/latest?token=${encodeURIComponent(token)}&t=${Date.now()}`;
     video.classList.add("video-visible"); empty.classList.add("panel-hidden"); video.load();
+    setLargeVideo(true);
     document.querySelector("#console-output").textContent = result.output || "Newest video loaded.";
   } catch (error) { empty.textContent = error.message; video.classList.remove("video-visible"); empty.classList.remove("panel-hidden"); }
   finally { button.disabled = false; }
+}
+
+function setLargeVideo(expanded) {
+  const card = document.querySelector("#video-card");
+  const button = document.querySelector("#expand-video");
+  card.classList.toggle("expanded", expanded);
+  button.textContent = expanded ? "Close large view" : "Large view";
+  button.setAttribute("aria-expanded", String(expanded));
+  document.body.classList.toggle("video-expanded", expanded);
 }
 
 async function selectProfile(profileId) {
@@ -263,6 +273,9 @@ document.querySelector("#save-button").addEventListener("click", save);
 document.querySelector("#refresh-status").addEventListener("click", () => refreshStatus(true));
 document.querySelector("#start-training").addEventListener("click", () => runAction("start_training"));
 document.querySelector("#refresh-video").addEventListener("click", refreshVideo);
+document.querySelector("#expand-video").addEventListener("click", () => setLargeVideo(!document.querySelector("#video-card").classList.contains("expanded")));
+document.querySelector("#training-video").addEventListener("loadeddata", event => event.target.play().catch(() => {}));
+document.addEventListener("keydown", event => { if (event.key === "Escape") setLargeVideo(false); });
 document.querySelector("#stop-training").addEventListener("click", () => document.querySelector("#confirm-dialog").showModal());
 document.querySelector("#confirm-dialog").addEventListener("close", event => { if (event.target.returnValue === "confirm") runAction("stop_training"); });
 document.querySelector("#clear-console").addEventListener("click", () => { document.querySelector("#console-output").textContent = "No action yet."; });

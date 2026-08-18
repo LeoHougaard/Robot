@@ -72,8 +72,8 @@
             <p class="run-note">Start always uses the saved profile. Stop preserves code, logs, and checkpoints.</p>
           </div>
 
-          <div class="video-card">
-            <div class="video-head"><div><p class="eyebrow">LATEST ROLLOUT</p><h3>Robot playback</h3></div><button id="refresh-video">Fetch newest</button></div>
+          <div class="video-card" id="video-card">
+            <div class="video-head"><div><p class="eyebrow">LATEST ROLLOUT</p><h3>Robot playback</h3></div><div class="video-actions"><button id="refresh-video">Fetch newest</button><button id="expand-video" aria-expanded="false">Large view</button></div></div>
             <div class="video-frame"><video id="training-video" controls muted playsinline></video><p id="video-empty">Fetch the newest rollout. If needed, one is rendered from the latest checkpoint after training finishes.</p></div>
             <p id="video-context">Newest run: checking task and surface…</p>
             <p>Reward tells you whether PPO found a score. Video tells you what behavior earned it.</p>
