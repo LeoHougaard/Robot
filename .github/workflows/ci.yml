@@ -35,6 +35,16 @@ jobs:
       - name: Run control-center tests
         run: python -m unittest discover -s control_center -p "test_*.py"
 
+      - name: Run deterministic policy-contract tests
+        working-directory: training
+        run: |
+          python -m unittest test_evaluate_simple_dog_policy.py
+          python -m unittest test_export_v2_policy.py
+
+      - name: Run Onshape mate-planner tests
+        working-directory: onshape_mate_mirror
+        run: python -m unittest test_onshape_mate_mirror.py
+
       - name: Check Bash syntax
         run: |
           find . -type f -name "*.sh" -print0 |
