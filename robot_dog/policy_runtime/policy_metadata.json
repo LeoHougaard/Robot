@@ -1,0 +1,246 @@
+{
+  "action_clip": [
+    -1.0,
+    1.0
+  ],
+  "action_scale_rad": 0.25,
+  "action_size": 12,
+  "action_delta_limit": 0.3,
+  "activation": "elu",
+  "checkpoint_epoch": 3446,
+  "checkpoint_sha256": "235a330a9bca715db303c472bbab84e29989b0f96102efc9e36e5f6bde85f95c",
+  "control_hz": 50,
+  "command_smoothing_time_s": 0.4,
+  "evaluation": {
+    "failures": [],
+    "passed": true,
+    "segments": {
+      "stand": {
+        "command_forward": 0.0,
+        "command_lateral": 0.0,
+        "command_yaw": 0.0,
+        "forward_displacement": 0.0058,
+        "heading_delta": 0.0025,
+        "landings_frflbrbl": [
+          1.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "lateral_displacement": 0.0024,
+        "max_action_step": 0.3,
+        "mean_abs_body_lateral": 0.0052,
+        "mean_abs_vertical_speed": 0.027,
+        "mean_action_rate": 0.0344,
+        "mean_body_forward": 0.0011,
+        "mean_foot_slip": 0.1032,
+        "mean_tilt": 0.0171,
+        "mean_yaw_rate": -0.0075,
+        "min_height": 0.179,
+        "name": "stand",
+        "resets": 0,
+        "steps": 150,
+        "swing_fraction_frflbrbl": [
+          0.0267,
+          0.9733,
+          1.0,
+          0.0333
+        ]
+      },
+      "stop": {
+        "command_forward": 0.0,
+        "command_lateral": 0.0,
+        "command_yaw": 0.0,
+        "forward_displacement": 0.0467,
+        "heading_delta": -0.0434,
+        "landings_frflbrbl": [
+          1.0,
+          2.0,
+          2.0,
+          1.0
+        ],
+        "lateral_displacement": 0.0226,
+        "max_action_step": 0.3,
+        "mean_abs_body_lateral": 0.0212,
+        "mean_abs_vertical_speed": 0.0185,
+        "mean_action_rate": 0.0985,
+        "mean_body_forward": 0.0149,
+        "mean_foot_slip": 0.1217,
+        "mean_tilt": 0.0248,
+        "mean_yaw_rate": -0.0264,
+        "min_height": 0.1762,
+        "name": "stop",
+        "resets": 0,
+        "steps": 150,
+        "swing_fraction_frflbrbl": [
+          0.06,
+          0.86,
+          0.8933,
+          0.0333
+        ]
+      },
+      "turn_left": {
+        "command_forward": 0.0,
+        "command_lateral": 0.0,
+        "command_yaw": 0.3,
+        "forward_displacement": -0.0656,
+        "heading_delta": 0.949,
+        "landings_frflbrbl": [
+          16.0,
+          16.0,
+          16.0,
+          15.0
+        ],
+        "lateral_displacement": 0.0652,
+        "max_action_step": 0.3,
+        "mean_abs_body_lateral": 0.0333,
+        "mean_abs_vertical_speed": 0.0749,
+        "mean_action_rate": 0.3738,
+        "mean_body_forward": -0.0087,
+        "mean_foot_slip": 0.269,
+        "mean_tilt": 0.0982,
+        "mean_yaw_rate": 0.2342,
+        "min_height": 0.1726,
+        "name": "turn_left",
+        "resets": 0,
+        "steps": 200,
+        "swing_fraction_frflbrbl": [
+          0.26,
+          0.205,
+          0.31,
+          0.41
+        ]
+      },
+      "turn_right": {
+        "command_forward": 0.0,
+        "command_lateral": 0.0,
+        "command_yaw": -0.3,
+        "forward_displacement": 0.0596,
+        "heading_delta": -0.7602,
+        "landings_frflbrbl": [
+          9.0,
+          16.0,
+          15.0,
+          14.0
+        ],
+        "lateral_displacement": 0.0167,
+        "max_action_step": 0.3,
+        "mean_abs_body_lateral": 0.0162,
+        "mean_abs_vertical_speed": 0.0351,
+        "mean_action_rate": 0.3069,
+        "mean_body_forward": 0.0177,
+        "mean_foot_slip": 0.213,
+        "mean_tilt": 0.075,
+        "mean_yaw_rate": -0.1955,
+        "min_height": 0.1728,
+        "name": "turn_right",
+        "resets": 0,
+        "steps": 200,
+        "swing_fraction_frflbrbl": [
+          0.055,
+          0.47,
+          0.495,
+          0.205
+        ]
+      },
+      "walk_left": {
+        "command_forward": 0.18,
+        "command_lateral": 0.0,
+        "command_yaw": 0.25,
+        "forward_displacement": 0.4055,
+        "heading_delta": 1.0003,
+        "landings_frflbrbl": [
+          10.0,
+          9.0,
+          9.0,
+          10.0
+        ],
+        "lateral_displacement": 0.3642,
+        "max_action_step": 0.3,
+        "mean_abs_body_lateral": 0.0565,
+        "mean_abs_vertical_speed": 0.0843,
+        "mean_action_rate": 0.4291,
+        "mean_body_forward": 0.1344,
+        "mean_foot_slip": 0.3771,
+        "mean_tilt": 0.0745,
+        "mean_yaw_rate": 0.2493,
+        "min_height": 0.1674,
+        "name": "walk_left",
+        "resets": 0,
+        "steps": 200,
+        "swing_fraction_frflbrbl": [
+          0.38,
+          0.39,
+          0.49,
+          0.33
+        ]
+      },
+      "walk_right": {
+        "command_forward": 0.18,
+        "command_lateral": 0.0,
+        "command_yaw": -0.25,
+        "forward_displacement": 0.5704,
+        "heading_delta": -0.871,
+        "landings_frflbrbl": [
+          9.0,
+          9.0,
+          9.0,
+          9.0
+        ],
+        "lateral_displacement": -0.2066,
+        "max_action_step": 0.3,
+        "mean_abs_body_lateral": 0.0395,
+        "mean_abs_vertical_speed": 0.0911,
+        "mean_action_rate": 0.458,
+        "mean_body_forward": 0.1612,
+        "mean_foot_slip": 0.3286,
+        "mean_tilt": 0.0871,
+        "mean_yaw_rate": -0.2291,
+        "min_height": 0.1644,
+        "name": "walk_right",
+        "resets": 0,
+        "steps": 200,
+        "swing_fraction_frflbrbl": [
+          0.33,
+          0.475,
+          0.545,
+          0.27
+        ]
+      }
+    },
+    "stage": "goal"
+  },
+  "normalization_clip": [
+    -5.0,
+    5.0
+  ],
+  "normalization_epsilon": 1e-05,
+  "observation_frame": [
+    "angular_velocity_body_rad_s[3]",
+    "projected_gravity_body[3]",
+    "body_command_forward_lateral_yaw[3]",
+    "policy_joint_position_rad[12]",
+    "0.05*policy_joint_velocity_rad_s[12]",
+    "previous_applied_action[12]"
+  ],
+  "observation_history": 4,
+  "observation_size": 180,
+  "profile_id": "assembly-1-12dof",
+  "profile_sha256": "B25A4A05FA5A6439B82B824D2C2C826F2A9CC5AACC274D75EE8B4D39978035D3",
+  "schema_version": 1,
+  "validated_command_limits": {
+    "forward_m_s": [
+      0.0,
+      0.18
+    ],
+    "lateral_m_s": [
+      0.0,
+      0.0
+    ],
+    "yaw_rate_rad_s": [
+      -0.25,
+      0.25
+    ]
+  },
+  "weights_sha256": "0152312b60a548bdb6dcbcb92444db2e4278f9e5304c47044aa6491ac6fd13ab"
+}
