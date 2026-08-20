@@ -1,15 +1,26 @@
-# Robot Training operating guide
+# Robot operating guide
 
-This repository owns the robot assets, Isaac Lab tasks, training methods,
-evaluation, playback, and bounded autoresearch workflow. The NVIDIA GB10 is
-the current execution backend; Qwen dashboard/model administration remains in
-the separate `GB10` project.
+This monorepo owns the robot assets, Isaac Lab tasks, training methods,
+evaluation, physical controller and runtime, and Pixel Android controller. The
+NVIDIA GB10 is the current training backend. Qwen dashboard and model
+administration remain in the separate `GB10` project.
+
+## Repository areas
+
+| Path | Ownership |
+|---|---|
+| Repository root | Training, evaluation, playback, policy export, and bounded autoresearch |
+| `robot_dog/` | ESP32 firmware, Raspberry Pi deployment, browser UI, and portable policy runtime |
+| `pixel_robot/` | Android USB host, policy runtime, camera, and controls |
+
+Keep training checkpoints and evaluation evidence out of Git. Commit portable
+promoted policy bundles only where the runtime or Android app requires them.
 
 ## Current backend
 
 | Item | Value |
 |---|---|
-| Windows project | `C:\Users\Leo\Code Projects\Robot Training` |
+| Windows project | `C:\Users\Leo\Code Projects\Robot` |
 | SSH target | `leo@gx10-ddb2.local` |
 | Architecture | ARM64 / `aarch64` |
 | Isaac Lab container | `isaac-lab-gb10` |

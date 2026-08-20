@@ -1,14 +1,30 @@
-# Robot Training
+# Robot
 
-[![CI](https://github.com/LeoHougaard/Robot-Training/actions/workflows/ci.yml/badge.svg)](https://github.com/LeoHougaard/Robot-Training/actions/workflows/ci.yml)
+[![CI](https://github.com/LeoHougaard/Robot/actions/workflows/ci.yml/badge.svg)](https://github.com/LeoHougaard/Robot/actions/workflows/ci.yml)
 
-Reinforcement-learning infrastructure for training quadrupeds in NVIDIA Isaac
+This monorepo contains the robot's training system, physical controller and
+runtime, and Pixel Android controller. The training project remains at the
+repository root so its existing launchers keep working.
+
+## Projects
+
+| Path | Purpose |
+|---|---|
+| Repository root | Isaac Lab training, evaluation, policy export, playback, and autoresearch |
+| `robot_dog/` | ESP32 firmware, Raspberry Pi deployment, browser controls, and portable policy runtime |
+| `pixel_robot/` | Android USB host, on-device policy runtime, camera, and robot controls |
+
+Each project retains its original Git history. Open this repository when a
+change crosses training, export, firmware, runtime, or Android boundaries.
+
+## Training system
+
+The reinforcement-learning infrastructure trains quadrupeds in NVIDIA Isaac
 Lab. The control-center workflow starts from Isaac Lab's official 12-DOF
 Unitree Go2 reference and provides a gated 12-DOF custom-robot profile.
 
-The project currently executes on an NVIDIA GB10/DGX Spark, but the repository
-is organized around the robot, training tasks, evaluation, and policy
-promotion—not around the computer that runs them.
+Training currently runs on an NVIDIA GB10/DGX Spark. The repository is
+organized around the robot, training tasks, evaluation, and policy promotion.
 
 ## Current capabilities
 
@@ -53,6 +69,8 @@ training/       Isaac Lab tasks, PPO configurations, validation, and V2
 autoresearch/   deterministic training/evaluation supervisor and manifests
 scenes/         authored Isaac scene layers
 artifacts/      small curated demonstrations
+robot_dog/       physical robot firmware, deployment, UI, and policy runtime
+pixel_robot/     Pixel Android controller and on-device policy runtime
 *.ps1           Windows launch, status, playback, and deployment commands
 isaac-gb10.sh   current GB10 container backend
 ```

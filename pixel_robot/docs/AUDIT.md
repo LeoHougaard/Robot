@@ -1,15 +1,15 @@
 # Robot integration audit
 
-Audited on 2026-08-15 from:
+Audited on 2026-08-15 from the consolidated repository:
 
-- `C:\Users\Leo\Code Projects\Robot Dog`
-- `C:\Users\Leo\Code Projects\Robot Training`
+- `C:\Users\Leo\Code Projects\Robot\robot_dog`
+- `C:\Users\Leo\Code Projects\Robot`
 
 No walking behavior or training source was changed.
 
 ## ESP32 and actuator hardware
 
-The active firmware is `Robot Dog/firmware/robot-dog-control`. PlatformIO uses
+The active firmware is `robot_dog/firmware/robot-dog-control`. PlatformIO uses
 the Arduino `esp32dev` target. Windows' retained Plug-and-Play record for the
 commissioned COM3 device identifies a Silicon Labs CP210x USB-to-UART bridge:
 VID `10C4`, PID `EA60`.
@@ -42,7 +42,7 @@ torque-off command remains available for suspended commissioning and shutdown.
 ## Promoted policy
 
 The selected policy is an Isaac Lab/RL-Games PPO actor, not a Stable-Baselines
-policy. `Robot Dog/policy_runtime` contains the promoted portable bundle and
+policy. `robot_dog/policy_runtime` contains the promoted portable bundle and
 measured calibration.
 
 Actor topology and preprocessing:
@@ -70,4 +70,3 @@ logging, camera preview/latest-frame analysis, thermal reporting, and local or
 remote motion requests. It never emits servo pulses. The ESP32 remains the
 authority for actuator limits, feedback validation, sequence validation, and
 loss-of-host response.
-

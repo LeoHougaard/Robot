@@ -2,12 +2,12 @@
 
 ## Repository ownership
 
-- Hardware/runtime target: `C:\Users\Leo\Code Projects\Robot Dog`
-- Isaac Lab/training source: `C:\Users\Leo\Code Projects\Robot Training`
+- Hardware/runtime target: `C:\Users\Leo\Code Projects\Robot\robot_dog`
+- Isaac Lab/training source: `C:\Users\Leo\Code Projects\Robot`
 - GB10 checkpoint/evaluation data: `/home/leo/isaac-workspace/projects/training`
-- Do not use the old OneDrive project or `Robot Dog - clean clone backup 2026-08-12`.
-- Keep training tasks, checkpoints, evaluations, and future exports in Robot
-  Training. Only copy a selected portable bundle into this directory.
+- Do not use the old OneDrive project or standalone repository backups.
+- Keep training tasks, checkpoints, evaluations, and future exports at the
+  monorepo root. Only copy a selected portable bundle into this directory.
 
 ## Installed bundle
 
@@ -22,7 +22,7 @@
   `0152312b60a548bdb6dcbcb92444db2e4278f9e5304c47044aa6491ac6fd13ab`
 - Checkpoint:
   `/workspace/projects/training/logs/rl_games/quadruped_v2_assembly_1_12dof/2026-08-12_18-37-21/nn/quadruped_v2_assembly_1_12dof.pth`
-- Exporter: `Robot Training\training\export_v2_policy.py`
+- Exporter: `training\export_v2_policy.py`
 - Remote export:
   `/workspace/projects/training/exports/assembly-1-12dof-b25a4a05-20260812`
 
