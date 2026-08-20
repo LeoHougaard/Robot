@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pixel Robot</string>
+    <string name="looking_for_esp32">Looking for ESP32…</string>
+    <string name="policy_idle">Policy idle</string>
+    <string name="camera_off">Camera off</string>
+    <string name="enable_camera">Enable camera</string>
+    <string name="camera_permission_denied">Camera permission denied</string>
+    <string name="camera_analysis_status">Latest-frame analysis %1$.1f fps • thermal %2$s</string>
+    <string name="robot_service_disconnected">Robot service disconnected</string>
+    <string name="lifted_confirmation">Robot is calibrated and securely suspended</string>
+    <string name="forward_request">Forward request (0.00–0.18 m/s)</string>
+    <string name="yaw_request">Yaw request (-0.25–0.25 rad/s)</string>
+    <string name="start_suspended_test">Start 5 s suspended test</string>
+    <string name="stop_and_hold">Stop + hold</string>
+    <string name="reconnect_usb">Reconnect USB</string>
+    <string name="no_telemetry">No telemetry</string>
+</resources>
