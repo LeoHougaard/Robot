@@ -45,7 +45,7 @@ FIELD_GROUPS: list[dict[str, Any]] = [
         "title": "Surface",
         "summary": "Select the terrain family and the contact material Isaac Sim will build.",
         "fields": [
-            {"path": "environment.surface", "label": "Surface", "type": "select", "options": ["Flat", "Random rough", "Slopes", "Mixed curriculum"], "description": "Terrain beneath the robot. Selecting a non-flat surface also selects the V2 Rough task; selecting Flat returns to V2 Core. Save before starting because a running Isaac scene cannot change terrain."},
+            {"path": "environment.surface", "label": "Surface", "type": "select", "options": ["Flat", "Random rough", "Slopes", "Pyramid stairs", "Mixed curriculum"], "description": "Terrain beneath the robot. Selecting a non-flat surface also selects the V2 Rough task; selecting Flat returns to V2 Core. Save before starting because a running Isaac scene cannot change terrain."},
             {"path": "terrain.roughness_min", "label": "Roughness minimum", "type": "number", "min": 0, "max": 0.25, "step": 0.0025, "unit": "m", "description": "Smallest vertical displacement in random rough terrain."},
             {"path": "terrain.roughness_max", "label": "Roughness maximum", "type": "number", "min": 0, "max": 0.5, "step": 0.0025, "unit": "m", "description": "Largest vertical displacement at maximum curriculum difficulty."},
             {"path": "terrain.slope_max", "label": "Maximum slope", "type": "number", "min": 0, "max": 0.8, "step": 0.01, "description": "Steepest generated pyramid slope at maximum difficulty."},
@@ -453,10 +453,22 @@ def validate_profile(profile: object, *, for_launch: bool = False) -> dict[str, 
             errors.append(
                 f"domain_randomization {label} minimum cannot exceed its maximum."
             )
+    mass_target = randomization.get("base_mass_target_kg", 0.0)
+    mass_variation = randomization.get("base_mass_variation_kg", 0.0)
+    if mass_target < 0 or mass_variation < 0:
+        errors.append("Absolute base mass target and variation must be non-negative.")
+    elif mass_target == 0 and mass_variation != 0:
+        errors.append("Base mass variation requires a positive absolute target.")
+    elif mass_target > 0 and mass_variation >= mass_target:
+        errors.append("Base mass variation must be smaller than its absolute target.")
     if profile["disturbance"]["push_interval_min_s"] > profile["disturbance"]["push_interval_max_s"]:
         errors.append("disturbance.push_interval_min_s cannot exceed push_interval_max_s.")
     if profile["terrain"]["roughness_min"] > profile["terrain"]["roughness_max"]:
         errors.append("terrain.roughness_min cannot exceed terrain.roughness_max.")
+    stair_height_min = profile["terrain"].get("stairs_step_height_min", 0.005)
+    stair_height_max = profile["terrain"].get("stairs_step_height_max", 0.025)
+    if stair_height_min > stair_height_max:
+        errors.append("terrain.stairs_step_height_min cannot exceed stairs_step_height_max.")
     stage = profile["training"]["stage"]
     surface = profile["environment"]["surface"]
     if stage in ("V2Goal", "V2Rough"):

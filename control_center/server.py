@@ -29,6 +29,24 @@ DEFAULT_PROFILE = "assembly-1-12dof"
 MAX_BODY = 2 * 1024 * 1024
 
 
+def _training_task_name(task: object) -> str:
+    """Normalize playback task ids to the training task they visualize."""
+    value = str(task or "")
+    return value.replace("-Direct-Play-v0", "-Direct-v0").replace(
+        "-Direct-Validation-v0", "-Direct-v0"
+    )
+
+
+def video_metadata_matches(metadata: object, fields: dict[str, str]) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return (
+        _training_task_name(metadata.get("task")) == _training_task_name(fields.get("task"))
+        and metadata.get("profile_id") == fields.get("profile")
+        and metadata.get("surface") == fields.get("surface")
+    )
+
+
 def load_or_create_session_token(path: Path = TOKEN_PATH) -> str:
     """Keep loopback authentication valid when the local UI server restarts."""
     if path.is_file():
@@ -70,7 +88,10 @@ class ControlCenter:
                 validation = validate_profile(profile, for_launch=True)
                 result.append(
                     {
-                        "id": profile["profile_id"],
+                        # The filename identifies an editable launch profile. Several
+                        # curriculum profiles may intentionally share one robot id so
+                        # their V2 checkpoints remain in the same compatible namespace.
+                        "id": path.stem,
                         "name": profile["display_name"],
                         "joint_count": profile["robot"]["expected_joint_count"],
                         "launch_ready": not validation["errors"],
@@ -94,6 +115,7 @@ class ControlCenter:
             profile = load_profile(self.profile_path(self.profile_id))
         return {
             "profile": profile,
+            "selected_profile_id": self.profile_id,
             "profile_hash": profile_hash(profile),
             "profiles": self.list_profiles(),
             "groups": FIELD_GROUPS,
@@ -105,7 +127,8 @@ class ControlCenter:
     def save(self, profile: object) -> dict[str, object]:
         if not isinstance(profile, dict):
             raise ValueError("Profile must be a JSON object.")
-        if profile.get("profile_id") != self.profile_id:
+        current_profile = load_profile(self.profile_path(self.profile_id))
+        if profile.get("profile_id") != current_profile.get("profile_id"):
             raise ValueError("The profile id cannot be changed while editing. Clone the file to create a new profile.")
         result = validate_profile(profile)
         if result["errors"]:
@@ -208,7 +231,26 @@ class ControlCenter:
                 else:
                     result = render_result
             if result["ok"]:
-                result["video_url"] = "/api/video/latest"
+                metadata_path = destination.with_suffix(destination.suffix + ".metadata.json")
+                try:
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    result = {
+                        "ok": False,
+                        "exit_code": -1,
+                        "output": f"Training video metadata could not be read: {exc}",
+                    }
+                else:
+                    fields = self.status(force=True).get("fields", {})
+                    if not isinstance(fields, dict) or not video_metadata_matches(metadata, fields):
+                        result = {
+                            "ok": False,
+                            "exit_code": -1,
+                            "output": "Newest rollout does not match the current task, robot profile, and surface.",
+                        }
+                    else:
+                        result["video_url"] = "/api/video/latest"
+                        result["video_metadata"] = metadata
         else:
             raise ValueError(f"Unknown action: {action}")
         with self._lock:

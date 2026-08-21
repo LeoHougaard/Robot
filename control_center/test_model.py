@@ -102,6 +102,20 @@ class ControlProfileTests(unittest.TestCase):
         result = validate_profile(profile)
         self.assertTrue(any("base mass scale" in error for error in result["errors"]))
 
+    def test_absolute_base_mass_variation_must_fit_target(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["domain_randomization"]["base_mass_target_kg"] = 0.65
+        profile["domain_randomization"]["base_mass_variation_kg"] = 0.65
+        result = validate_profile(profile)
+        self.assertTrue(any("variation" in error for error in result["errors"]))
+
+    def test_pyramid_stair_height_range_is_ordered(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["terrain"]["stairs_step_height_min"] = 0.03
+        profile["terrain"]["stairs_step_height_max"] = 0.01
+        result = validate_profile(profile)
+        self.assertTrue(any("stairs_step_height" in error for error in result["errors"]))
+
     def test_actuator_randomization_ranges_are_ordered(self) -> None:
         profile = deepcopy(self.known_good)
         profile["domain_randomization"]["actuator_effort_scale_min"] = 1.1

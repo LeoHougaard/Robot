@@ -57,6 +57,13 @@ if CONTROL_PROFILE is not None:
         for joint in CONTROL_PROFILE["robot"]["joints"]
     }
 
+# Closed-linkage exports can contain unactuated articulation-tree joints whose
+# assembled coordinates are not zero.  They are not policy actions, but their
+# reset coordinates must be preserved or PhysX reconstructs a folded linkage.
+CALIBRATED_PASSIVE_JOINT_POS = dict(profile_value(
+    CONTROL_PROFILE, "robot.passive_joint_positions", {}
+))
+
 JOINT_COUNT = len(CALIBRATED_JOINT_POS)
 JOINT_NAMES = tuple(CALIBRATED_JOINT_POS)
 JOINT_DIRECTIONS = tuple(
@@ -78,12 +85,12 @@ def _start_rotation_quat():
     cr, sr = math.cos(roll / 2), math.sin(roll / 2)
     cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
     cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
-    return (
-        cr * cp * cy + sr * sp * sy,
-        sr * cp * cy - cr * sp * sy,
-        cr * sp * cy + sr * cp * sy,
-        cr * cp * sy - sr * sp * cy,
-    )
+    w = cr * cp * cy + sr * sp * sy
+    x = sr * cp * cy - cr * sp * sy
+    y = cr * sp * cy + sr * cp * sy
+    z = cr * cp * sy - sr * sp * cy
+    # Isaac Lab 3 stores runtime quaternions in xyzw order.
+    return (x, y, z, w)
 
 
 def _rough_sub_terrains():
@@ -109,12 +116,41 @@ def _rough_sub_terrains():
         platform_width=1.0,
         border_width=0.20,
     )
+    pyramid_stairs = terrain_gen.MeshPyramidStairsTerrainCfg(
+        proportion=0.75,
+        step_height_range=(
+            profile_value(CONTROL_PROFILE, "terrain.stairs_step_height_min", 0.005),
+            profile_value(CONTROL_PROFILE, "terrain.stairs_step_height_max", 0.025),
+        ),
+        step_width=profile_value(CONTROL_PROFILE, "terrain.stairs_step_width", 0.10),
+        platform_width=profile_value(
+            CONTROL_PROFILE, "terrain.stairs_platform_width", 0.40
+        ),
+        border_width=0.20,
+    )
+    inverted_pyramid_stairs = terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+        proportion=0.25,
+        step_height_range=(
+            profile_value(CONTROL_PROFILE, "terrain.stairs_step_height_min", 0.005),
+            profile_value(CONTROL_PROFILE, "terrain.stairs_step_height_max", 0.025),
+        ),
+        step_width=profile_value(CONTROL_PROFILE, "terrain.stairs_step_width", 0.10),
+        platform_width=profile_value(
+            CONTROL_PROFILE, "terrain.stairs_platform_width", 0.40
+        ),
+        border_width=0.20,
+    )
     if SURFACE == "Flat":
         return {"flat": flat}
     if SURFACE == "Random rough":
         return {"random_rough": random_rough}
     if SURFACE == "Slopes":
         return {"pyramid_slope": upward, "inverted_pyramid_slope": downward}
+    if SURFACE == "Pyramid stairs":
+        return {
+            "pyramid_stairs": pyramid_stairs,
+            "inverted_pyramid_stairs": inverted_pyramid_stairs,
+        }
     flat.proportion = 0.20
     random_rough.proportion = 0.40
     upward.proportion = 0.20
@@ -136,6 +172,27 @@ def _validation_sub_terrain():
                 proportion=1.0,
                 slope_range=(0.0, profile_value(CONTROL_PROFILE, "terrain.slope_max", 0.18)),
                 platform_width=1.0,
+                border_width=0.20,
+            )
+        }
+    if SURFACE == "Pyramid stairs":
+        return {
+            "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
+                proportion=1.0,
+                step_height_range=(
+                    profile_value(
+                        CONTROL_PROFILE, "terrain.stairs_step_height_min", 0.005
+                    ),
+                    profile_value(
+                        CONTROL_PROFILE, "terrain.stairs_step_height_max", 0.025
+                    ),
+                ),
+                step_width=profile_value(
+                    CONTROL_PROFILE, "terrain.stairs_step_width", 0.10
+                ),
+                platform_width=profile_value(
+                    CONTROL_PROFILE, "terrain.stairs_platform_width", 0.40
+                ),
                 border_width=0.20,
             )
         }
@@ -207,7 +264,7 @@ SIMPLE_DOG_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=tuple(profile_value(CONTROL_PROFILE, "robot.start_position", (0.0, 0.0, 0.24))),
         rot=_start_rotation_quat(),
-        joint_pos=CALIBRATED_JOINT_POS,
+        joint_pos=CALIBRATED_JOINT_POS | CALIBRATED_PASSIVE_JOINT_POS,
         joint_vel={".*": 0.0},
     ),
     actuators=_actuator_configs(),
@@ -356,12 +413,21 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
     forward_axis = tuple(
         profile_value(CONTROL_PROFILE, "robot.forward_axis", (0.0, -1.0, 0.0))
     )
+    up_axis = tuple(
+        profile_value(CONTROL_PROFILE, "robot.up_axis", (0.0, 0.0, 1.0))
+    )
     domain_randomization_enabled = profile_value(
         CONTROL_PROFILE, "domain_randomization.enabled", False
     )
     base_mass_scale = (
         profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_min", 1.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_max", 1.0),
+    )
+    base_mass_target_kg = profile_value(
+        CONTROL_PROFILE, "domain_randomization.base_mass_target_kg", 0.0
+    )
+    base_mass_variation_kg = profile_value(
+        CONTROL_PROFILE, "domain_randomization.base_mass_variation_kg", 0.0
     )
     link_mass_scale = (
         profile_value(CONTROL_PROFILE, "domain_randomization.link_mass_scale_min", 1.0),
@@ -383,6 +449,23 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_x", 0.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_y", 0.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_z", 0.0),
+    )
+    base_com_offset_semantic = (
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_com_forward_offset",
+            0.0,
+        ),
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_com_lateral_offset",
+            0.0,
+        ),
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_com_up_offset",
+            0.0,
+        ),
     )
     robot_static_friction_range = (
         profile_value(CONTROL_PROFILE, "domain_randomization.robot_static_friction_min", 1.0),

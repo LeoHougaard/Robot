@@ -173,7 +173,7 @@ function render() {
 
 function populateProfiles() {
   const select = document.querySelector("#profile-select");
-  select.innerHTML = state.data.profiles.map(profile => `<option value="${profile.id}" ${profile.id === state.profile.profile_id ? "selected" : ""}>${profile.name}</option>`).join("");
+  select.innerHTML = state.data.profiles.map(profile => `<option value="${profile.id}" ${profile.id === state.data.selected_profile_id ? "selected" : ""}>${profile.name}</option>`).join("");
   document.querySelector("#joint-count").textContent = `${state.profile.robot.expected_joint_count} DOF`;
 }
 

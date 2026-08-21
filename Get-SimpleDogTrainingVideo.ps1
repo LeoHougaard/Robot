@@ -32,11 +32,20 @@ if (-not $remoteVideo) {
 if ($remoteVideo -notmatch '^/home/leo/isaac-workspace/projects/training/logs/rl_games/[A-Za-z0-9_./-]+\.mp4$') {
     throw "The remote video path was outside the training log directory."
 }
+$remoteMetadata = "$remoteVideo.metadata.json"
+& ssh -n @sshOptions $sshTarget "test -f '$remoteMetadata'"
+if ($LASTEXITCODE -ne 0) {
+    throw "The newest training video has no profile/task metadata and will not be shown."
+}
 $destinationPath = [System.IO.Path]::GetFullPath($Destination)
 $destinationParent = Split-Path -Parent $destinationPath
 New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
 & scp @sshOptions "${sshTarget}:$remoteVideo" $destinationPath
 if ($LASTEXITCODE -ne 0) {
     throw "Could not copy the latest training video."
+}
+& scp @sshOptions "${sshTarget}:$remoteMetadata" "$destinationPath.metadata.json"
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not copy the training video metadata."
 }
 Write-Output $destinationPath

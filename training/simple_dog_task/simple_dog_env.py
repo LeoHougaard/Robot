@@ -55,13 +55,21 @@ class SimpleDogEnv(DirectRLEnv):
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
         forward_axis = torch.tensor(cfg.forward_axis, device=self.device)
         forward_axis = forward_axis / torch.linalg.vector_norm(forward_axis)
-        lateral_axis = torch.tensor(
-            (-forward_axis[1], forward_axis[0], 0.0), device=self.device
-        )
+        up_axis = torch.tensor(cfg.up_axis, device=self.device)
+        up_axis = up_axis / torch.linalg.vector_norm(up_axis)
+        if torch.abs(torch.dot(forward_axis, up_axis)) > 1.0e-5:
+            raise ValueError("forward_axis and up_axis must be perpendicular")
+        lateral_axis = torch.linalg.cross(up_axis, forward_axis)
         self._physical_forward_axis_b = forward_axis.repeat(self.num_envs, 1)
         self._physical_lateral_axis_b = lateral_axis.repeat(self.num_envs, 1)
-        self._target_forward_axis_w = forward_axis.repeat(self.num_envs, 1)
-        self._target_lateral_axis_w = lateral_axis.repeat(self.num_envs, 1)
+        self._physical_up_axis_b = up_axis.repeat(self.num_envs, 1)
+        default_root_quat = self._robot.data.default_root_pose.torch[:, 3:7]
+        self._target_forward_axis_w = quat_apply(
+            default_root_quat, self._physical_forward_axis_b
+        )
+        self._target_lateral_axis_w = quat_apply(
+            default_root_quat, self._physical_lateral_axis_b
+        )
 
         foot_links = tuple(
             zip(("front_right", "front_left", "back_right", "back_left"), cfg.foot_links)
@@ -166,19 +174,37 @@ class SimpleDogEnv(DirectRLEnv):
                 )
             )
 
-        mass_scale = log_uniform((self.num_envs, 1), self.cfg.base_mass_scale)
         default_mass = self._robot.data.body_mass.torch[
             env_ids[:, None], body_ids
         ].clone()
-        randomized_mass = default_mass * mass_scale
+        if self.cfg.base_mass_target_kg > 0.0:
+            if len(self._base_body_ids) != 1:
+                raise ValueError(
+                    "An absolute base-mass target requires exactly one base body"
+                )
+            variation = self.cfg.base_mass_variation_kg
+            if variation < 0.0 or self.cfg.base_mass_target_kg <= variation:
+                raise ValueError(
+                    "base_mass_variation_kg must be non-negative and smaller "
+                    "than base_mass_target_kg"
+                )
+            randomized_mass = torch.empty_like(default_mass).uniform_(
+                self.cfg.base_mass_target_kg - variation,
+                self.cfg.base_mass_target_kg + variation,
+            )
+        else:
+            mass_scale = log_uniform((self.num_envs, 1), self.cfg.base_mass_scale)
+            randomized_mass = default_mass * mass_scale
+        mass_ratio = randomized_mass / default_mass
         self._robot.set_masses_index(
             masses=randomized_mass, body_ids=body_ids, env_ids=env_ids
         )
+        self._startup_base_mass = randomized_mass
         default_inertia = self._robot.data.body_inertia.torch[
             env_ids[:, None], body_ids
         ].clone()
         self._robot.set_inertias_index(
-            inertias=default_inertia * mass_scale.unsqueeze(-1),
+            inertias=default_inertia * mass_ratio.unsqueeze(-1),
             body_ids=body_ids,
             env_ids=env_ids,
         )
@@ -264,7 +290,15 @@ class SimpleDogEnv(DirectRLEnv):
         coms = self._robot.data.body_com_pose_b.torch[
             env_ids[:, None], body_ids
         ].clone()
-        coms[:, :, :3] += (
+        semantic_com_offset = (
+            self.cfg.base_com_offset_semantic[0]
+            * self._physical_forward_axis_b
+            + self.cfg.base_com_offset_semantic[1]
+            * self._physical_lateral_axis_b
+            + self.cfg.base_com_offset_semantic[2]
+            * self._physical_up_axis_b
+        ).unsqueeze(1)
+        random_com_offset = (
             2.0
             * torch.rand(
                 (self.num_envs, len(self._base_body_ids), 3),
@@ -272,8 +306,34 @@ class SimpleDogEnv(DirectRLEnv):
             )
             - 1.0
         ) * com_limit
+        self._startup_base_com_offset_b = semantic_com_offset + random_com_offset
+        coms[:, :, :3] += self._startup_base_com_offset_b
         self._robot.set_coms_index(
             coms=coms, body_ids=body_ids, env_ids=env_ids
+        )
+        semantic_axes_b = (
+            self._physical_forward_axis_b,
+            self._physical_lateral_axis_b,
+            self._physical_up_axis_b,
+        )
+        semantic_offsets = torch.stack(
+            tuple(
+                torch.sum(
+                    self._startup_base_com_offset_b * axis.unsqueeze(1), dim=2
+                )
+                for axis in semantic_axes_b
+            ),
+            dim=2,
+        )
+        com_min = semantic_offsets.amin(dim=(0, 1))
+        com_max = semantic_offsets.amax(dim=(0, 1))
+        print(
+            "STARTUP_DOMAIN_RANDOMIZATION "
+            f"base_mass_kg=[{randomized_mass.min().item():.6f},"
+            f"{randomized_mass.max().item():.6f}] "
+            "base_com_forward_lateral_up_m="
+            f"[{com_min.tolist()},{com_max.tolist()}]",
+            flush=True,
         )
 
         # PhysX limits unique materials, so sample a bounded reusable bucket
@@ -353,20 +413,29 @@ class SimpleDogEnv(DirectRLEnv):
         )
         return joint_position, joint_velocity
 
+    def _semantic_vector_b(self, vector_b: torch.Tensor) -> torch.Tensor:
+        """Express a root-frame vector in forward/lateral/up coordinates."""
+        return torch.stack(
+            (
+                torch.sum(vector_b * self._physical_forward_axis_b, dim=1),
+                torch.sum(vector_b * self._physical_lateral_axis_b, dim=1),
+                torch.sum(vector_b * self._physical_up_axis_b, dim=1),
+            ),
+            dim=1,
+        )
+
     def _get_physical_motion(self) -> tuple[torch.Tensor, ...]:
         """Return motion in the chassis' physical and fixed-world forward frames."""
-        root_lin_vel_b = self._robot.data.root_lin_vel_b.torch
+        root_lin_vel_b = self._semantic_vector_b(
+            self._robot.data.root_lin_vel_b.torch
+        )
         root_lin_vel_w = self._robot.data.root_lin_vel_w.torch
         physical_forward_w = quat_apply(
             self._robot.data.root_quat_w.torch, self._physical_forward_axis_b
         )
 
-        body_forward = torch.sum(
-            root_lin_vel_b * self._physical_forward_axis_b, dim=1
-        )
-        body_lateral = torch.sum(
-            root_lin_vel_b * self._physical_lateral_axis_b, dim=1
-        )
+        body_forward = root_lin_vel_b[:, 0]
+        body_lateral = root_lin_vel_b[:, 1]
         world_forward = torch.sum(
             root_lin_vel_w * self._target_forward_axis_w, dim=1
         )
@@ -397,16 +466,15 @@ class SimpleDogEnv(DirectRLEnv):
             heading_alignment,
             heading_lateral,
         ) = self._get_physical_motion()
-        root_lin_vel_b = self._robot.data.root_lin_vel_b.torch
-        physical_lin_vel_b = torch.stack(
-            (body_forward, body_lateral, root_lin_vel_b[:, 2]), dim=1
+        physical_lin_vel_b = self._semantic_vector_b(
+            self._robot.data.root_lin_vel_b.torch
         )
         heading_features = torch.stack((heading_alignment, heading_lateral), dim=1)
         joint_position, joint_velocity = self._get_policy_joint_state()
         observation_terms = [
             physical_lin_vel_b,
-            self._robot.data.root_ang_vel_b.torch,
-            self._robot.data.projected_gravity_b.torch,
+            self._semantic_vector_b(self._robot.data.root_ang_vel_b.torch),
+            self._semantic_vector_b(self._robot.data.projected_gravity_b.torch),
             self._commands,
             heading_features,
             joint_position,
@@ -488,9 +556,15 @@ class SimpleDogEnv(DirectRLEnv):
         return synchronized * opposed
 
     def _get_rewards(self) -> torch.Tensor:
-        root_lin_vel_b = self._robot.data.root_lin_vel_b.torch
-        root_ang_vel = self._robot.data.root_ang_vel_b.torch
-        projected_gravity = self._robot.data.projected_gravity_b.torch
+        root_lin_vel_b = self._semantic_vector_b(
+            self._robot.data.root_lin_vel_b.torch
+        )
+        root_ang_vel = self._semantic_vector_b(
+            self._robot.data.root_ang_vel_b.torch
+        )
+        projected_gravity = self._semantic_vector_b(
+            self._robot.data.projected_gravity_b.torch
+        )
         root_height = self._robot.data.root_pos_w.torch[:, 2] - self._terrain.env_origins[:, 2]
         (
             body_forward,
@@ -716,7 +790,9 @@ class SimpleDogEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         root_height = self._robot.data.root_pos_w.torch[:, 2] - self._terrain.env_origins[:, 2]
-        gravity_z = self._robot.data.projected_gravity_b.torch[:, 2]
+        gravity_z = self._semantic_vector_b(
+            self._robot.data.projected_gravity_b.torch
+        )[:, 2]
         contact_history = self._contact_sensor.data.net_forces_w_history.torch
         base_contact = torch.any(
             torch.max(

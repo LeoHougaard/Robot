@@ -72,3 +72,34 @@ export PYTHONUNBUFFERED=1
   --video_length="$video_length" \
   --headless \
   >"${output_dir}/console.log" 2>&1
+
+video="$(find "$experiment_dir/videos" -type f -name '*.mp4' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
+[[ -n "$video" ]] || {
+  printf 'Playback completed without producing an MP4.\n' >&2
+  exit 2
+}
+python3 - "$video" "$checkpoint" "$task" "$terrain" "$control_profile" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+video, checkpoint, task, terrain, profile_path = sys.argv[1:]
+profile = {}
+if profile_path:
+    with Path(profile_path).open(encoding="utf-8") as handle:
+        profile = json.load(handle)
+canonical = json.dumps(profile, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+metadata = {
+    "checkpoint": checkpoint,
+    "task": task,
+    "terrain": terrain,
+    "profile_id": profile.get("profile_id", ""),
+    "profile_sha": hashlib.sha256(canonical.encode("utf-8")).hexdigest() if profile else "",
+    "surface": profile.get("environment", {}).get("surface", ""),
+}
+Path(video + ".metadata.json").write_text(
+    json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+)
+print(video)
+PY

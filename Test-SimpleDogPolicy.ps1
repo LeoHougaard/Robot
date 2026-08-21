@@ -63,16 +63,7 @@ if ($workload.Trim()) {
 # though no Hub process remains. SimulationApp then waits indefinitely before
 # the first evaluation segment. Remove only the container user's lock, and
 # preserve it if any other process still has Hub in its command line.
-$clearStaleHubLock = @'
-docker exec --user 0 isaac-lab-gb10 sh -c '
-  if ! pgrep -x omni.hub >/dev/null 2>&1 &&
-     ! pgrep -x omni-hub >/dev/null 2>&1 &&
-     ! pgrep -x hub >/dev/null 2>&1 &&
-     ! pgrep -x hub-daemon >/dev/null 2>&1; then
-    rm -f -- /tmp/hub-leo.lock /tmp/hub-isaac-sim.lock
-  fi
-'
-'@
+$clearStaleHubLock = "docker exec --user 0 isaac-lab-gb10 sh -c 'if ! pgrep -x omni.hub >/dev/null 2>&1 && ! pgrep -x omni-hub >/dev/null 2>&1 && ! pgrep -x hub >/dev/null 2>&1 && ! pgrep -x hub-daemon >/dev/null 2>&1; then rm -f -- /tmp/hub-leo.lock /tmp/hub-isaac-sim.lock; fi'"
 & ssh @sshOptions $sshTarget $clearStaleHubLock
 if ($LASTEXITCODE -ne 0) {
     throw "Could not check the stale Isaac Hub lock before evaluation."

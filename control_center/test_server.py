@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from control_center.server import load_or_create_session_token
+from control_center.server import load_or_create_session_token, video_metadata_matches
 
 
 class SessionTokenTests(unittest.TestCase):
@@ -21,6 +21,34 @@ class SessionTokenTests(unittest.TestCase):
             token = load_or_create_session_token(path)
             self.assertNotEqual("bad token", token)
             self.assertTrue(all(char.isalnum() or char in "-_" for char in token))
+
+
+class VideoMetadataTests(unittest.TestCase):
+    def test_matching_playback_metadata_is_accepted(self) -> None:
+        fields = {
+            "task": "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0",
+            "profile": "assembly-four-leg-linkage-12dof",
+            "surface": "Pyramid stairs",
+        }
+        metadata = {
+            "task": "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-Play-v0",
+            "profile_id": "assembly-four-leg-linkage-12dof",
+            "surface": "Pyramid stairs",
+        }
+        self.assertTrue(video_metadata_matches(metadata, fields))
+
+    def test_stale_flat_video_is_rejected(self) -> None:
+        fields = {
+            "task": "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0",
+            "profile": "assembly-four-leg-linkage-12dof",
+            "surface": "Pyramid stairs",
+        }
+        metadata = {
+            "task": "Isaac-Locomotion-V2-Simple-Dog-Direct-Play-v0",
+            "profile_id": "assembly-four-leg-linkage-12dof",
+            "surface": "Flat",
+        }
+        self.assertFalse(video_metadata_matches(metadata, fields))
 
 
 if __name__ == "__main__":
