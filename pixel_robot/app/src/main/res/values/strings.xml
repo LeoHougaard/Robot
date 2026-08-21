@@ -9,10 +9,15 @@
     <string name="camera_analysis_status">Latest-frame analysis %1$.1f fps • thermal %2$s</string>
     <string name="robot_service_disconnected">Robot service disconnected</string>
     <string name="lifted_confirmation">Robot is calibrated and securely suspended</string>
+    <string name="start_pose_confirmation">Robot is seated in the exact simulation start-pose stand</string>
+    <string name="capture_start_pose">Capture current positions as policy zero</string>
+    <string name="capture_start_pose_title">Capture the stand pose?</string>
+    <string name="capture_start_pose_warning">This disables and verifies torque, averages five readings from all 12 servos, and saves the current pose as the policy reference. Use it only while the stand fixes every joint in the exact simulation start pose.</string>
+    <string name="capture_start_pose_confirm">Capture</string>
     <string name="forward_request">Forward request (0.00–0.18 m/s)</string>
     <string name="yaw_request">Yaw request (-0.25–0.25 rad/s)</string>
-    <string name="start_suspended_test">Start 5 s suspended test</string>
-    <string name="stop_and_hold">Stop + hold</string>
+    <string name="start_suspended_test">Start continuous suspended test</string>
+    <string name="stop_and_hold">Stop + torque off</string>
     <string name="reconnect_usb">Reconnect USB</string>
     <string name="no_telemetry">No telemetry</string>
 </resources>

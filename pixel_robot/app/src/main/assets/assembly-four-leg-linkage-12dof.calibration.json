@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "robot": "assembly-four-leg-linkage-12dof",
+  "calibrated": true,
+  "control_hz": 50,
+  "action_scale_rad": 0.3,
+  "imu": {
+    "calibrated": true,
+    "body_axis_from_sensor_axis": [
+      [6.123233995736766e-17, 1.0, 0.0],
+      [-1.0, 6.123233995736766e-17, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "gyro_bias_dps": [-0.0125, 0.06458, -0.24958],
+    "gravity_sign": -1
+  },
+  "joints": [
+    {
+      "policy_index": 0,
+      "semantic": "front_right_hip_abduction",
+      "servo_id": 7,
+      "zero_deg": 176.967,
+      "servo_degrees_per_policy_radian": -57.2957795,
+      "min_deg": 156.967,
+      "max_deg": 196.967
+    },
+    {
+      "policy_index": 1,
+      "semantic": "front_right_hip_flexion",
+      "servo_id": 8,
+      "zero_deg": 173.7143,
+      "servo_degrees_per_policy_radian": -57.2957795,
+      "min_deg": 153.7143,
+      "max_deg": 193.7143
+    },
+    {
+      "policy_index": 2,
+      "semantic": "front_right_knee_flexion",
+      "servo_id": 9,
+      "zero_deg": 146.9011,
+      "servo_degrees_per_policy_radian": -57.2957795,
+      "min_deg": 111.9011,
+      "max_deg": 181.9011,
+      "linkage": {
+        "type": "four_bar_follow",
+        "parent_policy_index": 1,
+        "parent_ratio": 1.0
+      }
+    },
+    {
+      "policy_index": 3,
+      "semantic": "front_left_hip_abduction",
+      "servo_id": 1,
+      "zero_deg": 253.4505,
+      "servo_degrees_per_policy_radian": 57.2957795,
+      "min_deg": 233.4505,
+      "max_deg": 273.4505
+    },
+    {
+      "policy_index": 4,
+      "semantic": "front_left_hip_flexion",
+      "servo_id": 2,
+      "zero_deg": 163.956,
+      "servo_degrees_per_policy_radian": 57.2957795,
+      "min_deg": 143.956,
+      "max_deg": 183.956
+    },
+    {
+      "policy_index": 5,
+      "semantic": "front_left_knee_flexion",
+      "servo_id": 3,
+      "zero_deg": 39.7363,
+      "servo_degrees_per_policy_radian": 57.2957795,
+      "min_deg": 4.7363,
+      "max_deg": 74.7363,
+      "linkage": {
+        "type": "four_bar_follow",
+        "parent_policy_index": 4,
+        "parent_ratio": 1.0
+      }
+    },
+    {
+      "policy_index": 6,
+      "semantic": "back_right_hip_abduction",
+      "servo_id": 4,
+      "zero_deg": 179.8681,
+      "servo_degrees_per_policy_radian": 57.2957795,
+      "min_deg": 159.8681,
+      "max_deg": 199.8681
+    },
+    {
+      "policy_index": 7,
+      "semantic": "back_right_hip_flexion",
+      "servo_id": 5,
+      "zero_deg": 182.4176,
+      "servo_degrees_per_policy_radian": 57.2957795,
+      "min_deg": 162.4176,
+      "max_deg": 202.4176
+    },
+    {
+      "policy_index": 8,
+      "semantic": "back_right_knee_flexion",
+      "servo_id": 6,
+      "zero_deg": 221.1868,
+      "servo_degrees_per_policy_radian": 57.2957795,
+      "min_deg": 186.1868,
+      "max_deg": 256.1868,
+      "linkage": {
+        "type": "four_bar_follow",
+        "parent_policy_index": 7,
+        "parent_ratio": 1.0
+      }
+    },
+    {
+      "policy_index": 9,
+      "semantic": "back_left_hip_abduction",
+      "servo_id": 10,
+      "zero_deg": 188.9231,
+      "servo_degrees_per_policy_radian": -57.2957795,
+      "min_deg": 168.9231,
+      "max_deg": 208.9231
+    },
+    {
+      "policy_index": 10,
+      "semantic": "back_left_hip_flexion",
+      "servo_id": 11,
+      "zero_deg": 180.6593,
+      "servo_degrees_per_policy_radian": -57.2957795,
+      "min_deg": 160.6593,
+      "max_deg": 200.6593
+    },
+    {
+      "policy_index": 11,
+      "semantic": "back_left_knee_flexion",
+      "servo_id": 12,
+      "zero_deg": 133.3626,
+      "servo_degrees_per_policy_radian": -57.2957795,
+      "min_deg": 98.3626,
+      "max_deg": 168.3626,
+      "linkage": {
+        "type": "four_bar_follow",
+        "parent_policy_index": 10,
+        "parent_ratio": 1.0
+      }
+    }
+  ]
+}

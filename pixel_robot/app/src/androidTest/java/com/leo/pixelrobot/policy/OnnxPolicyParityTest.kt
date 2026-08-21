@@ -18,7 +18,13 @@ class OnnxPolicyParityTest {
         )
         val absoluteTolerance = reference.getDouble("atol")
         val relativeTolerance = reference.getDouble("rtol")
-        OnnxPolicy(context.assets).use { policy ->
+        val contract = PolicyContract.load(context.assets)
+        OnnxPolicy(
+            context.assets,
+            contract.profileId,
+            contract.profileSha256,
+            contract.weightsSha256,
+        ).use { policy ->
             val cases = reference.getJSONArray("cases")
             for (caseIndex in 0 until cases.length()) {
                 val case = cases.getJSONObject(caseIndex)

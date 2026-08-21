@@ -25,7 +25,21 @@ def numpy_actor(observation: np.ndarray, arrays: dict[str, np.ndarray]) -> np.nd
     return np.clip(arrays["wout"] @ value + arrays["bout"], -1.0, 1.0).astype(np.float32)
 
 
-def export(weights_path: Path, output_path: Path) -> None:
+def export(weights_path: Path, metadata_path: Path, output_path: Path) -> None:
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    profile_id = metadata.get("profile_id")
+    profile_sha = metadata.get("profile_sha256")
+    expected_weights_sha = metadata.get("weights_sha256")
+    if not isinstance(profile_id, str) or not profile_id:
+        raise SystemExit("Policy metadata has no profile id.")
+    if not isinstance(profile_sha, str) or len(profile_sha) != 64:
+        raise SystemExit("Policy metadata has no valid profile SHA-256.")
+    if not isinstance(expected_weights_sha, str) or len(expected_weights_sha) != 64:
+        raise SystemExit("Policy metadata has no valid weights SHA-256.")
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest(weights_path).lower() != expected_weights_sha.lower():
+        raise SystemExit("Portable weights do not match policy metadata.")
+
     arrays = {name: value.astype(np.float32) for name, value in np.load(weights_path).items()}
     expected_shapes = {
         "obs_mean": (180,), "obs_var": (180,),
@@ -91,7 +105,7 @@ def export(weights_path: Path, output_path: Path) -> None:
 
     graph = helper.make_graph(
         nodes,
-        "assembly-1-12dof-deterministic-actor",
+        f"{profile_id}-deterministic-actor",
         [helper.make_tensor_value_info("observation", TensorProto.FLOAT, [1, 180])],
         [helper.make_tensor_value_info("action", TensorProto.FLOAT, [1, 12])],
         initializer=initializers,
@@ -118,14 +132,13 @@ def export(weights_path: Path, output_path: Path) -> None:
         fixtures.append({"observation": observation.tolist(), "action": expected.tolist()})
     fixture_path = output_path.with_name("policy_reference.json")
     fixture_path.write_text(json.dumps({"rtol": 1.0e-5, "atol": 2.0e-6, "cases": fixtures}), encoding="utf-8")
-    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     manifest_path = output_path.with_name("policy_android_manifest.json")
     manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
-                "profile_id": "assembly-1-12dof",
-                "profile_sha256": "B25A4A05FA5A6439B82B824D2C2C826F2A9CC5AACC274D75EE8B4D39978035D3",
+                "schema_version": 2,
+                "profile_id": profile_id,
+                "profile_sha256": profile_sha,
                 "source_weights_sha256": digest(weights_path),
                 "onnx_sha256": digest(output_path),
                 "parity_cases": len(fixtures),
@@ -142,9 +155,10 @@ def export(weights_path: Path, output_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("weights", type=Path)
+    parser.add_argument("metadata", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
-    export(args.weights, args.output)
+    export(args.weights, args.metadata, args.output)
 
 
 if __name__ == "__main__":

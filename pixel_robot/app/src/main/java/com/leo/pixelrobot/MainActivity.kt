@@ -12,6 +12,7 @@ import android.os.PowerManager
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -67,10 +68,7 @@ class MainActivity : AppCompatActivity() {
                             policy.executionProvider?.let { append(" • $it") }
                             policy.inferenceMilliseconds?.let { append(" • %.2f ms".format(it)) }
                         }
-                        binding.startPolicyButton.isEnabled =
-                            !policy.active &&
-                            robotService?.status?.value?.linkState == LinkState.READY &&
-                            binding.liftedConfirmation.isChecked
+                        updateArmAvailability()
                     }
                 }
             }
@@ -99,6 +97,18 @@ class MainActivity : AppCompatActivity() {
             robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value)
             robotService?.startSuspendedPolicyTest()
         }
+        binding.captureStartPoseButton.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.capture_start_pose_title)
+                .setMessage(R.string.capture_start_pose_warning)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.capture_start_pose_confirm) { _, _ ->
+                    binding.startPoseConfirmation.isChecked = false
+                    runCatching { robotService?.captureCurrentStartPose() }
+                        .onFailure { binding.runtimeStatus.text = it.message }
+                }
+                .show()
+        }
         binding.forwardSlider.addOnChangeListener { _, value, _ ->
             robotService?.updateMotionRequest(value, binding.yawSlider.value)
         }
@@ -106,6 +116,7 @@ class MainActivity : AppCompatActivity() {
             robotService?.updateMotionRequest(binding.forwardSlider.value, value)
         }
         binding.liftedConfirmation.setOnCheckedChangeListener { _, _ -> updateArmAvailability() }
+        binding.startPoseConfirmation.setOnCheckedChangeListener { _, _ -> updateArmAvailability() }
         binding.cameraSwitch.setOnCheckedChangeListener { _, enabled ->
             if (enabled) enableCamera() else disableCamera()
         }
@@ -145,8 +156,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateArmAvailability() {
+        val ready = robotService?.status?.value?.linkState == LinkState.READY
+        val idle = robotService?.policyStatus?.value?.active != true
         binding.startPolicyButton.isEnabled =
-            robotService?.status?.value?.linkState == LinkState.READY && binding.liftedConfirmation.isChecked
+            ready && idle && binding.liftedConfirmation.isChecked
+        binding.captureStartPoseButton.isEnabled =
+            ready && idle && binding.startPoseConfirmation.isChecked
     }
 
     private fun startCamera() {

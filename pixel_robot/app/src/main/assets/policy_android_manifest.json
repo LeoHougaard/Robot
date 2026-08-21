@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
-  "profile_id": "assembly-1-12dof",
-  "profile_sha256": "B25A4A05FA5A6439B82B824D2C2C826F2A9CC5AACC274D75EE8B4D39978035D3",
-  "source_weights_sha256": "0152312b60a548bdb6dcbcb92444db2e4278f9e5304c47044aa6491ac6fd13ab",
-  "onnx_sha256": "0ec331f8491b7d418916703c7a7c1713df83e7b58e8afe75d3588a49908ada3a",
+  "schema_version": 2,
+  "profile_id": "assembly-four-leg-linkage-12dof",
+  "profile_sha256": "6d86906f46b6c9544631f6faa72bc89205f52a2538d6fffc76e31caa857af8bd",
+  "source_weights_sha256": "c90f76bf978d141cd08f76f582d31e39bc739fff379b1e966a6bc8c87a6e2884",
+  "onnx_sha256": "ce1e68fe1f784a913115143437facac29b04979f29c7f88b3a12f2b76df51c49",
   "parity_cases": 8,
   "parity_rtol": 1e-05,
   "parity_atol": 2e-06

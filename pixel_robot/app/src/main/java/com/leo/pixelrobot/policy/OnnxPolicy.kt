@@ -9,7 +9,12 @@ import java.nio.FloatBuffer
 import java.security.MessageDigest
 import org.json.JSONObject
 
-class OnnxPolicy(assets: AssetManager) : Closeable {
+class OnnxPolicy(
+    assets: AssetManager,
+    expectedProfileId: String,
+    expectedProfileSha256: String,
+    expectedWeightsSha256: String,
+) : Closeable {
     private val environment = OrtEnvironment.getEnvironment("pixel-robot")
     private val options = OrtSession.SessionOptions().apply {
         setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
@@ -31,7 +36,15 @@ class OnnxPolicy(assets: AssetManager) : Closeable {
         val manifest = JSONObject(
             assets.open("policy_android_manifest.json").bufferedReader().use { it.readText() },
         )
-        require(manifest.getString("profile_id") == "assembly-1-12dof")
+        require(manifest.getString("profile_id") == expectedProfileId) {
+            "ONNX actor profile does not match policy metadata"
+        }
+        require(manifest.getString("profile_sha256").equals(expectedProfileSha256, ignoreCase = true)) {
+            "ONNX actor profile hash does not match policy metadata"
+        }
+        require(manifest.getString("source_weights_sha256").equals(expectedWeightsSha256, ignoreCase = true)) {
+            "ONNX source weights do not match policy metadata"
+        }
         require(model.sha256().equals(manifest.getString("onnx_sha256"), ignoreCase = true)) {
             "ONNX actor hash does not match its deployment manifest"
         }

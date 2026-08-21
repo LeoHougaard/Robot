@@ -15,12 +15,15 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
+import android.util.AtomicFile
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.leo.pixelrobot.MainActivity
 import com.leo.pixelrobot.R
 import com.leo.pixelrobot.policy.PolicyController
+import com.leo.pixelrobot.policy.PolicyContract
 import com.leo.pixelrobot.policy.PolicyRuntimeStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +36,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class RobotService : Service() {
     inner class LocalBinder : Binder() {
@@ -48,6 +53,9 @@ class RobotService : Service() {
 
     private lateinit var usbManager: UsbManager
     private lateinit var policyController: PolicyController
+    private lateinit var policyContract: PolicyContract
+    private lateinit var calibrationOverrideFile: File
+    private var controlServer: RobotControlServer? = null
     private var transport: UsbRobotTransport? = null
     private var connectedDeviceId: Int? = null
     @Volatile private var openingDeviceId: Int? = null
@@ -81,9 +89,33 @@ class RobotService : Service() {
     override fun onCreate() {
         super.onCreate()
         usbManager = getSystemService(UsbManager::class.java)
-        policyController = PolicyController(assets, scope) { bytes ->
-            transport?.write(bytes) ?: error("ESP32 USB link is not ready")
-        }
+        policyContract = PolicyContract.load(assets)
+        val profileId = policyContract.profileId
+        calibrationOverrideFile = File(filesDir, "$profileId.calibration.json")
+        val calibrationOverride = calibrationOverrideFile
+            .takeIf(File::isFile)
+            ?.readText(Charsets.UTF_8)
+        policyController = PolicyController(
+            assets = assets,
+            scope = scope,
+            calibrationOverrideJson = calibrationOverride,
+            saveCalibrationOverride = ::persistCalibrationOverride,
+            send = { bytes ->
+                transport?.write(bytes) ?: error("ESP32 USB link is not ready")
+            },
+        )
+        controlServer = runCatching {
+            RobotControlServer(
+                assets = assets,
+                status = ::controlStatus,
+                updateCommand = ::updateMotionRequest,
+                capture = ::captureCurrentStartPose,
+                stand = ::standAtCapturedPose,
+                startTest = ::startSuspendedPolicyTest,
+                stop = ::emergencyStop,
+                reconnect = ::reconnect,
+            ).also(RobotControlServer::start)
+        }.onFailure { Log.e(TAG, "Could not start loopback control bridge", it) }.getOrNull()
         createNotificationChannel()
         val receiverFilter = IntentFilter().apply {
             addAction(ACTION_USB_PERMISSION)
@@ -135,8 +167,8 @@ class RobotService : Service() {
     }
 
     fun emergencyStop() {
-        policyController.stop("Stop requested; holding last safe pose")
-        mutableStatus.value = mutableStatus.value.copy(policyArmed = false, detail = "Stop requested; holding last safe pose")
+        policyController.stop("Stop requested; torque-off sent")
+        mutableStatus.value = mutableStatus.value.copy(policyArmed = false, detail = "Stop requested; torque-off sent")
     }
 
     val policyStatus: StateFlow<PolicyRuntimeStatus> get() = policyController.status
@@ -148,6 +180,58 @@ class RobotService : Service() {
     fun startSuspendedPolicyTest() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
         policyController.startSuspendedTest()
+    }
+
+    fun standAtCapturedPose() {
+        check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
+        policyController.standAtCapturedPose()
+    }
+
+    fun captureCurrentStartPose() {
+        check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
+        policyController.captureCurrentStartPose()
+    }
+
+    private fun controlStatus(): JSONObject {
+        val robot = mutableStatus.value
+        val policy = policyController.status.value
+        return JSONObject()
+            .put("link_state", robot.linkState.name.lowercase())
+            .put("robot_detail", robot.detail)
+            .put("firmware_version", robot.firmwareVersion)
+            .put("policy_armed", robot.policyArmed)
+            .put("feedback_complete", robot.feedbackComplete)
+            .put("policy_active", policy.active)
+            .put("policy_commanding", policy.commanding)
+            .put("holding_pose", policy.holdingPose)
+            .put("policy_detail", policy.detail)
+            .put("sequence", policy.sequence)
+            .put("inference_ms", policy.inferenceMilliseconds)
+            .put("execution_provider", policy.executionProvider)
+            .put("torque_percent", policy.torquePercent ?: JSONObject.NULL)
+            .put(
+                "gyro_bias_dps",
+                policy.gyroBiasDps?.let { JSONArray(it.toList()) } ?: JSONObject.NULL,
+            )
+            .put("tracking_error_deg", policy.trackingErrorDegrees ?: JSONObject.NULL)
+            .put("peak_tracking_error_deg", policy.peakTrackingErrorDegrees ?: JSONObject.NULL)
+            .put("worst_tracking_servo_id", policy.worstTrackingServoId ?: JSONObject.NULL)
+            .put("forward_min", policyContract.forwardMinimum)
+            .put("forward_max", policyContract.forwardMaximum)
+            .put("yaw_min", policyContract.yawMinimum)
+            .put("yaw_max", policyContract.yawMaximum)
+    }
+
+    private fun persistCalibrationOverride(json: String) {
+        val atomic = AtomicFile(calibrationOverrideFile)
+        val stream = atomic.startWrite()
+        try {
+            stream.write(json.toByteArray(Charsets.UTF_8))
+            atomic.finishWrite(stream)
+        } catch (error: Throwable) {
+            atomic.failWrite(stream)
+            throw error
+        }
     }
 
     private fun open(device: UsbDevice) {
@@ -321,6 +405,8 @@ class RobotService : Service() {
     }
 
     override fun onDestroy() {
+        controlServer?.close()
+        controlServer = null
         policyController.close()
         closeTransport()
         unregisterReceiver(usbReceiver)
@@ -334,6 +420,7 @@ class RobotService : Service() {
         else getParcelableExtra(UsbManager.EXTRA_DEVICE)
 
     companion object {
+        private const val TAG = "RobotService"
         private const val ACTION_USB_PERMISSION = "com.leo.pixelrobot.USB_PERMISSION"
         const val ACTION_RECONNECT = "com.leo.pixelrobot.RECONNECT"
         private const val CHANNEL_ID = "robot_connection"
