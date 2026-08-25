@@ -17,6 +17,7 @@ data class RobotStatus(
     val policyArmed: Boolean = false,
     val lastSequence: Long? = null,
     val feedbackComplete: Boolean? = null,
+    val servoBatteryVoltage: Float? = null,
     val lastMessageAtMs: Long? = null,
 )
 

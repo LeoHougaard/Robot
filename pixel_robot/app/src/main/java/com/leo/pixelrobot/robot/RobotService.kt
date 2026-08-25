@@ -15,12 +15,14 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.leo.pixelrobot.MainActivity
 import com.leo.pixelrobot.R
 import com.leo.pixelrobot.policy.PolicyController
+import com.leo.pixelrobot.policy.PolicyContract
 import com.leo.pixelrobot.policy.PolicyRuntimeStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +35,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class RobotService : Service() {
     inner class LocalBinder : Binder() {
@@ -48,6 +52,8 @@ class RobotService : Service() {
 
     private lateinit var usbManager: UsbManager
     private lateinit var policyController: PolicyController
+    private lateinit var policyContract: PolicyContract
+    private var controlServer: RobotControlServer? = null
     private var transport: UsbRobotTransport? = null
     private var connectedDeviceId: Int? = null
     @Volatile private var openingDeviceId: Int? = null
@@ -80,11 +86,34 @@ class RobotService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        usbManager = getSystemService(UsbManager::class.java)
-        policyController = PolicyController(assets, scope) { bytes ->
-            transport?.write(bytes) ?: error("ESP32 USB link is not ready")
-        }
         createNotificationChannel()
+        startInForeground()
+        usbManager = getSystemService(UsbManager::class.java)
+        policyContract = PolicyContract.load(assets)
+        val profileId = policyContract.profileId
+        val calibrationOverrideFile = File(filesDir, "$profileId.calibration.json")
+        val calibrationOverride = calibrationOverrideFile
+            .takeIf(File::isFile)
+            ?.readText(Charsets.UTF_8)
+        policyController = PolicyController(
+            assets = assets,
+            scope = scope,
+            calibrationOverrideJson = calibrationOverride,
+            send = { bytes ->
+                transport?.write(bytes) ?: error("ESP32 USB link is not ready")
+            },
+        )
+        controlServer = runCatching {
+            RobotControlServer(
+                assets = assets,
+                status = ::controlStatus,
+                updateCommand = ::updateMotionRequest,
+                stand = ::standAtCapturedPose,
+                startTest = ::startPolicy,
+                stop = ::emergencyStop,
+                reconnect = ::reconnect,
+            ).also(RobotControlServer::start)
+        }.onFailure { Log.e(TAG, "Could not start loopback control bridge", it) }.getOrNull()
         val receiverFilter = IntentFilter().apply {
             addAction(ACTION_USB_PERMISSION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
@@ -97,7 +126,10 @@ class RobotService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_RECONNECT) reconnect()
+        when (intent?.action) {
+            ACTION_RECONNECT -> reconnect()
+            ACTION_STOP -> emergencyStop()
+        }
         return START_STICKY
     }
 
@@ -105,8 +137,13 @@ class RobotService : Service() {
         retryJob?.cancel()
         permissionRequestDeviceId = null
         if (policyController.status.value.active) policyController.stop("USB reconnect requested")
-        closeTransport()
-        discoverRobot()
+        if (transport != null) {
+            decoder.reset()
+            setStatus(LinkState.HANDSHAKING, "Checking ESP32 link")
+            startHandshake()
+        } else {
+            discoverRobot()
+        }
     }
 
     private fun discoverRobot() {
@@ -135,19 +172,60 @@ class RobotService : Service() {
     }
 
     fun emergencyStop() {
-        policyController.stop("Stop requested; holding last safe pose")
-        mutableStatus.value = mutableStatus.value.copy(policyArmed = false, detail = "Stop requested; holding last safe pose")
+        policyController.stop("Stop requested; torque-off sent")
+        mutableStatus.value = mutableStatus.value.copy(policyArmed = false, detail = "Stop requested; torque-off sent")
     }
 
     val policyStatus: StateFlow<PolicyRuntimeStatus> get() = policyController.status
+    val forwardMinimum: Float get() = policyContract.forwardMinimum
+    val forwardMaximum: Float get() = policyContract.forwardMaximum
+    val yawMinimum: Float get() = policyContract.yawMinimum
+    val yawMaximum: Float get() = policyContract.yawMaximum
 
     fun updateMotionRequest(forward: Float, yawRate: Float) {
         policyController.updateRequest(forward, yawRate)
     }
 
-    fun startSuspendedPolicyTest() {
+    fun startPolicy() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
-        policyController.startSuspendedTest()
+        policyController.startPolicy()
+    }
+
+    fun standAtCapturedPose() {
+        check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
+        policyController.standAtCapturedPose()
+    }
+
+    private fun controlStatus(): JSONObject {
+        val robot = mutableStatus.value
+        val policy = policyController.status.value
+        return JSONObject()
+            .put("link_state", robot.linkState.name.lowercase())
+            .put("robot_detail", robot.detail)
+            .put("firmware_version", robot.firmwareVersion)
+            .put("policy_armed", robot.policyArmed)
+            .put("feedback_complete", robot.feedbackComplete)
+            .put("servo_battery_voltage", robot.servoBatteryVoltage ?: JSONObject.NULL)
+            .put("servo_battery_live", robot.servoBatteryVoltage != null && !policy.active)
+            .put("policy_active", policy.active)
+            .put("policy_commanding", policy.commanding)
+            .put("holding_pose", policy.holdingPose)
+            .put("policy_detail", policy.detail)
+            .put("sequence", policy.sequence)
+            .put("inference_ms", policy.inferenceMilliseconds)
+            .put("execution_provider", policy.executionProvider)
+            .put("torque_percent", policy.torquePercent ?: JSONObject.NULL)
+            .put(
+                "gyro_bias_dps",
+                policy.gyroBiasDps?.let { JSONArray(it.toList()) } ?: JSONObject.NULL,
+            )
+            .put("tracking_error_deg", policy.trackingErrorDegrees ?: JSONObject.NULL)
+            .put("peak_tracking_error_deg", policy.peakTrackingErrorDegrees ?: JSONObject.NULL)
+            .put("worst_tracking_servo_id", policy.worstTrackingServoId ?: JSONObject.NULL)
+            .put("forward_min", policyContract.forwardMinimum)
+            .put("forward_max", policyContract.forwardMaximum)
+            .put("yaw_min", policyContract.yawMinimum)
+            .put("yaw_max", policyContract.yawMaximum)
     }
 
     private fun open(device: UsbDevice) {
@@ -179,11 +257,14 @@ class RobotService : Service() {
         handshakeJob?.cancel()
         handshakeJob = scope.launch {
             val deadline = SystemClock.elapsedRealtime() + HANDSHAKE_TIMEOUT_MS
-            while (isActive && mutableStatus.value.linkState == LinkState.HANDSHAKING) {
-                if (SystemClock.elapsedRealtime() >= deadline) {
-                    disconnect("Timed out waiting for ESP32 hello")
-                    scheduleRetry()
-                    return@launch
+            var slowStartReported = false
+            while (isActive && transport != null && mutableStatus.value.linkState == LinkState.HANDSHAKING) {
+                if (!slowStartReported && SystemClock.elapsedRealtime() >= deadline) {
+                    slowStartReported = true
+                    setStatus(
+                        LinkState.HANDSHAKING,
+                        "ESP32 is still starting; keeping the USB port open",
+                    )
                 }
                 runCatching { transport?.write(RobotProtocol.command("hello")) }
                     .onFailure {
@@ -191,7 +272,7 @@ class RobotService : Service() {
                         scheduleRetry()
                         return@launch
                     }
-                delay(500)
+                delay(250)
             }
         }
     }
@@ -218,9 +299,15 @@ class RobotService : Service() {
                     deviceName = mutableStatus.value.deviceName,
                     firmwareVersion = message.optString("version").ifBlank { null },
                     policyArmed = false,
+                    servoBatteryVoltage = message.servoBatteryVoltage(),
                     lastMessageAtMs = now,
                 )
             }
+
+            "state" -> mutableStatus.value = mutableStatus.value.copy(
+                servoBatteryVoltage = message.servoBatteryVoltage(),
+                lastMessageAtMs = now,
+            )
 
             "policy_state" -> mutableStatus.value = mutableStatus.value.copy(
                 detail = "Policy telemetry active",
@@ -249,6 +336,11 @@ class RobotService : Service() {
         disconnect("USB link lost: ${error.message}")
         scheduleRetry()
     }
+
+    private fun JSONObject.servoBatteryVoltage(): Float? =
+        optDouble("servoBatteryVoltage", Double.NaN)
+            .takeIf(Double::isFinite)
+            ?.toFloat()
 
     private fun findRobotDevice(): UsbDevice? {
         val devices = usbManager.deviceList.values
@@ -309,6 +401,16 @@ class RobotService : Service() {
             .setContentTitle("Pixel Robot")
             .setContentText("Watching the ESP32 safety link")
             .setContentIntent(activityIntent)
+            .addAction(
+                0,
+                "STOP + TORQUE OFF",
+                PendingIntent.getService(
+                    this,
+                    1,
+                    Intent(this, RobotService::class.java).setAction(ACTION_STOP),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             .setOngoing(true)
             .build()
         ServiceCompat.startForeground(
@@ -321,11 +423,18 @@ class RobotService : Service() {
     }
 
     override fun onDestroy() {
+        controlServer?.close()
+        controlServer = null
         policyController.close()
         closeTransport()
         unregisterReceiver(usbReceiver)
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        emergencyStop()
+        super.onTaskRemoved(rootIntent)
     }
 
     @Suppress("DEPRECATION")
@@ -334,12 +443,14 @@ class RobotService : Service() {
         else getParcelableExtra(UsbManager.EXTRA_DEVICE)
 
     companion object {
+        private const val TAG = "RobotService"
         private const val ACTION_USB_PERMISSION = "com.leo.pixelrobot.USB_PERMISSION"
         const val ACTION_RECONNECT = "com.leo.pixelrobot.RECONNECT"
+        const val ACTION_STOP = "com.leo.pixelrobot.STOP"
         private const val CHANNEL_ID = "robot_connection"
         private const val NOTIFICATION_ID = 10
-        private const val HANDSHAKE_TIMEOUT_MS = 25_000L
-        private const val RETRY_MS = 2_000L
+        private const val HANDSHAKE_TIMEOUT_MS = 5_000L
+        private const val RETRY_MS = 1_000L
     }
 }
 

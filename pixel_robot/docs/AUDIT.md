@@ -37,7 +37,7 @@ The firmware already provides the safe foundation the Android app needs:
 
 Firmware disarm holds the last safe target. It intentionally does not drop
 torque because an uncontrolled collapse can be less safe. A deliberate
-torque-off command remains available for suspended commissioning and shutdown.
+torque-off command remains available for calibration and shutdown.
 
 ## Promoted policy
 

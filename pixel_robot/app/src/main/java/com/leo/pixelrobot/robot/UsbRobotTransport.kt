@@ -37,7 +37,7 @@ class UsbRobotTransport(
 
     @Synchronized
     fun write(bytes: ByteArray) {
-        port?.write(bytes, WRITE_TIMEOUT_MS) ?: error("USB serial is not open")
+        ioManager?.writeAsync(bytes) ?: error("USB serial is not open")
     }
 
     override fun onNewData(data: ByteArray) = onBytes(data)
@@ -56,6 +56,5 @@ class UsbRobotTransport(
         const val ROBOT_VENDOR_ID = 0x10C4
         const val ROBOT_PRODUCT_ID = 0xEA60
         const val BAUD = 921_600
-        private const val WRITE_TIMEOUT_MS = 50
     }
 }

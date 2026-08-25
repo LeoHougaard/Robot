@@ -6,13 +6,17 @@ first and can also use the serial library's normal probe table.
 
 Validate the physical link before enabling any motor torque:
 
-1. Power the servo rail independently, with the robot suspended or torque off.
+1. Power the servo rail independently, with torque off until the link is ready.
 2. Connect Pixel USB-C directly to the board USB-C with a known data cable.
 3. Accept the Android USB permission prompt and choose Pixel Robot as the
    default handler if desired.
 4. Confirm the app receives `hello`, disconnect/reconnect works, and opening
    the port does not cause unsafe motion.
-5. Run 30 minutes with motors disabled while camera and policy inference are
+5. If using the start-pose stand, capture the reference only after the app has
+   verified all twelve physical torque registers are off. Empty encoder or
+   register replies mean the 7.4 V servo rail is not available; do not save a
+   reference from the ESP32's cached target values.
+6. Run 30 minutes with motors disabled while camera and policy inference are
    active.
 
 If the board does not enumerate over a C-to-C cable, use a USB-C OTG adapter

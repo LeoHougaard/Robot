@@ -6,7 +6,6 @@
 #include <WebServer.h>
 #include <Wire.h>
 #include <WiFi.h>
-#include <WiFiManager.h>
 
 #include "AK09918.h"
 #include "QMI8658.h"
@@ -29,10 +28,6 @@
 
 #ifndef SERVO_BAUD
 #define SERVO_BAUD 1000000
-#endif
-
-#ifndef WIFI_SETUP_TIMEOUT_SECONDS
-#define WIFI_SETUP_TIMEOUT_SECONDS 45
 #endif
 
 #ifndef IMU_SDA_PIN
@@ -91,9 +86,10 @@ static constexpr uint8_t STS_GOAL_SPEED_ADDR = 0x2E;
 static constexpr uint8_t STS_TORQUE_LIMIT_ADDR = 0x30;
 static constexpr uint8_t STS_LOCK_ADDR = 0x37;
 static constexpr uint8_t STS_PRESENT_POSITION_ADDR = 0x38;
+static constexpr uint8_t STS_PRESENT_VOLTAGE_ADDR = 0x3E;
 static constexpr uint8_t STS_PRESENT_STATE_BYTES = 4;
 static constexpr uint16_t STS_TORQUE_LIMIT_MAX = 1000;
-static constexpr uint16_t COMMISSIONING_TORQUE_LIMIT = 250;
+static constexpr uint16_t COMMISSIONING_TORQUE_LIMIT = 1000;
 static constexpr uint8_t STS_MODE_SERVO = 0;
 static constexpr uint8_t STS_MODE_MOTOR = 1;
 static constexpr uint16_t POLICY_FRAME_TIMEOUT_MS = 120;
@@ -301,6 +297,20 @@ public:
   bool readPosition(uint8_t id, uint16_t &position) {
     uint8_t ignoredStatus = 0;
     return readPosition(id, position, ignoredStatus);
+  }
+
+  bool readVoltage(uint8_t id, float &voltage) {
+    if (!bus) return false;
+
+    clearRx();
+    uint8_t params[] = {STS_PRESENT_VOLTAGE_ADDR, 1};
+    writePacket(id, 0x02, params, sizeof(params));
+
+    uint8_t response[7];
+    uint8_t statusError = 0;
+    if (!readResponse(id, response, sizeof(response), 20, statusError)) return false;
+    voltage = response[5] * 0.1f;
+    return true;
   }
 
   bool syncReadPositionSpeed(
@@ -530,7 +540,8 @@ private:
       buffer[index++] = value;
       if (index < expectedLen) continue;
 
-      if (buffer[2] != id || buffer[3] != 4) return false;
+      const uint8_t expectedProtocolLength = expectedLen - 4;
+      if (buffer[2] != id || buffer[3] != expectedProtocolLength) return false;
 
       uint16_t sum = 0;
       for (uint8_t i = 2; i < expectedLen - 1; i++) sum += buffer[i];
@@ -623,6 +634,7 @@ ServoBusDriver servoBus;
 QMI8658 imuAccelGyro;
 AK09918 imuMag;
 WebServer webServer(80);
+bool networkServicesStarted = false;
 ServoConfig servos[MAX_SERVOS];
 uint8_t servoCount = 0;
 ProgramStep programSteps[MAX_PROGRAM_STEPS];
@@ -640,6 +652,9 @@ bool programPlaying = false;
 bool programLoop = false;
 uint32_t nextProgramAt = 0;
 uint32_t lastStateAt = 0;
+uint32_t nextServoBatterySampleAt = 0;
+float servoBatteryVoltage = 0;
+bool hasServoBatteryVoltage = false;
 String inputLine;
 bool discardInputLine = false;
 NetworkMessage networkMessages[NET_MESSAGE_LOG_SIZE];
@@ -770,6 +785,8 @@ void sendState(bool setupRange = false) {
   doc["playing"] = programPlaying;
   doc["wifi"] = WiFi.isConnected();
   doc["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
+  if (hasServoBatteryVoltage) doc["servoBatteryVoltage"] = servoBatteryVoltage;
+  else doc["servoBatteryVoltage"] = nullptr;
   JsonObject positions = doc["positions"].to<JsonObject>();
   JsonObject measured = doc["measured"].to<JsonObject>();
     JsonObject statusErrors = doc["statusErrors"].to<JsonObject>();
@@ -1642,6 +1659,19 @@ void disarmServosAtBoot() {
   }
 }
 
+void runServoBatteryMonitor() {
+  if (policyControl.armed || programPlaying || millis() < nextServoBatterySampleAt) return;
+  nextServoBatterySampleAt = millis() + 1000;
+  hasServoBatteryVoltage = false;
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (!servos[i].enabled) continue;
+    if (servoBus.readVoltage(servos[i].id, servoBatteryVoltage)) {
+      hasServoBatteryVoltage = true;
+      return;
+    }
+  }
+}
+
 void handleConfigSet(JsonDocument &doc) {
   if (!doc["servos"].is<JsonArray>()) {
     sendError("config_set requires a servos array");
@@ -2255,6 +2285,8 @@ void handleCommand(const String &line) {
     response["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
     response["policyArmed"] = policyControl.armed;
     response["policyFrameTimeoutMs"] = POLICY_FRAME_TIMEOUT_MS;
+    if (hasServoBatteryVoltage) response["servoBatteryVoltage"] = servoBatteryVoltage;
+    else response["servoBatteryVoltage"] = nullptr;
     JsonObject imu = response["imu"].to<JsonObject>();
     imu["available"] = imuState.available;
     imu["monitor"] = imuState.monitorEnabled;
@@ -2532,15 +2564,16 @@ void pollSerial() {
   }
 }
 
-void setupWiFiAndOta() {
-  WiFi.mode(WIFI_STA);
-  WiFiManager manager;
-  manager.setConfigPortalTimeout(WIFI_SETUP_TIMEOUT_SECONDS);
-  manager.autoConnect("RobotDog-Setup");
-
-  ArduinoOTA.setHostname("robot-dog-control");
-  ArduinoOTA.begin();
-  setupWebServer();
+void runNetworkServices() {
+  if (!networkServicesStarted && WiFi.isConnected()) {
+    networkServicesStarted = true;
+    ArduinoOTA.setHostname("robot-dog-control");
+    ArduinoOTA.begin();
+    setupWebServer();
+  }
+  if (!networkServicesStarted) return;
+  ArduinoOTA.handle();
+  webServer.handleClient();
 }
 
 void setup() {
@@ -2554,21 +2587,20 @@ void setup() {
   setupImu();
   servoBus.begin();
   disarmServosAtBoot();
-  setupWiFiAndOta();
   sendConfig();
   sendImuState();
   sendMotorState();
 }
 
 void loop() {
-  ArduinoOTA.handle();
-  webServer.handleClient();
+  runNetworkServices();
   pollSerial();
   runPolicyWatchdog();
   runProgram();
   runServoVelocities();
   runServoIdentify();
   runServoMonitors();
+  runServoBatteryMonitor();
   runImuMonitor();
 
   if (!policyControl.armed && millis() - lastStateAt > STATE_INTERVAL_MS) {

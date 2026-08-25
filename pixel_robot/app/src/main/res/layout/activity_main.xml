@@ -44,7 +44,7 @@
             android:background="#20272D"
             android:visibility="gone"
             app:implementationMode="performance"
-            app:scaleType="fillCenter" />
+            app:scaleType="fitCenter" />
 
         <TextView
             android:id="@+id/cameraStatus"
@@ -61,14 +61,17 @@
             android:checked="false"
             android:text="@string/enable_camera" />
 
-        <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/liftedConfirmation"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/standAtStartPoseButton"
+            style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="@string/lifted_confirmation" />
+            android:enabled="false"
+            android:text="@string/stand_at_start_pose" />
 
         <TextView
+            android:id="@+id/forwardRequestLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -80,11 +83,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:stepSize="0.01"
-            android:value="0"
+            android:value="0.12"
             android:valueFrom="0"
-            android:valueTo="0.18" />
+            android:valueTo="0.22" />
 
         <TextView
+            android:id="@+id/yawRequestLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/yaw_request"
@@ -99,30 +103,25 @@
             android:valueFrom="-0.25"
             android:valueTo="0.25" />
 
-        <LinearLayout
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/startPolicyButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:orientation="horizontal">
+            android:enabled="false"
+            android:minHeight="56dp"
+            android:text="@string/start_policy" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/startPolicyButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:enabled="false"
-                android:text="@string/start_suspended_test" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/stopButton"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="@string/stop_and_hold"
-                android:textColor="@color/danger" />
-        </LinearLayout>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/stopButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="64dp"
+            android:text="@string/stop_and_hold"
+            android:textColor="@color/danger"
+            android:textStyle="bold" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/reconnectButton"

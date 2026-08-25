@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pixel Robot test control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1114;
+      --panel: #171d21;
+      --line: #2c363c;
+      --text: #edf3f4;
+      --muted: #9eabb1;
+      --green: #55d68b;
+      --amber: #f4b85d;
+      --red: #f0675e;
+      --blue: #6db7ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% -20%, #26343d 0, var(--bg) 48%);
+      color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { width: min(820px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 48px; }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: clamp(25px, 5vw, 38px); line-height: 1.05; }
+    h2 { font-size: 16px; }
+    .eyebrow { color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .subtitle { margin-top: 10px; color: var(--muted); max-width: 620px; }
+    .panel { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 94%, transparent); }
+    .status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .status-item { min-height: 76px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #11171a; }
+    .status-item span { display: block; color: var(--muted); font-size: 12px; }
+    .status-item strong { display: block; margin-top: 5px; overflow-wrap: anywhere; }
+    .dot { display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; background: var(--amber); }
+    .dot.ready { background: var(--green); box-shadow: 0 0 12px #55d68b77; }
+    .dot.active { background: var(--blue); box-shadow: 0 0 12px #6db7ff77; }
+    .dot.blocked { background: var(--red); }
+    .controls { display: grid; gap: 18px; }
+    .control-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    output { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 800; }
+    input[type="range"] { width: 100%; accent-color: var(--blue); }
+    .ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    .buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    button { min-height: 54px; border: 0; border-radius: 11px; padding: 0 18px; color: #071014; font: inherit; font-weight: 850; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    #start { background: var(--green); }
+    #stand { background: var(--amber); }
+    #stop { background: var(--red); }
+    #reconnect { min-height: 40px; margin-top: 12px; background: #d6e5ea; }
+    #message { min-height: 22px; margin-top: 12px; color: var(--muted); }
+    .restriction { margin-top: 14px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 620px) {
+      .status-grid { grid-template-columns: 1fr; }
+      .buttons { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Physical robot, restricted Robust policy</p>
+    <h1>Continuous policy test</h1>
+    <p class="subtitle">The policy runs until you stop it. Commands run on the Pixel and reach the ESP32 over USB. Closing or hiding this page requests stop and torque-off.</p>
+
+    <section class="panel status-grid" aria-label="Live robot status">
+      <div class="status-item"><span>USB link</span><strong><i id="link-dot" class="dot"></i><span id="link">Checking</span></strong></div>
+      <div class="status-item"><span>Policy</span><strong><i id="policy-dot" class="dot"></i><span id="policy">Disarmed</span></strong></div>
+      <div class="status-item"><span>Servo tracking</span><strong id="feedback">Preflight on start</strong></div>
+    </section>
+
+    <section class="panel controls">
+      <div>
+        <div class="control-head"><h2>Forward request</h2><output id="forward-value">0.00 m/s</output></div>
+        <input id="forward" type="range" min="0" max="0.22" step="0.01" value="0">
+        <div class="ticks"><span id="forward-min">Stationary</span><span id="forward-max">0.22 m/s</span></div>
+      </div>
+      <div>
+        <div class="control-head"><h2>Turn request</h2><output id="yaw-value">0.00 rad/s</output></div>
+        <input id="yaw" type="range" min="-0.25" max="0.25" step="0.01" value="0">
+        <div class="ticks"><span id="yaw-min">Right</span><span>Straight</span><span id="yaw-max">Left</span></div>
+      </div>
+
+      <div>
+        <div class="control-head"><h2>Policy torque</h2><output>100%</output></div>
+        <p class="restriction">The ESP32 sets all 12 servos to full torque immediately before policy arm.</p>
+      </div>
+
+      <div class="buttons">
+        <button id="stand" disabled>STAND</button>
+        <button id="start" disabled>Start continuous test</button>
+        <button id="stop">Stop + torque off</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Controller message</h2>
+      <p id="message">Connecting to the Pixel service.</p>
+      <button id="reconnect">Reconnect Pixel USB</button>
+      <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
+      <p class="restriction">This policy is limited to forward motion and curved turns. Reverse, strafe, and in-place turns remain disabled in this build.</p>
+    </section>
+  </main>
+  <script>
+    const ui = Object.fromEntries([...document.querySelectorAll("[id]")].map(element => [element.id, element]));
+    let live = false;
+    let powered = false;
+    let operationActive = false;
+    let commandTimer;
+    let ready = false;
+
+    function values() {
+      return { forward: Number(ui.forward.value), yaw_rate: Number(ui.yaw.value) };
+    }
+
+    function renderValues() {
+      const command = values();
+      ui["forward-value"].textContent = `${command.forward.toFixed(2)} m/s`;
+      ui["yaw-value"].textContent = `${command.yaw_rate.toFixed(2)} rad/s`;
+      if (live) {
+        clearTimeout(commandTimer);
+        commandTimer = setTimeout(() => post("/api/command", command).catch(() => {}), 80);
+      }
+    }
+
+    async function request(path, options = {}) {
+      const response = await fetch(path, { cache: "no-store", ...options });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      renderStatus(result);
+      return result;
+    }
+
+    async function post(path, body = {}) {
+      try {
+        return await request(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      } catch (error) {
+        ui.message.textContent = error.message;
+        throw error;
+      }
+    }
+
+    function renderStatus(status) {
+      ready = status.link_state === "ready";
+      operationActive = Boolean(status.policy_active);
+      live = Boolean(status.policy_commanding);
+      powered = operationActive || Boolean(status.holding_pose);
+      ui.link.textContent = ready ? `Ready, firmware ${status.firmware_version || "unknown"}` : status.robot_detail;
+      ui["link-dot"].className = `dot ${ready ? "ready" : "blocked"}`;
+      ui.policy.textContent = live ? `${status.policy_detail}, frame ${status.sequence}` : status.policy_detail;
+      ui["policy-dot"].className = `dot ${powered ? "active" : status.policy_armed ? "blocked" : "ready"}`;
+      if (status.tracking_error_deg != null) {
+        ui.feedback.textContent = `Servo ${status.worst_tracking_servo_id}: ${Number(status.tracking_error_deg).toFixed(1)}°, peak ${Number(status.peak_tracking_error_deg).toFixed(1)}°`;
+      } else {
+        ui.feedback.textContent = status.feedback_complete === false ? "Feedback incomplete" : "Preflight on start";
+      }
+      if (Number.isFinite(status.forward_min) && Number.isFinite(status.forward_max)) {
+        ui.forward.min = status.forward_min;
+        ui.forward.max = status.forward_max;
+        ui["forward-min"].textContent = Number(status.forward_min) === 0 ? "Stationary" : `${Number(status.forward_min).toFixed(2)} m/s`;
+        ui["forward-max"].textContent = `${Number(status.forward_max).toFixed(2)} m/s`;
+      }
+      if (Number.isFinite(status.yaw_min) && Number.isFinite(status.yaw_max)) {
+        ui.yaw.min = status.yaw_min;
+        ui.yaw.max = status.yaw_max;
+      }
+      updateButtons();
+      ui.message.textContent = status.policy_detail;
+    }
+
+    function updateButtons() {
+      ui.stand.disabled = !ready || operationActive;
+      ui.start.disabled = !ready || operationActive;
+    }
+
+    async function poll() {
+      try {
+        await request("/api/status");
+      } catch (error) {
+        live = false;
+        powered = false;
+        operationActive = false;
+        ui.link.textContent = "Pixel bridge unavailable";
+        ui["link-dot"].className = "dot blocked";
+        ui.stand.disabled = true;
+        ui.start.disabled = true;
+        ui.message.textContent = error.message;
+      } finally {
+        setTimeout(poll, 250);
+      }
+    }
+
+    ui.forward.addEventListener("input", renderValues);
+    ui.yaw.addEventListener("input", renderValues);
+    ui.stand.addEventListener("click", () => post("/api/stand"));
+    ui.start.addEventListener("click", () => post("/api/start", values()));
+    ui.stop.addEventListener("click", () => {
+      ui.forward.value = "0";
+      ui.yaw.value = "0";
+      renderValues();
+      post("/api/stop").catch(() => {});
+    });
+    ui.reconnect.addEventListener("click", () => post("/api/reconnect"));
+    window.addEventListener("pagehide", () => {
+      if (powered) navigator.sendBeacon("/api/stop", new Blob(["{}"], { type: "application/json" }));
+    });
+    renderValues();
+    poll();
+  </script>
+</body>
+</html>
