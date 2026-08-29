@@ -12,13 +12,19 @@ enum class LinkState {
 }
 
 object FirmwareCapabilities {
+    fun supportsClockedPolicyFeedback(version: String?): Boolean = atLeast(version, 0, 1, 13)
+
     fun supportsPolicyServoTelemetry(version: String?): Boolean {
+        return atLeast(version, 0, 1, 12)
+    }
+
+    private fun atLeast(version: String?, major: Int, minor: Int, patch: Int): Boolean {
         if (version == "dev") return true
         val parts = version?.split('.')?.map { component ->
             component.takeWhile(Char::isDigit).toIntOrNull() ?: return false
         } ?: return false
         if (parts.size < 3) return false
-        return listOf(parts[0], parts[1], parts[2]) >= listOf(0, 1, 12)
+        return listOf(parts[0], parts[1], parts[2]) >= listOf(major, minor, patch)
     }
 
     private operator fun List<Int>.compareTo(other: List<Int>): Int {

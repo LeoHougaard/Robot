@@ -93,10 +93,11 @@ The whole floor demo is available on the Pixel:
    in the foreground notification. Swiping away the app also requests stop and
    torque-off.
 
-Recording starts automatically before **STAND** or a direct policy start and
-continues across the stand-to-policy handoff. Stop finalizes a self-describing
-JSONL file. Use **Share last run data** in the app, or **Download last run** on
-the forwarded browser page, to copy it off the Pixel. An interrupted app
+Tap **Record** before or during a test. Recording continues through stand and
+policy operation until **Stop recording** or stop/disarm. **Share last run
+data** exports the JSONL. **Share training capture** exports one verified ZIP
+with that run, the exact deployed ONNX actor, its metadata/reference, and the
+effective calibration. The browser exposes both downloads. An interrupted app
 process leaves a recoverable file which is exposed after the next recording
 starts.
 
@@ -104,7 +105,7 @@ Inspect, fit, and graph a downloaded recording with the dependency-free tools:
 
 ```powershell
 python tools\inspect_run_data.py "<robot-run.jsonl>"
-python tools\fit_sim_from_run_data.py "<robot-run.jsonl>"
+python tools\fit_sim_from_run_data.py "<robot-run.jsonl-or-training-capture.zip>"
 python tools\plot_run_data.py "<robot-run.jsonl>" --servo-id 2
 ```
 

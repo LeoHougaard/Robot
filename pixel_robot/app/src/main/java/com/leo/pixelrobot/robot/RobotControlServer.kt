@@ -22,6 +22,9 @@ class RobotControlServer(
     private val reconnect: () -> Unit,
     private val selectServoTelemetry: (Int?) -> Unit,
     private val latestSession: () -> File?,
+    private val startRecording: () -> Unit,
+    private val stopRecording: () -> Unit,
+    private val latestTrainingCapture: () -> File?,
 ) : Closeable {
     private val page = assets.open("robot_control.html").bufferedReader().use { it.readText() }
     private val server = ServerSocket()
@@ -102,6 +105,22 @@ class RobotControlServer(
                         respondFile(socket, file)
                     }
                 }
+                method == "GET" && path == "/api/session/latest-training-capture" -> {
+                    val file = latestTrainingCapture()
+                    if (file == null || !file.isFile) {
+                        respond(socket, 404, JSON_CONTENT_TYPE, errorJson("no completed training capture"))
+                    } else {
+                        respondFile(socket, file, "application/zip")
+                    }
+                }
+                method == "POST" && path == "/api/record/start" -> {
+                    startRecording()
+                    respondStatus(socket)
+                }
+                method == "POST" && path == "/api/record/stop" -> {
+                    stopRecording()
+                    respondStatus(socket)
+                }
                 method == "POST" && path == "/api/start" -> {
                     val request = JSONObject(body.ifBlank { "{}" })
                     updateCommand(
@@ -173,10 +192,10 @@ class RobotControlServer(
         }
     }
 
-    private fun respondFile(socket: Socket, file: File) {
+    private fun respondFile(socket: Socket, file: File, contentType: String = "application/x-ndjson") {
         val headers = buildString {
             append("HTTP/1.1 200 OK\r\n")
-            append("Content-Type: application/x-ndjson\r\n")
+            append("Content-Type: $contentType\r\n")
             append("Content-Length: ${file.length()}\r\n")
             append("Content-Disposition: attachment; filename=\"${file.name}\"\r\n")
             append("Cache-Control: no-store\r\n")

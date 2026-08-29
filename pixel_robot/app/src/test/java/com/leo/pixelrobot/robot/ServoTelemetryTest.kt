@@ -76,5 +76,8 @@ class ServoTelemetryTest {
         assertTrue(FirmwareCapabilities.supportsPolicyServoTelemetry("0.1.12"))
         assertTrue(FirmwareCapabilities.supportsPolicyServoTelemetry("0.2.0"))
         assertTrue(FirmwareCapabilities.supportsPolicyServoTelemetry("dev"))
+        assertFalse(FirmwareCapabilities.supportsClockedPolicyFeedback("0.1.12"))
+        assertTrue(FirmwareCapabilities.supportsClockedPolicyFeedback("0.1.13"))
+        assertTrue(FirmwareCapabilities.supportsClockedPolicyFeedback("0.2.0"))
     }
 }

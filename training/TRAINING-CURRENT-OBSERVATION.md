@@ -6,8 +6,11 @@ input shape would make the promoted checkpoint and its normalization invalid.
 
 ## Runtime measurement
 
-Firmware 0.1.12 publishes one `current_raw` entry for each ID in `ids` on every
-policy frame. One register step is 6.5 mA. The current transaction follows the
+Firmware 0.1.13 publishes one `current_raw` entry for each ID in `ids` on every
+firmware-clocked 20 ms feedback tick. Commands and feedback are pipelined: each
+state carries its tick and latest applied command sequence, so Android matches
+measurements to the correct action without a lock-step USB round trip. One
+register step is 6.5 mA. The current transaction follows the
 safety-critical position/speed transaction and has independent validity:
 
 - `feedback_complete` controls the locomotion safety limit;
@@ -41,9 +44,11 @@ value to zero and hold the last finite current value, matching deployment.
 
 ## Required simulation fit
 
-Before launching this policy family, run `pixel_robot/tools/fit_sim_from_run_data.py`
-over the complete physical-run set and save the versioned JSON report with the
-training manifest. The task configuration must consume all identifiable fields:
+Before launching this policy family, export the Pixel training-capture ZIP and
+run `pixel_robot/tools/fit_sim_from_run_data.py` on it. The tool verifies the
+run, deployed actor, metadata, and calibration hashes. Save the versioned JSON
+report with the training manifest. The task configuration must consume all
+identifiable fields:
 
 - per-servo current bias, range, noise, clipping, coverage, and dropout;
 - target-to-measured joint error, lag, and effective speed;
@@ -96,3 +101,7 @@ The first firmware 0.1.12 policy run on 2026-08-29 captured 468 complete current
 samples for every servo and no incomplete critical-feedback frames. It ran at
 26.4 Hz, not 50 Hz, so it proves recording coverage but does not pass the 20 ms
 transport gate. Do not use that run to claim a 50 Hz deployment.
+
+Firmware 0.1.13 and Pixel app 0.2.7 implement the clocked pipeline, but the gate
+still requires a new operator-run recording whose fit report has
+`transport_50hz_gate.passed` set to `true`.

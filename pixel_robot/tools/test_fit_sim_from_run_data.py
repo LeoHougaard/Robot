@@ -1,6 +1,8 @@
 import json
 import tempfile
 import unittest
+import hashlib
+import zipfile
 from pathlib import Path
 
 from fit_sim_from_run_data import fit_path
@@ -53,6 +55,35 @@ class FitSimFromRunDataTest(unittest.TestCase):
     def test_rejects_negative_lag_search(self):
         with self.assertRaisesRegex(ValueError, "nonnegative"):
             fit_path(Path("unused"), max_lag_frames=-1)
+
+    def test_verifies_and_reads_training_capture_zip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "run.jsonl"
+            self._write_run(run, complete_session=True, with_policy=True)
+            payload = run.read_bytes()
+            capture = root / "capture.zip"
+            manifest = {
+                "schema_version": 1,
+                "run_entry": "run/run.jsonl",
+                "context": {"profile_id": "test"},
+                "files": [
+                    {
+                        "path": "run/run.jsonl",
+                        "size_bytes": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                ],
+            }
+            with zipfile.ZipFile(capture, "w") as archive:
+                archive.writestr("run/run.jsonl", payload)
+                archive.writestr("manifest.json", json.dumps(manifest))
+
+            report = fit_path(capture, max_lag_frames=3)
+
+        self.assertTrue(report["training_capture"]["verified"])
+        self.assertEqual(report["training_capture"]["context"]["profile_id"], "test")
+        self.assertEqual(report["selection"]["selected_complete_policy_run_count"], 1)
 
     @unittest.skipUnless(
         (

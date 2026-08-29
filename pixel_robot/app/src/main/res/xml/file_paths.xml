@@ -3,4 +3,7 @@
     <files-path
         name="run_sessions"
         path="run_sessions/" />
+    <files-path
+        name="training_captures"
+        path="training_captures/" />
 </paths>

@@ -260,7 +260,8 @@ Stops program playback. It does not cut servo torque, because that can make a le
 {"cmd":"policy_arm","confirm":"CALIBRATED_AND_LIFTED","compact_feedback":true}
 ```
 
-Enters the guarded learned-policy transport with a 50 Hz host target. It succeeds only with 12
+Enters the guarded learned-policy transport and starts firmware-clocked 50 Hz
+feedback. It succeeds only with 12
 unique enabled IDs 1-12, non-default calibrated min/home/max values, live
 synchronized position/speed feedback from every servo, a live IMU, and the
 exact lifted-robot confirmation. It stops manual programs and servo monitors
@@ -272,10 +273,11 @@ without moving the joints.
 {"cmd":"policy_frame","seq":1,"targets":{"1":180,"2":180,"3":180,"4":180,"5":180,"6":180,"7":180,"8":180,"9":180,"10":180,"11":180,"12":180}}
 ```
 
-Sends one absolute-degree target for every servo. Sequence numbers must
-increase. The firmware rejects missing values, calibrated-limit violations,
-and changes over 6 degrees from the previous nominal frame. The compact
-`policy_state` response contains aligned servo IDs, angles, current, packet
+Sends one absolute-degree target for every servo without waiting for a reply.
+Sequence numbers must increase. The firmware rejects missing values,
+calibrated-limit violations, and changes over 6 degrees from the previous
+nominal frame. Each compact `policy_state` contains a strictly increasing
+feedback `tick`, the latest applied command `seq`, aligned servo IDs, angles, current, packet
 status, and IMU acceleration (mg) and gyro (degrees/s), plus `feedback_us`,
 `current_us`, `frame_us`, `feedback_complete`, and `current_complete` timing and
 validity fields. Position/speed is the safety-critical synchronized read. The

@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity() {
                     robotService?.policyStatus?.collect { policy ->
                         binding.runtimeStatus.text = buildString {
                             append(policy.detail)
+                            policy.feedbackHertz?.let { append(" | %.1f Hz".format(it)) }
                             policy.executionProvider?.let { append(" • $it") }
                             policy.inferenceMilliseconds?.let { append(" • %.2f ms".format(it)) }
                         }
@@ -126,6 +127,14 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.startForegroundService(this, Intent(this, RobotService::class.java))
         binding.reconnectButton.setOnClickListener { robotService?.reconnect() }
         binding.shareLastRunButton.setOnClickListener { shareLastRun() }
+        binding.shareTrainingCaptureButton.setOnClickListener { shareTrainingCapture() }
+        binding.recordButton.setOnClickListener {
+            runCatching {
+                val service = requireNotNull(robotService) { "Robot service is not connected" }
+                if (service.recordingStatus().active) service.stopRecording() else service.startRecording()
+                renderStatus(service.status.value)
+            }.onFailure { binding.runtimeStatus.text = it.message }
+        }
         binding.stopButton.setOnClickListener {
             binding.yawSlider.value = 0f
             robotService?.emergencyStop()
@@ -208,6 +217,10 @@ class MainActivity : AppCompatActivity() {
             recording.error?.let { binding.telemetryStatus.append("\nrecording error: $it") }
         }
         binding.shareLastRunButton.isEnabled = robotService?.latestRunFile() != null
+        binding.shareTrainingCaptureButton.isEnabled = robotService?.latestRunFile() != null
+        binding.recordButton.text = getString(
+            if (robotService?.recordingStatus()?.active == true) R.string.stop_recording else R.string.start_recording,
+        )
         renderServoTelemetry(status)
         updateArmAvailability()
     }
@@ -299,8 +312,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateArmAvailability() {
         val ready = robotService?.status?.value?.linkState == LinkState.READY
+        val clockedPolicyReady = FirmwareCapabilities.supportsClockedPolicyFeedback(
+            robotService?.status?.value?.firmwareVersion,
+        )
         val idle = robotService?.policyStatus?.value?.active != true
-        binding.startPolicyButton.isEnabled = ready && idle
+        binding.startPolicyButton.isEnabled = ready && clockedPolicyReady && idle
         binding.standAtStartPoseButton.isEnabled =
             ready && idle && robotService?.policyStatus?.value?.holdingPose != true
     }
@@ -337,6 +353,23 @@ class MainActivity : AppCompatActivity() {
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         share.clipData = ClipData.newRawUri(file.name, uri)
         startActivity(Intent.createChooser(share, getString(R.string.share_run_chooser)))
+    }
+
+    private fun shareTrainingCapture() {
+        val file = runCatching { robotService?.latestTrainingCaptureFile() }
+            .onFailure { binding.runtimeStatus.text = it.message }
+            .getOrNull()
+        if (file == null) {
+            binding.runtimeStatus.setText(R.string.no_completed_run)
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        val share = Intent(Intent.ACTION_SEND)
+            .setType("application/zip")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        share.clipData = ClipData.newRawUri(file.name, uri)
+        startActivity(Intent.createChooser(share, getString(R.string.share_training_capture_chooser)))
     }
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])

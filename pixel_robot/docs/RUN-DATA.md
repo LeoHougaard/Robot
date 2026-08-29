@@ -6,8 +6,9 @@ stream-processing tools can consume it without Android-specific code.
 
 ## Capture lifecycle
 
-- Recording starts before `STAND`, or before a policy run if stand is skipped.
-- Starting the policy after stand adds a `phase_start` record to the same file.
+- The operator can tap `Record` before stand/policy or start capture while a
+  policy is already running.
+- Stand and policy lifecycle events are included whenever recording is active.
 - `STOP + TORQUE OFF`, a runtime failure, or service shutdown writes
   `session_end` and finalizes the `.jsonl` file.
 - Data is flushed at least every 25 records and at every important event.
@@ -18,10 +19,10 @@ stream-processing tools can consume it without Android-specific code.
   serialization fails, the recorder closes the partial file and reports the
   error, but it never blocks robot commands or feedback.
 
-Use **Share last run data** in the Android app. With wireless ADB forwarding,
-the browser page also has **Download last run**, backed by
-`GET /api/session/latest`. Files remain in app-private storage until shared or
-downloaded.
+Use **Share last run data** for raw JSONL or **Share training capture** for a
+ZIP containing the run, exact ONNX actor, metadata/reference files, and the
+effective calibration. Every ZIP payload has a size and SHA-256 in
+`manifest.json`; the fit tool verifies every entry before reading the run.
 
 Validate and summarize an exported run with no extra Python packages:
 
@@ -35,7 +36,7 @@ action saturation from one run or a directory of runs. The report also includes
 per-servo current coverage and current distributions:
 
 ```powershell
-python tools\fit_sim_from_run_data.py "<robot-run.jsonl-or-directory>"
+python tools\fit_sim_from_run_data.py "<robot-run.jsonl-directory-or-training-capture.zip>"
 ```
 
 Create SVG graphs without extra Python packages. Choose the servo ID to inspect:
@@ -84,15 +85,16 @@ timing analysis because they are not affected by clock corrections.
 
 ## Measurements at policy rate
 
-Firmware 0.1.12 uses the proven four-byte synchronized ST3215 feedback read once
-per frame and reports the logical angle and status for every configured servo.
+Firmware 0.1.13 clocks the proven four-byte synchronized ST3215 feedback read
+every 20 ms and reports the logical angle and status for every configured servo.
 It then performs a separate two-byte current read for every servo. The response
 contains aligned `ids`, `angles_deg`, `current_raw`, and `status_errors` arrays,
 plus independent `feedback_complete` and `current_complete` validity flags.
 One current step is 6.5 mA. Missing current remains JSON `null` and cannot stop
 the policy.
 
-The compact policy `policy_state` also includes sequence, IMU sample time,
+The compact policy `policy_state` includes the latest applied command sequence,
+a strictly increasing firmware feedback `tick`, IMU sample time,
 feedback/current/frame processing times, accelerometer in mg, and gyroscope in
 degrees per second. Selected-servo idle telemetry retains native position and
 speed, drive load, voltage, temperature, motion flags, servo and packet status,
@@ -107,8 +109,8 @@ so later parsers do not depend on what the current app happens to display.
 
 Each `derived_policy_frame` additionally records:
 
-- input and feedback sequence numbers, sample interval, scheduled tick, frame
-  compute time, and ONNX inference time;
+- input and feedback sequence/tick numbers, sample interval,
+  command-to-feedback time, frame compute time, and ONNX inference time;
 - target and smoothed commands;
 - body-frame angular velocity and projected gravity;
 - 12 joint positions, 12 estimated joint velocities, previous action, and the
@@ -124,7 +126,7 @@ storage, and the current servo-battery safety classification. The stand
 trajectory event contains its measured start, final target,
 easing fractions, timing, and maximum per-step motion.
 
-Pixel app 0.2.6 uploads stand trajectories as individually acknowledged
+Pixel app 0.2.7 uploads stand trajectories as individually acknowledged
 `program_step` records followed by one `program_start`. Each USB JSON line is
 under 512 bytes, and firmware does not move until every step has arrived. This
 replaces the single 2.4-4.8 KiB `play` line that could be corrupted while the
@@ -133,7 +135,7 @@ firmware was busy polling servos.
 ## Interpretation limits
 
 This captures everything currently observable by the controller, not every
-physical quantity. Firmware 0.1.12 records available current samples for all 12
+physical quantity. Firmware 0.1.13 records available current samples for all 12
 servos at the policy rate using a separate, non-fatal synchronized read. The
 larger load/voltage/temperature/status block remains an idle selected-servo
 measurement because putting it in the critical policy transaction made feedback

@@ -56,6 +56,7 @@ class RobotService : Service() {
     private lateinit var policyController: PolicyController
     private lateinit var policyContract: PolicyContract
     private lateinit var runRecorder: RunSessionRecorder
+    private lateinit var trainingCaptureBundle: TrainingCaptureBundle
     private lateinit var effectiveCalibrationJson: String
     private lateinit var calibrationSource: String
     private var controlServer: RobotControlServer? = null
@@ -110,6 +111,25 @@ class RobotService : Service() {
             directory = File(filesDir, "run_sessions"),
             contextProvider = ::runSessionContext,
         )
+        trainingCaptureBundle = TrainingCaptureBundle(
+            directory = File(filesDir, "training_captures"),
+            bundledFiles = {
+                linkedMapOf(
+                    "policy/policy_actor.onnx" to assets.open("policy_actor.onnx").use { it.readBytes() },
+                    "policy/policy_metadata.json" to assets.open("policy_metadata.json").use { it.readBytes() },
+                    "policy/policy_android_manifest.json" to assets.open("policy_android_manifest.json").use { it.readBytes() },
+                    "policy/policy_reference.json" to assets.open("policy_reference.json").use { it.readBytes() },
+                    "calibration/${policyContract.profileId}.calibration.json" to
+                        effectiveCalibrationJson.toByteArray(Charsets.UTF_8),
+                )
+            },
+            manifestContext = {
+                JSONObject()
+                    .put("profile_id", policyContract.profileId)
+                    .put("calibration_source", calibrationSource)
+                    .put("app_package", packageName)
+            },
+        )
         policyController = PolicyController(
             assets = assets,
             scope = scope,
@@ -131,6 +151,9 @@ class RobotService : Service() {
                 reconnect = ::reconnect,
                 selectServoTelemetry = ::selectServoTelemetry,
                 latestSession = runRecorder::latestCompletedFile,
+                startRecording = ::startRecording,
+                stopRecording = ::stopRecording,
+                latestTrainingCapture = ::latestTrainingCaptureFile,
             ).also(RobotControlServer::start)
         }.onFailure { Log.e(TAG, "Could not start loopback control bridge", it) }.getOrNull()
         val receiverFilter = IntentFilter().apply {
@@ -203,6 +226,19 @@ class RobotService : Service() {
     val yawMaximum: Float get() = policyContract.yawMaximum
     fun recordingStatus(): RunRecordingStatus = runRecorder.status()
     fun latestRunFile(): File? = runRecorder.latestCompletedFile()
+    fun latestTrainingCaptureFile(): File? = runRecorder.latestCompletedFile()?.let(trainingCaptureBundle::create)
+
+    fun startRecording() {
+        val status = runRecorder.start("operator_recording")
+        check(status.active) { status.error ?: "recording could not start" }
+        runRecorder.recordEvent("operator_recording_started")
+        startSessionMonitor()
+    }
+
+    fun stopRecording() {
+        val status = runRecorder.finish("operator_stop", "Recording stopped by operator")
+        check(!status.active) { status.error ?: "recording could not stop" }
+    }
 
     fun updateMotionRequest(forward: Float, yawRate: Float) {
         policyController.updateRequest(forward, yawRate)
@@ -210,6 +246,9 @@ class RobotService : Service() {
 
     fun startPolicy() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
+        check(FirmwareCapabilities.supportsClockedPolicyFeedback(mutableStatus.value.firmwareVersion)) {
+            "ESP32 firmware 0.1.13 or newer is required for clocked 50 Hz policy feedback"
+        }
         policyController.startPolicy()
         startSessionMonitor()
     }
@@ -342,6 +381,11 @@ class RobotService : Service() {
             .put("policy_detail", policy.detail)
             .put("sequence", policy.sequence)
             .put("inference_ms", policy.inferenceMilliseconds)
+            .put("feedback_hz", policy.feedbackHertz)
+            .put(
+                "clocked_policy_ready",
+                FirmwareCapabilities.supportsClockedPolicyFeedback(robot.firmwareVersion),
+            )
             .put("execution_provider", policy.executionProvider)
             .put("torque_percent", policy.torquePercent ?: JSONObject.NULL)
             .put(

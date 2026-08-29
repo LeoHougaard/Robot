@@ -54,7 +54,9 @@
     #stand { background: var(--amber); }
     #stop { background: var(--red); }
     #reconnect { min-height: 40px; margin-top: 12px; background: #d6e5ea; }
+    #record { min-height: 40px; margin-top: 12px; background: var(--green); }
     #download { min-height: 40px; margin-top: 12px; background: var(--blue); }
+    #download-capture { min-height: 40px; margin-top: 12px; background: var(--amber); }
     #message { min-height: 22px; margin-top: 12px; color: var(--muted); }
     .restriction { margin-top: 14px; color: var(--muted); font-size: 13px; }
     .servo-picker { width: 100%; min-height: 48px; margin-top: 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #11171a; color: var(--text); font: inherit; }
@@ -134,7 +136,9 @@
       <h2>Controller message</h2>
       <p id="message">Connecting to the Pixel service.</p>
       <button id="reconnect">Reconnect Pixel USB</button>
+      <button id="record">Record</button>
       <button id="download" disabled>Download last run data</button>
+      <button id="download-capture" disabled>Download training capture</button>
       <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
       <p class="restriction">This policy is limited to forward motion and curved turns. Reverse, strafe, and in-place turns remain disabled in this build.</p>
     </section>
@@ -146,6 +150,7 @@
     let operationActive = false;
     let commandTimer;
     let ready = false;
+    let clockedPolicyReady = false;
 
     function values() {
       return { forward: Number(ui.forward.value), yaw_rate: Number(ui.yaw.value) };
@@ -184,12 +189,15 @@
 
     function renderStatus(status) {
       ready = status.link_state === "ready";
+      clockedPolicyReady = Boolean(status.clocked_policy_ready);
       operationActive = Boolean(status.policy_active);
       live = Boolean(status.policy_commanding);
       powered = operationActive || Boolean(status.holding_pose);
       ui.link.textContent = ready ? `Ready, firmware ${status.firmware_version || "unknown"}` : status.robot_detail;
       ui["link-dot"].className = `dot ${ready ? "ready" : "blocked"}`;
-      ui.policy.textContent = live ? `${status.policy_detail}, frame ${status.sequence}` : status.policy_detail;
+      ui.policy.textContent = live
+        ? `${status.policy_detail}, frame ${status.sequence}, ${Number(status.feedback_hz || 0).toFixed(1)} Hz`
+        : status.policy_detail;
       ui["policy-dot"].className = `dot ${powered ? "active" : status.policy_armed ? "blocked" : "ready"}`;
       if (status.tracking_error_deg != null) {
         ui.feedback.textContent = `Servo ${status.worst_tracking_servo_id}: ${Number(status.tracking_error_deg).toFixed(1)}°, peak ${Number(status.peak_tracking_error_deg).toFixed(1)}°`;
@@ -235,16 +243,18 @@
         ui.yaw.max = status.yaw_max;
       }
       ui.download.disabled = !status.latest_session_available;
+      ui.record.textContent = status.recording_active ? "Stop recording" : "Record";
       ui.download.textContent = status.latest_session_file
         ? `Download ${status.latest_session_file}`
         : "Download last run data";
+      ui["download-capture"].disabled = !status.latest_session_available;
       updateButtons();
       ui.message.textContent = status.policy_detail;
     }
 
     function updateButtons() {
       ui.stand.disabled = !ready || operationActive;
-      ui.start.disabled = !ready || operationActive;
+      ui.start.disabled = !ready || !clockedPolicyReady || operationActive;
     }
 
     async function poll() {
@@ -275,11 +285,17 @@
       post("/api/stop").catch(() => {});
     });
     ui.reconnect.addEventListener("click", () => post("/api/reconnect"));
+    ui.record.addEventListener("click", () => post(
+      ui.record.textContent === "Stop recording" ? "/api/record/stop" : "/api/record/start"
+    ));
     ui["servo-id"].addEventListener("change", () => {
       const id = Number(ui["servo-id"].value);
       post("/api/servo-telemetry", { id: Number.isInteger(id) && id > 0 ? id : null });
     });
     ui.download.addEventListener("click", () => { window.location.href = "/api/session/latest"; });
+    ui["download-capture"].addEventListener("click", () => {
+      window.location.href = "/api/session/latest-training-capture";
+    });
     window.addEventListener("pagehide", () => {
       if (powered) navigator.sendBeacon("/api/stop", new Blob(["{}"], { type: "application/json" }));
     });

@@ -22,6 +22,10 @@
     <string name="reconnect_usb">Reconnect USB</string>
     <string name="no_telemetry">No telemetry</string>
     <string name="share_last_run">Share last run data</string>
+    <string name="start_recording">Record</string>
+    <string name="stop_recording">Stop recording</string>
+    <string name="share_training_capture">Share training capture</string>
     <string name="share_run_chooser">Export robot run</string>
+    <string name="share_training_capture_chooser">Export run and deployed policy</string>
     <string name="no_completed_run">No completed run is available yet</string>
 </resources>

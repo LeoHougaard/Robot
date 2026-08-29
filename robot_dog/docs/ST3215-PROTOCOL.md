@@ -74,10 +74,11 @@ all relevant joint torques, pose, and a calibration against known loads.
 
 ## Mobile timing rule
 
-Firmware 0.1.12 reads position/speed for all 12 servos in the safety-critical
+Firmware 0.1.13 clocks position/speed reads for all 12 servos every 20 ms in the safety-critical
 synchronized feedback transaction, then reads current for all 12 in a separate
 synchronized transaction. `policy_state` carries aligned angle and current
-arrays. A missing current reply marks `current_complete:false` but cannot halt
+arrays. Host target writes are independent: `seq` identifies the latest applied
+target and `tick` identifies the feedback sample. A missing current reply marks `current_complete:false` but cannot halt
 the policy; only three consecutive incomplete critical position/speed frames
 disarm it. Compact feedback and the 2 Mbaud Pixel link reduce host-transfer time.
 The recorded firmware sample interval is the authority for the achieved rate.

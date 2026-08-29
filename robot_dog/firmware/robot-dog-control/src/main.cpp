@@ -104,6 +104,7 @@ static constexpr uint16_t COMMISSIONING_TORQUE_LIMIT = 1000;
 static constexpr uint8_t STS_MODE_SERVO = 0;
 static constexpr uint8_t STS_MODE_MOTOR = 1;
 static constexpr uint16_t POLICY_FRAME_TIMEOUT_MS = 120;
+static constexpr uint16_t POLICY_FEEDBACK_INTERVAL_MS = 20;
 static constexpr uint8_t POLICY_MAX_FEEDBACK_FAILURES = 3;
 static constexpr size_t USB_SERIAL_PACKET_BYTES = 64;
 // Conservative warning thresholds for the robot's two-cell LiPo. These are
@@ -218,6 +219,8 @@ struct PolicyControlState {
   bool armed = false;
   uint32_t lastFrameAt = 0;
   uint32_t lastSequence = 0;
+  uint32_t feedbackTick = 0;
+  uint32_t nextFeedbackAt = 0;
   uint8_t feedbackFailures = 0;
   bool compactFeedback = false;
   bool savedMonitorEnabled[MAX_SERVOS] = {false};
@@ -1225,6 +1228,7 @@ bool syncReadConfiguredServoCurrent(int16_t *current, bool *received) {
 
 void sendPolicyState(
   uint32_t sequence,
+  uint32_t tick,
   const ServoNativeFeedback *feedback,
   const bool *received,
   const int16_t *current,
@@ -1237,6 +1241,7 @@ void sendPolicyState(
   doc["type"] = "policy_state";
   doc["armed"] = policyControl.armed;
   doc["seq"] = sequence;
+  doc["tick"] = tick;
   doc["sample_ms"] = imuState.sampleMs;
   doc["feedback_us"] = feedbackMicros;
   doc["current_us"] = currentMicros;
@@ -1343,6 +1348,8 @@ void disarmPolicy(const char *reason, bool notify) {
   bool wasArmed = policyControl.armed;
   policyControl.armed = false;
   policyControl.lastFrameAt = 0;
+  policyControl.feedbackTick = 0;
+  policyControl.nextFeedbackAt = 0;
   policyControl.feedbackFailures = 0;
   policyControl.compactFeedback = false;
   if (wasArmed) {
@@ -1416,6 +1423,8 @@ void handlePolicyArm(JsonDocument &doc) {
   policyControl.armed = true;
   policyControl.lastFrameAt = millis();
   policyControl.lastSequence = 0;
+  policyControl.feedbackTick = 0;
+  policyControl.nextFeedbackAt = millis() + POLICY_FEEDBACK_INTERVAL_MS;
   policyControl.feedbackFailures = 0;
   policyControl.compactFeedback = doc["compact_feedback"] | false;
   int16_t current[MAX_SERVOS] = {0};
@@ -1423,11 +1432,10 @@ void handlePolicyArm(JsonDocument &doc) {
   uint32_t currentStartedAt = micros();
   syncReadConfiguredServoCurrent(current, currentReceived);
   uint32_t currentMicros = micros() - currentStartedAt;
-  sendPolicyState(0, feedback, received, current, currentReceived, 0, currentMicros);
+  sendPolicyState(0, 0, feedback, received, current, currentReceived, 0, currentMicros);
 }
 
 void handlePolicyFrame(JsonDocument &doc) {
-  uint32_t frameStartedAt = micros();
   if (!policyControl.armed) {
     sendError("policy is not armed");
     return;
@@ -1464,7 +1472,16 @@ void handlePolicyFrame(JsonDocument &doc) {
   for (uint8_t i = 0; i < servoCount; i++) servos[i].lastAngle = nextAngles[i];
   policyControl.lastSequence = sequence;
   policyControl.lastFrameAt = millis();
+}
 
+void runPolicyFeedback() {
+  if (!policyControl.armed) return;
+  uint32_t now = millis();
+  if ((int32_t)(now - policyControl.nextFeedbackAt) < 0) return;
+  // Never emit catch-up bursts. A late servo transaction starts a new 20 ms
+  // period, keeping telemetry cadence stable and leaving USB parsing time.
+  policyControl.nextFeedbackAt = now + POLICY_FEEDBACK_INTERVAL_MS;
+  uint32_t frameStartedAt = micros();
   ServoNativeFeedback feedback[MAX_SERVOS];
   bool received[MAX_SERVOS] = {false};
   uint32_t feedbackStartedAt = micros();
@@ -1492,7 +1509,8 @@ void handlePolicyFrame(JsonDocument &doc) {
   syncReadConfiguredServoCurrent(current, currentReceived);
   uint32_t currentMicros = micros() - currentStartedAt;
   sendPolicyState(
-    sequence,
+    policyControl.lastSequence,
+    ++policyControl.feedbackTick,
     feedback,
     received,
     current,
@@ -2952,6 +2970,7 @@ void loop() {
   runNetworkServices();
   pollSerial();
   runPolicyWatchdog();
+  runPolicyFeedback();
   runProgram();
   runServoVelocities();
   runServoIdentify();

@@ -32,6 +32,7 @@ data class PolicyRuntimeStatus(
     val detail: String = "Policy idle",
     val sequence: Long = 0,
     val inferenceMilliseconds: Double? = null,
+    val feedbackHertz: Double? = null,
     val executionProvider: String? = null,
     val torquePercent: Int? = null,
     val gyroBiasDps: FloatArray? = null,
@@ -91,7 +92,6 @@ class PolicyController(
         check(runJob?.isActive != true) { "policy is already running" }
         while (messages.tryReceive().isSuccess) Unit
         runCatching {
-            recorder.start("policy")
             val initialRequest = request.get()
             recorder.recordEvent(
                 "policy_start_requested",
@@ -107,7 +107,6 @@ class PolicyController(
         check(runJob?.isActive != true) { "another robot operation is already running" }
         while (messages.tryReceive().isSuccess) Unit
         runCatching {
-            recorder.start("stand")
             recorder.recordEvent("stand_requested")
         }
         runJob = scope.launch {
@@ -138,6 +137,7 @@ class PolicyController(
         var filteredAction = FloatArray(ACTION_COUNT)
         var appliedAction = FloatArray(ACTION_COUNT)
         val actionsBySequence = mutableMapOf(0L to appliedAction.copyOf())
+        val targetsBySequence = mutableMapOf<Long, Map<Int, Float>>()
         var sequence = 0L
         var peakTrackingError = 0f
 
@@ -176,12 +176,16 @@ class PolicyController(
             mutableStatus.value = mutableStatus.value.copy(detail = "Arming guarded firmware transport")
             armAttempted = true
             send(RobotProtocol.arm())
-            var state = awaitPolicyState(expectedSequence = 0, timeoutMs = 2_000)
+            var state = awaitPolicyStateAfterTick(previousTick = -1, timeoutMs = 2_000)
+            require(state.getLong("seq") == 0L && state.getLong("tick") == 0L) {
+                "initial policy feedback must start at sequence 0, tick 0"
+            }
             require(state.optBoolean("feedback_complete", false)) { "initial servo feedback is incomplete" }
-            var nextTickNs = SystemClock.elapsedRealtimeNanos()
+            targetsBySequence[0L] = state.servoAnglesById()
             while (currentCoroutineContext().isActive) {
                 val frameStartedNs = SystemClock.elapsedRealtimeNanos()
                 val inputState = state
+                val inputTick = state.getLong("tick")
                 val sampleMs = state.getLong("sample_ms") and 0xffff_ffffL
                 val dt = previousSampleMs?.let { previous ->
                     val elapsed = (sampleMs - previous) and 0xffff_ffffL
@@ -227,22 +231,35 @@ class PolicyController(
                 val targets = calibration.servoTargets(policyPosition)
 
                 sequence += 1
-                actionsBySequence[sequence] = appliedAction
+                actionsBySequence[sequence] = appliedAction.copyOf()
+                targetsBySequence[sequence] = targets
+                val commandSentNs = SystemClock.elapsedRealtimeNanos()
                 send(RobotProtocol.policyFrame(sequence, targets))
                 previousJointPosition = joints
                 previousSampleMs = sampleMs
-                actionsBySequence.keys.removeAll { it < sequence - 2 }
                 state = coalescePolicyAngles(
-                    next = awaitPolicyState(sequence, FEEDBACK_TIMEOUT_MS),
+                    next = awaitPolicyStateAfterTick(inputTick, FEEDBACK_TIMEOUT_MS),
                     previous = inputState,
                 )
-                val tracking = maximumTrackingError(state, targets)
+                val feedbackReceivedNs = SystemClock.elapsedRealtimeNanos()
+                val feedbackSequence = state.getLong("seq")
+                require(feedbackSequence <= sequence) {
+                    "feedback sequence $feedbackSequence is ahead of command $sequence"
+                }
+                val feedbackTargets = requireNotNull(targetsBySequence[feedbackSequence]) {
+                    "feedback referenced unknown command sequence $feedbackSequence"
+                }
+                val tracking = maximumTrackingError(state, feedbackTargets)
                 peakTrackingError = maxOf(peakTrackingError, tracking.second)
+                actionsBySequence.keys.removeAll { it < feedbackSequence - 2 }
+                targetsBySequence.keys.removeAll { it < feedbackSequence - 2 }
                 runCatching { recorder.recordDerivedFrame(
                     JSONObject()
                         .put("command_sequence", sequence)
                         .put("input_state_sequence", stateSequence)
-                        .put("feedback_state_sequence", state.getLong("seq"))
+                        .put("input_feedback_tick", inputTick)
+                        .put("feedback_state_sequence", feedbackSequence)
+                        .put("feedback_tick", state.getLong("tick"))
                         .put("firmware_sample_ms", sampleMs)
                         .put("dt_s", dt)
                         .put("command_target", commandTarget.jsonArray())
@@ -262,7 +279,7 @@ class PolicyController(
                         .put("worst_tracking_servo_id", tracking.first)
                         .put("inference_ms", inferenceMs)
                         .put("frame_compute_ns", SystemClock.elapsedRealtimeNanos() - frameStartedNs)
-                        .put("scheduled_tick_ns", nextTickNs)
+                        .put("command_to_feedback_ns", feedbackReceivedNs - commandSentNs)
                         .put("input_robot_state", JSONObject(inputState.toString())),
                 ) }
                 mutableStatus.value = PolicyRuntimeStatus(
@@ -271,6 +288,7 @@ class PolicyController(
                     detail = "Continuous policy test running at 100% torque",
                     sequence = sequence,
                     inferenceMilliseconds = inferenceMs,
+                    feedbackHertz = 1.0 / dt,
                     executionProvider = policy.executionProvider,
                     torquePercent = SERVO_TORQUE_LIMIT / 10,
                     gyroBiasDps = sessionGyroBias.copyOf(),
@@ -278,9 +296,6 @@ class PolicyController(
                     peakTrackingErrorDegrees = peakTrackingError,
                     worstTrackingServoId = tracking.first,
                 )
-                nextTickNs += contract.controlFramePeriodNanoseconds
-                val remainingNs = nextTickNs - SystemClock.elapsedRealtimeNanos()
-                if (remainingNs > 0) delay((remainingNs + 999_999L) / 1_000_000L)
             }
             safeDisarm("Policy test ended")
         } catch (timeout: TimeoutCancellationException) {
@@ -440,16 +455,15 @@ class PolicyController(
         error("unreachable")
     }
 
-    private suspend fun awaitPolicyState(expectedSequence: Long, timeoutMs: Long): JSONObject = withTimeout(timeoutMs) {
+    private suspend fun awaitPolicyStateAfterTick(previousTick: Long, timeoutMs: Long): JSONObject = withTimeout(timeoutMs) {
         while (true) {
             val message = messages.receive()
             when (message.optString("type")) {
                 "error" -> error(message.optString("message", "ESP32 error"))
                 "policy_disarmed" -> error(message.optString("reason", "firmware disarmed"))
                 "policy_state" -> {
-                    val sequence = message.optLong("seq", -1)
-                    if (sequence < expectedSequence) continue
-                    require(sequence == expectedSequence) { "feedback sequence $sequence is ahead of $expectedSequence" }
+                    val tick = message.optLong("tick", -1)
+                    if (tick <= previousTick) continue
                     require(message.optBoolean("armed", false)) { "firmware reports policy disarmed" }
                     return@withTimeout message
                 }
@@ -530,6 +544,7 @@ class PolicyController(
             detail = detail,
             sequence = previous.sequence,
             inferenceMilliseconds = previous.inferenceMilliseconds,
+            feedbackHertz = previous.feedbackHertz,
             executionProvider = policy.executionProvider,
             torquePercent = previous.torquePercent,
             gyroBiasDps = previous.gyroBiasDps?.copyOf(),
@@ -549,6 +564,7 @@ class PolicyController(
             detail = detail,
             sequence = previous.sequence,
             inferenceMilliseconds = previous.inferenceMilliseconds,
+            feedbackHertz = previous.feedbackHertz,
             executionProvider = policy.executionProvider,
             torquePercent = SERVO_TORQUE_LIMIT / 10,
         )
@@ -583,6 +599,13 @@ class PolicyController(
         private const val GYRO_ZERO_MAX_ATTEMPTS = 40
         private const val GYRO_ZERO_SAMPLE_INTERVAL_MS = 20L
     }
+}
+
+private fun JSONObject.servoAnglesById(): Map<Int, Float> {
+    val ids = getJSONArray("ids").intArray()
+    val angles = getJSONArray("angles_deg").floatArray()
+    require(ids.size == 12 && angles.size == 12)
+    return ids.indices.associate { ids[it] to angles[it] }
 }
 
 internal fun coalescePolicyAngles(next: JSONObject, previous: JSONObject): JSONObject {

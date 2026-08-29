@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import statistics
 from pathlib import Path
 from typing import Any, Iterable
+import zipfile
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -47,19 +49,18 @@ def _stats(values: Iterable[float], *, include_abs_p95: bool = False) -> dict[st
     return result
 
 
-def _load_records(path: Path) -> list[dict[str, Any]]:
+def _parse_records(lines: Iterable[str]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as stream:
-        for line_number, line in enumerate(stream, start=1):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError(f"line {line_number}: invalid JSON: {error}") from error
-            if not isinstance(record, dict):
-                raise ValueError(f"line {line_number}: record is not an object")
-            records.append(record)
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"line {line_number}: invalid JSON: {error}") from error
+        if not isinstance(record, dict):
+            raise ValueError(f"line {line_number}: record is not an object")
+        records.append(record)
     if not records:
         raise ValueError("run file is empty")
     if records[0].get("type") != "session_start":
@@ -71,6 +72,44 @@ def _load_records(path: Path) -> list[dict[str, Any]]:
         if record.get("session_id") != session_id:
             raise ValueError(f"record {index}: session_id changed")
     return records
+
+
+def _load_records(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as stream:
+        return _parse_records(stream)
+
+
+def _load_training_capture(path: Path) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        if "manifest.json" not in names:
+            raise ValueError("training capture has no manifest.json")
+        for name in names:
+            parts = Path(name.replace("\\", "/")).parts
+            if name.startswith(("/", "\\")) or ".." in parts:
+                raise ValueError(f"unsafe ZIP entry: {name}")
+        manifest = json.loads(archive.read("manifest.json"))
+        if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
+            raise ValueError("unsupported training capture manifest")
+        files = manifest.get("files")
+        if not isinstance(files, list):
+            raise ValueError("training capture file manifest is missing")
+        for item in files:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                raise ValueError("invalid training capture file record")
+            entry = item["path"]
+            if entry not in names:
+                raise ValueError(f"training capture is missing {entry}")
+            payload = archive.read(entry)
+            if len(payload) != item.get("size_bytes"):
+                raise ValueError(f"size mismatch for {entry}")
+            if hashlib.sha256(payload).hexdigest() != item.get("sha256"):
+                raise ValueError(f"SHA-256 mismatch for {entry}")
+        run_entry = manifest.get("run_entry")
+        if not isinstance(run_entry, str) or run_entry not in names:
+            raise ValueError("training capture run_entry is missing")
+        run_text = archive.read(run_entry).decode("utf-8")
+        return f"{path}!/{run_entry}", _parse_records(run_text.splitlines()), manifest
 
 
 def _input_angles(frame: dict[str, Any]) -> dict[str, float]:
@@ -311,7 +350,7 @@ def _idle_servo_report(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _analyze_run(path: Path, records: list[dict[str, Any]], max_lag_frames: int) -> dict[str, Any]:
+def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames: int) -> dict[str, Any]:
     frame_records = [record for record in records if record.get("type") == "derived_policy_frame"]
     frames = [record.get("data", {}) for record in frame_records]
     host_times_ms = [record["host_monotonic_ns"] / 1_000_000.0 for record in frame_records]
@@ -352,6 +391,16 @@ def _analyze_run(path: Path, records: list[dict[str, Any]], max_lag_frames: int)
 
     sequences = [frame.get("command_sequence") for frame in frames]
     integer_sequences = [value for value in sequences if isinstance(value, int)]
+    feedback_ticks = [
+        frame.get("input_feedback_tick", frame.get("input_robot_state", {}).get("tick"))
+        for frame in frames
+    ]
+    integer_feedback_ticks = [value for value in feedback_ticks if isinstance(value, int)]
+    applied_sequences = [
+        frame.get("input_state_sequence", frame.get("input_robot_state", {}).get("seq"))
+        for frame in frames
+    ]
+    integer_applied_sequences = [value for value in applied_sequences if isinstance(value, int)]
     incomplete_feedback = sum(
         state.get("feedback_complete") is False for state in states if isinstance(state, dict)
     )
@@ -368,6 +417,32 @@ def _analyze_run(path: Path, records: list[dict[str, Any]], max_lag_frames: int)
     nonmonotonic_sequences = sum(
         current <= previous for previous, current in zip(integer_sequences, integer_sequences[1:])
     )
+    missing_feedback_ticks = sum(
+        max(0, current - previous - 1)
+        for previous, current in zip(integer_feedback_ticks, integer_feedback_ticks[1:])
+    )
+    nonmonotonic_feedback_ticks = sum(
+        current <= previous
+        for previous, current in zip(integer_feedback_ticks, integer_feedback_ticks[1:])
+    )
+    repeated_applied_sequences = sum(
+        current == previous
+        for previous, current in zip(integer_applied_sequences, integer_applied_sequences[1:])
+    )
+    firmware_interval_p95 = _percentile(sample_intervals_ms, 0.95)
+    transport_gate_reasons: list[str] = []
+    if not sample_intervals_ms:
+        transport_gate_reasons.append("no valid firmware sample intervals")
+    elif not 19.0 <= statistics.median(sample_intervals_ms) <= 21.0:
+        transport_gate_reasons.append("median firmware interval is outside 19-21 ms")
+    if firmware_interval_p95 is None or firmware_interval_p95 > 25.0:
+        transport_gate_reasons.append("p95 firmware interval exceeds 25 ms")
+    if missing_feedback_ticks:
+        transport_gate_reasons.append("firmware feedback ticks are missing")
+    if nonmonotonic_feedback_ticks:
+        transport_gate_reasons.append("firmware feedback ticks are not strictly increasing")
+    if incomplete_feedback:
+        transport_gate_reasons.append("critical servo feedback is incomplete")
     end_data = records[-1].get("data", {})
     return {
         "file": str(path),
@@ -380,6 +455,9 @@ def _analyze_run(path: Path, records: list[dict[str, Any]], max_lag_frames: int)
         "data_quality": {
             "missing_command_sequences": missing_sequences,
             "nonmonotonic_command_sequences": nonmonotonic_sequences,
+            "missing_feedback_ticks": missing_feedback_ticks,
+            "nonmonotonic_feedback_ticks": nonmonotonic_feedback_ticks,
+            "repeated_applied_command_sequences": repeated_applied_sequences,
             "incomplete_feedback_frames": incomplete_feedback,
             "current_complete_frames": current_complete,
             "incomplete_current_frames": incomplete_current,
@@ -411,11 +489,21 @@ def _analyze_run(path: Path, records: list[dict[str, Any]], max_lag_frames: int)
                 for frame in frames
                 if isinstance(frame.get("frame_compute_ns"), (int, float))
             ),
+            "command_to_feedback_ms": _stats(
+                float(frame["command_to_feedback_ns"]) / 1_000_000.0
+                for frame in frames
+                if isinstance(frame.get("command_to_feedback_ns"), (int, float))
+            ),
             "inference_ms": _stats(
                 float(frame["inference_ms"])
                 for frame in frames
                 if isinstance(frame.get("inference_ms"), (int, float))
             ),
+        },
+        "transport_50hz_gate": {
+            "passed": not transport_gate_reasons,
+            "target_period_ms": 20,
+            "reasons": transport_gate_reasons,
         },
         "imu": {
             "pitch_deg": _stats(pitch, include_abs_p95=True),
@@ -432,20 +520,26 @@ def _analyze_run(path: Path, records: list[dict[str, Any]], max_lag_frames: int)
 def fit_path(source: Path, max_lag_frames: int = DEFAULT_MAX_LAG_FRAMES) -> dict[str, Any]:
     if max_lag_frames < 0:
         raise ValueError("max_lag_frames must be nonnegative")
-    if source.is_file():
-        candidates = [source]
+    capture_manifest: dict[str, Any] | None = None
+    preloaded: dict[str, list[dict[str, Any]]] = {}
+    if source.is_file() and source.suffix.lower() == ".zip":
+        label, records, capture_manifest = _load_training_capture(source)
+        candidates = [label]
+        preloaded[label] = records
+    elif source.is_file():
+        candidates = [str(source)]
     elif source.is_dir():
-        candidates = sorted(source.glob("*.jsonl"))
+        candidates = [str(path) for path in sorted(source.glob("*.jsonl"))]
     else:
         raise ValueError(f"source does not exist: {source}")
     if not candidates:
         raise ValueError(f"no JSONL files found in {source}")
 
-    selected: list[tuple[Path, list[dict[str, Any]]]] = []
+    selected: list[tuple[str, list[dict[str, Any]]]] = []
     excluded: list[dict[str, str]] = []
     for path in candidates:
         try:
-            records = _load_records(path)
+            records = preloaded.get(path) or _load_records(Path(path))
         except (OSError, ValueError) as error:
             excluded.append({"file": str(path), "reason": f"invalid: {error}"})
             continue
@@ -462,6 +556,16 @@ def fit_path(source: Path, max_lag_frames: int = DEFAULT_MAX_LAG_FRAMES) -> dict
     return {
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "source": str(source),
+        "training_capture": (
+            {
+                "verified": True,
+                "schema_version": capture_manifest.get("schema_version"),
+                "context": capture_manifest.get("context", {}),
+                "files": capture_manifest.get("files", []),
+            }
+            if capture_manifest is not None
+            else None
+        ),
         "selection": {
             "candidate_file_count": len(candidates),
             "selected_complete_policy_run_count": len(runs),
@@ -475,7 +579,11 @@ def fit_path(source: Path, max_lag_frames: int = DEFAULT_MAX_LAG_FRAMES) -> dict
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="one run JSONL or a directory of run JSONL files")
+    parser.add_argument(
+        "source",
+        type=Path,
+        help="one run JSONL, one Pixel training-capture ZIP, or a directory of run JSONL files",
+    )
     parser.add_argument(
         "--max-lag-frames",
         type=int,
