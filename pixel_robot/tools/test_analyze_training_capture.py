@@ -62,6 +62,11 @@ class AnalyzeTrainingCaptureTest(unittest.TestCase):
             self.assertTrue(Path(result["summary"]).is_file())
             self.assertTrue(Path(result["simulation_fit"]).is_file())
             self.assertEqual(len(result["graphs"]), 4)
+            dashboard = Path(result["dashboard"])
+            self.assertTrue(dashboard.is_file())
+            page = dashboard.read_text(encoding="utf-8")
+            self.assertIn("servo-current-all.svg", page)
+            self.assertIn("servo-2-current.svg", page)
 
     @staticmethod
     def _record(record_type, index, monotonic_ns, data):

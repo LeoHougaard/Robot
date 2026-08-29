@@ -109,8 +109,8 @@ still requires a new operator-run recording whose fit report has
 
 The trimmed 2026-08-29 walking capture
 `robot-run-20260829-195709-660-8aea13e2-trimmed-training-capture.zip`
-(SHA-256 `bd8d95b3da2eacf578f0d97b328c02e8504d7a1224474dbe5a5e4eaf5d0bd212`)
-retains 2,199 policy frames over 50.982 seconds with complete current and
+(SHA-256 `b1389bf17ee37737674b0bb57c477ceb4b517eeb6038bdee88c77536fc799254`)
+retains 2,189 policy frames over 50.727 seconds with complete current and
 critical feedback for all 12 servos. It is valid evidence for current,
 tracking, saturation, and effective-lag fitting. Its measured rate is 43.12 Hz
 (23 ms median firmware interval), so it does not close the separate 50 Hz gate.

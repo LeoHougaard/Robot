@@ -125,8 +125,9 @@ python tools\trim_training_capture.py "<training-capture.zip>" --start-seconds 0
 ```
 
 The graph command writes SVG plots for all-servo current, the selected servo's
-current and position tracking, and control timing. Full recordings and generated
-plots stay under `pixel_robot/run_data/` and remain outside Git.
+current and position tracking, and control timing. The one-command analyzer also
+writes a simple `index.html` page containing all four graphs. Full recordings
+and generated plots stay under `pixel_robot/run_data/` and remain outside Git.
 
 Use `-BuildOnly` to prepare the APKs without a connected Pixel. By default the
 installer refuses wired ADB because that port is needed for the ESP32 during
