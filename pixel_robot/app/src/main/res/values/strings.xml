@@ -10,10 +10,18 @@
     <string name="camera_analysis_status">0.5× ultra-wide • %1$.1f fps • thermal %2$s</string>
     <string name="robot_service_disconnected">Robot service disconnected</string>
     <string name="stand_at_start_pose">STAND</string>
+    <string name="servo_load_title">Servo load sensing</string>
+    <string name="select_servo_id">Select one servo ID</string>
+    <string name="servo_load_waiting">Choose one servo ID</string>
+    <string name="servo_torque_waiting">Torque: Waiting</string>
+    <string name="servo_load_explanation">The ST3215 reports motor load and current, not calibrated contact force. Estimated joint torque uses the 7.4 V model constants. Foot force needs linkage geometry and calibration.</string>
     <string name="forward_request">Forward request: %1$.2f m/s</string>
     <string name="yaw_request">Yaw request: %1$.2f rad/s</string>
     <string name="start_policy">Run trained policy</string>
     <string name="stop_and_hold">STOP + TORQUE OFF</string>
     <string name="reconnect_usb">Reconnect USB</string>
     <string name="no_telemetry">No telemetry</string>
+    <string name="share_last_run">Share last run data</string>
+    <string name="share_run_chooser">Export robot run</string>
+    <string name="no_completed_run">No completed run is available yet</string>
 </resources>

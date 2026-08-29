@@ -204,4 +204,14 @@ class PolicyMathTest {
             1.0e-6f,
         )
     }
+
+    @Test
+    fun calibrated25HzPolicyControlsRuntimeTiming() {
+        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+            .put("control_hz", 25)
+        val contract = PolicyContract.parse(metadata.toString())
+        assertEquals(25, contract.controlHz)
+        assertEquals(0.04f, contract.controlFrameSeconds, 1.0e-6f)
+        assertEquals(40_000_000L, contract.controlFramePeriodNanoseconds)
+    }
 }

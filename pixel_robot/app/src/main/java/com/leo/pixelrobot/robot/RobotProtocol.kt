@@ -9,7 +9,8 @@ object RobotProtocol {
     fun arm(): ByteArray = line(
         JSONObject()
             .put("cmd", "policy_arm")
-            .put("confirm", "CALIBRATED_AND_LIFTED"),
+            .put("confirm", "CALIBRATED_AND_LIFTED")
+            .put("compact_feedback", true),
     )
 
     fun torqueAll(enabled: Boolean): ByteArray = line(
@@ -54,6 +55,11 @@ object RobotProtocol {
             .put("length", length),
     )
 
+    fun servoTelemetry(id: Int): ByteArray {
+        require(id in 1..12) { "robot servo ID must be from 1 through 12" }
+        return line(JSONObject().put("cmd", "servo_telemetry").put("id", id))
+    }
+
     fun policyFrame(sequence: Long, targetsByServoId: Map<Int, Float>): ByteArray {
         require(targetsByServoId.keys == (1..12).toSet()) { "policy frame requires servo IDs 1 through 12" }
         val targets = JSONObject()
@@ -95,8 +101,44 @@ object RobotProtocol {
         }
     }
 
+    fun programClear(): ByteArray = command("program_clear")
+
+    fun programStep(
+        pose: Map<Int, Float>,
+        stepMilliseconds: Int,
+        speed: Int,
+        acceleration: Int,
+    ): ByteArray {
+        require(pose.keys == (1..12).toSet()) { "stand pose requires servo IDs 1 through 12" }
+        require(stepMilliseconds in 20..2_000)
+        require(speed in 1..4_096)
+        require(acceleration in 1..255)
+        val poses = JSONObject()
+        pose.toSortedMap().forEach { (id, value) ->
+            require(value.isFinite() && value in 0f..360f)
+            poses.put(id.toString(), String.format(java.util.Locale.US, "%.4f", value).toDouble())
+        }
+        return line(
+            JSONObject()
+                .put("cmd", "program_step")
+                .put("ms", stepMilliseconds)
+                .put("poses", poses)
+                .put("speed", speed)
+                .put("accel", acceleration),
+        ).also {
+            require(it.size < MAX_PROGRAM_STEP_BYTES) { "stand pose step is too large" }
+        }
+    }
+
+    fun programStart(): ByteArray = line(
+        JSONObject()
+            .put("cmd", "program_start")
+            .put("loop", false),
+    )
+
     private fun line(value: JSONObject): ByteArray = (value.toString() + "\n").toByteArray(Charsets.UTF_8)
 
     private const val MAX_POSE_SEQUENCE_STEPS = 24
     private const val MAX_POSE_SEQUENCE_BYTES = 6_144
+    private const val MAX_PROGRAM_STEP_BYTES = 512
 }

@@ -71,6 +71,49 @@
             android:text="@string/stand_at_start_pose" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/servo_load_title"
+            android:textColor="@color/ink"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/servoIdSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:contentDescription="@string/select_servo_id" />
+
+        <TextView
+            android:id="@+id/servoTorqueValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:text="@string/servo_torque_waiting"
+            android:textColor="@color/ink"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/servoForceStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="@string/servo_load_waiting"
+            android:textColor="@color/ink"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/servo_load_explanation"
+            android:textColor="@color/ink"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/forwardRequestLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -140,5 +183,14 @@
             android:text="@string/no_telemetry"
             android:textColor="@color/ink"
             android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/shareLastRunButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="@string/share_last_run" />
     </LinearLayout>
 </ScrollView>

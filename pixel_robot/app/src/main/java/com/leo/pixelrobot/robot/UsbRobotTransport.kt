@@ -28,7 +28,10 @@ class UsbRobotTransport(
             runCatching { openedPort.dtr = false }
             runCatching { openedPort.rts = false }
             port = openedPort
-            ioManager = SerialInputOutputManager(openedPort, this).also { it.start() }
+            ioManager = SerialInputOutputManager(openedPort, this).also {
+                it.setWriteBufferSize(WRITE_BUFFER_BYTES)
+                it.start()
+            }
         } catch (error: Throwable) {
             connection.close()
             throw error
@@ -55,6 +58,7 @@ class UsbRobotTransport(
     companion object {
         const val ROBOT_VENDOR_ID = 0x10C4
         const val ROBOT_PRODUCT_ID = 0xEA60
-        const val BAUD = 921_600
+        const val BAUD = 2_000_000
+        private const val WRITE_BUFFER_BYTES = 16 * 1024
     }
 }

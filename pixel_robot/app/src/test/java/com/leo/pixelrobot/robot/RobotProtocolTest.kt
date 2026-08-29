@@ -9,6 +9,8 @@ import org.junit.Test
 class RobotProtocolTest {
     @Test
     fun policyPreflightCommandsUseExplicitImuAndFullTorqueRequests() {
+        val arm = JSONObject(RobotProtocol.arm().toString(Charsets.UTF_8))
+        assertTrue(arm.getBoolean("compact_feedback"))
         assertEquals(
             "imu_status",
             JSONObject(RobotProtocol.imuStatus().toString(Charsets.UTF_8)).getString("cmd"),
@@ -20,8 +22,17 @@ class RobotProtocolTest {
     }
 
     @Test
-    fun capturedZeroSequenceFitsInsideTheFirmwareJsonBuffer() {
-        val poses = List(15) { step ->
+    fun servoTelemetryReadsOnlyTheChosenId() {
+        val command = JSONObject(RobotProtocol.servoTelemetry(7).toString(Charsets.UTF_8))
+        assertEquals("servo_telemetry", command.getString("cmd"))
+        assertEquals(7, command.getInt("id"))
+        assertTrue(runCatching { RobotProtocol.servoTelemetry(0) }.isFailure)
+        assertTrue(runCatching { RobotProtocol.servoTelemetry(13) }.isFailure)
+    }
+
+    @Test
+    fun maximumStandSequenceFitsInsideTheFirmwareJsonBuffer() {
+        val poses = List(24) { step ->
             (1..12).associateWith { servoId -> 150f + servoId + step * 0.25f }
         }
         val bytes = RobotProtocol.playPoseSequence(
@@ -32,8 +43,8 @@ class RobotProtocolTest {
         )
         val command = JSONObject(bytes.toString(Charsets.UTF_8))
         assertEquals("play", command.getString("cmd"))
-        assertEquals(15, command.getJSONArray("steps").length())
-        assertEquals(165.5, command.getJSONArray("steps").getJSONObject(14)
+        assertEquals(24, command.getJSONArray("steps").length())
+        assertEquals(167.75, command.getJSONArray("steps").getJSONObject(23)
             .getJSONObject("poses").getDouble("12"), 1.0e-6)
         assertTrue(bytes.size < 6_144)
     }
@@ -45,6 +56,25 @@ class RobotProtocolTest {
             RobotProtocol.playPoseSequence(List(25) { pose }, 200, 180, 30)
         }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun streamedStandStepStaysFarBelowTheSerialReceiveBuffer() {
+        val pose = (1..12).associateWith { servoId -> 150f + servoId * 0.25f }
+        val bytes = RobotProtocol.programStep(pose, 80, 1_200, 30)
+        val command = JSONObject(bytes.toString(Charsets.UTF_8))
+
+        assertEquals("program_step", command.getString("cmd"))
+        assertEquals(153.0, command.getJSONObject("poses").getDouble("12"), 1.0e-6)
+        assertTrue(bytes.size < 512)
+        assertEquals(
+            "program_clear",
+            JSONObject(RobotProtocol.programClear().toString(Charsets.UTF_8)).getString("cmd"),
+        )
+        assertEquals(
+            "program_start",
+            JSONObject(RobotProtocol.programStart().toString(Charsets.UTF_8)).getString("cmd"),
+        )
     }
 
     @Test

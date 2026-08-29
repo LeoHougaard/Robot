@@ -11,9 +11,11 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.os.BatteryManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -53,14 +55,22 @@ class RobotService : Service() {
     private lateinit var usbManager: UsbManager
     private lateinit var policyController: PolicyController
     private lateinit var policyContract: PolicyContract
+    private lateinit var runRecorder: RunSessionRecorder
+    private lateinit var effectiveCalibrationJson: String
+    private lateinit var calibrationSource: String
     private var controlServer: RobotControlServer? = null
     private var transport: UsbRobotTransport? = null
     private var connectedDeviceId: Int? = null
     @Volatile private var openingDeviceId: Int? = null
     private var permissionRequestDeviceId: Int? = null
     private var isForeground = false
+    private var foregroundConnectedDevice = false
+    private var lastForegroundText: String? = null
     private var handshakeJob: Job? = null
     private var retryJob: Job? = null
+    private var sessionMonitorJob: Job? = null
+    private var servoTelemetryJob: Job? = null
+    @Volatile private var selectedServoId: Int? = null
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -87,19 +97,26 @@ class RobotService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startInForeground()
         usbManager = getSystemService(UsbManager::class.java)
+        startInForeground(connectedDevice = false)
         policyContract = PolicyContract.load(assets)
         val profileId = policyContract.profileId
         val calibrationOverrideFile = File(filesDir, "$profileId.calibration.json")
-        val calibrationOverride = calibrationOverrideFile
-            .takeIf(File::isFile)
-            ?.readText(Charsets.UTF_8)
+        val calibrationOverride = calibrationOverrideFile.takeIf(File::isFile)?.readText(Charsets.UTF_8)
+        calibrationSource = if (calibrationOverride != null) "app_override" else "bundled_asset"
+        effectiveCalibrationJson = calibrationOverride
+            ?: assets.open("$profileId.calibration.json").bufferedReader().use { it.readText() }
+        runRecorder = RunSessionRecorder(
+            directory = File(filesDir, "run_sessions"),
+            contextProvider = ::runSessionContext,
+        )
         policyController = PolicyController(
             assets = assets,
             scope = scope,
             calibrationOverrideJson = calibrationOverride,
+            recorder = runRecorder,
             send = { bytes ->
+                runCatching { runRecorder.recordRobotTx(bytes) }
                 transport?.write(bytes) ?: error("ESP32 USB link is not ready")
             },
         )
@@ -112,6 +129,8 @@ class RobotService : Service() {
                 startTest = ::startPolicy,
                 stop = ::emergencyStop,
                 reconnect = ::reconnect,
+                selectServoTelemetry = ::selectServoTelemetry,
+                latestSession = runRecorder::latestCompletedFile,
             ).also(RobotControlServer::start)
         }.onFailure { Log.e(TAG, "Could not start loopback control bridge", it) }.getOrNull()
         val receiverFilter = IntentFilter().apply {
@@ -120,6 +139,7 @@ class RobotService : Service() {
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
         ContextCompat.registerReceiver(this, usbReceiver, receiverFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        startServoTelemetryMonitor()
         discoverRobot()
     }
 
@@ -181,6 +201,8 @@ class RobotService : Service() {
     val forwardMaximum: Float get() = policyContract.forwardMaximum
     val yawMinimum: Float get() = policyContract.yawMinimum
     val yawMaximum: Float get() = policyContract.yawMaximum
+    fun recordingStatus(): RunRecordingStatus = runRecorder.status()
+    fun latestRunFile(): File? = runRecorder.latestCompletedFile()
 
     fun updateMotionRequest(forward: Float, yawRate: Float) {
         policyController.updateRequest(forward, yawRate)
@@ -189,16 +211,114 @@ class RobotService : Service() {
     fun startPolicy() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
         policyController.startPolicy()
+        startSessionMonitor()
     }
 
     fun standAtCapturedPose() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
         policyController.standAtCapturedPose()
+        startSessionMonitor()
+    }
+
+    fun selectServoTelemetry(id: Int?) {
+        require(id == null || id in 1..12) { "servo ID must be from 1 through 12" }
+        selectedServoId = id
+        val current = mutableStatus.value
+        mutableStatus.value = current.copy(
+            selectedServoId = id,
+            servoTelemetry = id?.let(current.servoTelemetryById::get),
+        )
+    }
+
+    private fun startServoTelemetryMonitor() {
+        if (servoTelemetryJob?.isActive == true) return
+        servoTelemetryJob = scope.launch {
+            while (isActive) {
+                val id = selectedServoId
+                val robot = mutableStatus.value
+                val policy = policyController.status.value
+                if (
+                    id != null &&
+                    robot.linkState == LinkState.READY &&
+                    FirmwareCapabilities.supportsPolicyServoTelemetry(robot.firmwareVersion) &&
+                    policy.holdingPose &&
+                    !policy.active
+                ) {
+                    runCatching { transport?.write(RobotProtocol.servoTelemetry(id)) }
+                }
+                delay(SERVO_TELEMETRY_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun startSessionMonitor() {
+        if (sessionMonitorJob?.isActive == true) return
+        sessionMonitorJob = scope.launch {
+            while (isActive && runRecorder.status().active) {
+                runCatching { runRecorder.recordEvent("android_system_sample", androidSystemSnapshot()) }
+                delay(1_000)
+            }
+        }
+    }
+
+    private fun androidSystemSnapshot(): JSONObject {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val runtime = Runtime.getRuntime()
+        val robot = mutableStatus.value
+        val servoBattery = ServoBatterySafety.evaluate(
+            robot.servoBatteryVoltage,
+            robot.servoBatteryLive,
+        )
+        return JSONObject()
+            .put(
+                "thermal_status",
+                getSystemService(PowerManager::class.java).currentThermalStatus,
+            )
+            .put("battery_percent", battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1)
+            .put("battery_scale", battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1)
+            .put("battery_voltage_mv", battery?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1) ?: -1)
+            .put(
+                "battery_temperature_tenths_c",
+                battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1,
+            )
+            .put("battery_plugged", battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0)
+            .put("runtime_heap_used_bytes", runtime.totalMemory() - runtime.freeMemory())
+            .put("runtime_heap_max_bytes", runtime.maxMemory())
+            .put("storage_free_bytes", filesDir.freeSpace)
+            .put("storage_total_bytes", filesDir.totalSpace)
+            .put("servo_battery_voltage", servoBattery.voltage ?: JSONObject.NULL)
+            .put("servo_battery_live", servoBattery.live)
+            .put("servo_battery_level", servoBattery.level.name.lowercase())
     }
 
     private fun controlStatus(): JSONObject {
         val robot = mutableStatus.value
         val policy = policyController.status.value
+        val recording = runRecorder.status()
+        val servoBattery = ServoBatterySafety.evaluate(
+            robot.servoBatteryVoltage,
+            robot.servoBatteryLive,
+        )
+        val telemetry = robot.selectedServoId?.let(robot.servoTelemetryById::get)
+        val telemetryLive = telemetry != null &&
+            robot.linkState == LinkState.READY &&
+            SystemClock.elapsedRealtime() - telemetry.receivedAtMs <= SERVO_TELEMETRY_LIVE_MS
+        val telemetryMessage = when {
+            robot.selectedServoId == null -> "Choose one servo ID"
+            robot.linkState != LinkState.READY -> "Connect the ESP32 to read servo load"
+            !FirmwareCapabilities.supportsPolicyServoTelemetry(robot.firmwareVersion) ->
+                "Update ESP32 firmware ${robot.firmwareVersion ?: "unknown"} to 0.1.12"
+            telemetryLive && policy.active -> "Live current on every policy frame for all 12 servos"
+            telemetryLive -> "Live servo load"
+            policy.active -> "Waiting for the next policy sample for servo ${robot.selectedServoId}"
+            !policy.holdingPose -> "Stand or run the policy to read servo load"
+            else -> "Waiting for servo ${robot.selectedServoId}"
+        }
+        val allTelemetry = JSONObject().also { json ->
+            robot.servoTelemetryById.toSortedMap().forEach { (id, sample) ->
+                json.put(id.toString(), sample.toJson())
+            }
+        }
         return JSONObject()
             .put("link_state", robot.linkState.name.lowercase())
             .put("robot_detail", robot.detail)
@@ -206,7 +326,16 @@ class RobotService : Service() {
             .put("policy_armed", robot.policyArmed)
             .put("feedback_complete", robot.feedbackComplete)
             .put("servo_battery_voltage", robot.servoBatteryVoltage ?: JSONObject.NULL)
-            .put("servo_battery_live", robot.servoBatteryVoltage != null && !policy.active)
+            .put("servo_battery_live", robot.servoBatteryLive)
+            .put("servo_battery_level", servoBattery.level.name.lowercase())
+            .put("servo_battery_message", servoBattery.message())
+            .put("servo_battery_warning_voltage", ServoBatterySafety.WARNING_VOLTAGE)
+            .put("servo_battery_critical_voltage", ServoBatterySafety.CRITICAL_VOLTAGE)
+            .put("servo_telemetry_selected_id", robot.selectedServoId ?: JSONObject.NULL)
+            .put("servo_telemetry_live", telemetryLive)
+            .put("servo_telemetry_message", telemetryMessage)
+            .put("servo_telemetry", telemetry?.toJson() ?: JSONObject.NULL)
+            .put("servo_telemetry_all", allTelemetry)
             .put("policy_active", policy.active)
             .put("policy_commanding", policy.commanding)
             .put("holding_pose", policy.holdingPose)
@@ -226,6 +355,65 @@ class RobotService : Service() {
             .put("forward_max", policyContract.forwardMaximum)
             .put("yaw_min", policyContract.yawMinimum)
             .put("yaw_max", policyContract.yawMaximum)
+            .put("recording_active", recording.active)
+            .put("recording_file", recording.activeFileName ?: JSONObject.NULL)
+            .put("recording_records", recording.recordCount)
+            .put("recording_bytes", recording.bytesWritten)
+            .put("recording_error", recording.error ?: JSONObject.NULL)
+            .put("latest_session_file", recording.latestFileName ?: JSONObject.NULL)
+            .put("latest_session_available", runRecorder.latestCompletedFile() != null)
+    }
+
+    private fun runSessionContext(): JSONObject {
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val robot = mutableStatus.value
+        val servoBattery = ServoBatterySafety.evaluate(
+            robot.servoBatteryVoltage,
+            robot.servoBatteryLive,
+        )
+        return JSONObject()
+            .put(
+                "app",
+                JSONObject()
+                    .put("package", packageName)
+                    .put("version_name", packageInfo.versionName)
+                    .put("version_code", packageInfo.longVersionCode),
+            )
+            .put(
+                "android_device",
+                JSONObject()
+                    .put("manufacturer", Build.MANUFACTURER)
+                    .put("model", Build.MODEL)
+                    .put("device", Build.DEVICE)
+                    .put("android_release", Build.VERSION.RELEASE)
+                    .put("sdk", Build.VERSION.SDK_INT),
+            )
+            .put(
+                "robot_link",
+                JSONObject()
+                    .put("firmware_version", robot.firmwareVersion ?: JSONObject.NULL)
+                    .put("usb_device", robot.deviceName ?: JSONObject.NULL)
+                    .put("servo_battery_voltage", robot.servoBatteryVoltage ?: JSONObject.NULL)
+                    .put("servo_battery_level", servoBattery.level.name.lowercase()),
+            )
+            .put(
+                "servo_battery_safety",
+                JSONObject()
+                    .put("cell_count", 2)
+                    .put("warning_voltage", ServoBatterySafety.WARNING_VOLTAGE)
+                    .put("critical_voltage", ServoBatterySafety.CRITICAL_VOLTAGE)
+                    .put("warning_only", true),
+            )
+            .put(
+                "policy_metadata",
+                JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
+            )
+            .put(
+                "policy_android_manifest",
+                JSONObject(assets.open("policy_android_manifest.json").bufferedReader().use { it.readText() }),
+            )
+            .put("calibration_source", calibrationSource)
+            .put("calibration", JSONObject(effectiveCalibrationJson))
     }
 
     private fun open(device: UsbDevice) {
@@ -238,7 +426,7 @@ class RobotService : Service() {
             try {
                 val opened = UsbRobotTransport(usbManager, device, ::onUsbBytes, ::onUsbFailure)
                 opened.open()
-                startInForeground()
+                startInForeground(connectedDevice = true)
                 transport = opened
                 connectedDeviceId = device.deviceId
                 decoder.reset()
@@ -285,11 +473,13 @@ class RobotService : Service() {
 
     private fun onMessage(message: JSONObject) {
         policyController.onRobotMessage(message)
+        runCatching { runRecorder.recordRobotRx(message) }
         val type = message.optString("type")
         val now = SystemClock.elapsedRealtime()
         when (type) {
             "hello" -> {
                 val armed = message.optBoolean("policyArmed", false)
+                val voltage = message.servoBatteryVoltage()
                 if (armed) runCatching { transport?.write(RobotProtocol.command("policy_disarm")) }
                 handshakeJob?.cancel()
                 policyController.onLinkReady()
@@ -299,23 +489,63 @@ class RobotService : Service() {
                     deviceName = mutableStatus.value.deviceName,
                     firmwareVersion = message.optString("version").ifBlank { null },
                     policyArmed = false,
-                    servoBatteryVoltage = message.servoBatteryVoltage(),
+                    servoBatteryVoltage = voltage,
+                    servoBatteryLive = message.servoBatteryIsLive(voltage),
+                    selectedServoId = selectedServoId,
                     lastMessageAtMs = now,
                 )
             }
 
-            "state" -> mutableStatus.value = mutableStatus.value.copy(
-                servoBatteryVoltage = message.servoBatteryVoltage(),
-                lastMessageAtMs = now,
-            )
+            "state" -> {
+                val voltage = message.servoBatteryVoltage()
+                mutableStatus.value = mutableStatus.value.copy(
+                    servoBatteryVoltage = voltage,
+                    servoBatteryLive = message.servoBatteryIsLive(voltage),
+                    lastMessageAtMs = now,
+                )
+            }
 
-            "policy_state" -> mutableStatus.value = mutableStatus.value.copy(
-                detail = "Policy telemetry active",
-                policyArmed = message.optBoolean("armed", false),
-                lastSequence = message.optLong("seq"),
-                feedbackComplete = message.optBoolean("feedback_complete", false),
-                lastMessageAtMs = now,
-            )
+            "policy_state" -> {
+                val voltage = message.servoBatteryVoltage()
+                val current = mutableStatus.value
+                val policyTelemetry = runCatching {
+                    ServoTelemetry.fromPolicyState(message, now)
+                }.getOrDefault(emptyMap())
+                val telemetryById = if (policyTelemetry.isEmpty()) {
+                    current.servoTelemetryById
+                } else {
+                    current.servoTelemetryById + policyTelemetry
+                }
+                val selectedTelemetry = selectedServoId?.let(telemetryById::get)
+                mutableStatus.value = current.copy(
+                    detail = "Policy telemetry active",
+                    policyArmed = message.optBoolean("armed", false),
+                    lastSequence = message.optLong("seq"),
+                    feedbackComplete = message.optBoolean("feedback_complete", false),
+                    servoBatteryVoltage = selectedTelemetry?.voltage ?: voltage ?: current.servoBatteryVoltage,
+                    servoBatteryLive = message.servoBatteryIsLive(voltage),
+                    selectedServoId = selectedServoId,
+                    servoTelemetry = selectedTelemetry,
+                    servoTelemetryById = telemetryById,
+                    lastMessageAtMs = now,
+                )
+            }
+
+            "servo_telemetry" -> {
+                val telemetry = runCatching { ServoTelemetry.fromJson(message, now) }.getOrNull()
+                if (telemetry != null) {
+                    val current = mutableStatus.value
+                    val telemetryById = current.servoTelemetryById + (telemetry.id to telemetry)
+                    mutableStatus.value = current.copy(
+                        servoBatteryVoltage = telemetry.voltage,
+                        servoBatteryLive = true,
+                        selectedServoId = selectedServoId,
+                        servoTelemetry = selectedServoId?.let(telemetryById::get),
+                        servoTelemetryById = telemetryById,
+                        lastMessageAtMs = now,
+                    )
+                }
+            }
 
             "policy_disarmed" -> mutableStatus.value = mutableStatus.value.copy(
                 detail = "Policy disarmed: ${message.optString("reason", "unknown reason")}",
@@ -330,6 +560,7 @@ class RobotService : Service() {
 
             else -> mutableStatus.value = mutableStatus.value.copy(lastMessageAtMs = now)
         }
+        refreshForegroundNotification()
     }
 
     private fun onUsbFailure(error: Throwable) {
@@ -341,6 +572,9 @@ class RobotService : Service() {
         optDouble("servoBatteryVoltage", Double.NaN)
             .takeIf(Double::isFinite)
             ?.toFloat()
+
+    private fun JSONObject.servoBatteryIsLive(voltage: Float?): Boolean =
+        if (has("servoBatteryLive")) optBoolean("servoBatteryLive", false) else voltage != null
 
     private fun findRobotDevice(): UsbDevice? {
         val devices = usbManager.deviceList.values
@@ -371,14 +605,17 @@ class RobotService : Service() {
         transport = null
         connectedDeviceId = null
         decoder.reset()
-        if (isForeground) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            isForeground = false
-        }
+        if (isForeground && foregroundConnectedDevice) startInForeground(connectedDevice = false)
     }
 
     private fun setStatus(state: LinkState, detail: String, deviceName: String? = mutableStatus.value.deviceName) {
-        mutableStatus.value = RobotStatus(linkState = state, detail = detail, deviceName = deviceName)
+        mutableStatus.value = RobotStatus(
+            linkState = state,
+            detail = detail,
+            deviceName = deviceName,
+            selectedServoId = selectedServoId,
+        )
+        refreshForegroundNotification()
     }
 
     private fun createNotificationChannel() {
@@ -388,31 +625,13 @@ class RobotService : Service() {
         )
     }
 
-    private fun startInForeground() {
-        if (isForeground) return
-        val activityIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_robot_notification)
-            .setContentTitle("Pixel Robot")
-            .setContentText("Watching the ESP32 safety link")
-            .setContentIntent(activityIntent)
-            .addAction(
-                0,
-                "STOP + TORQUE OFF",
-                PendingIntent.getService(
-                    this,
-                    1,
-                    Intent(this, RobotService::class.java).setAction(ACTION_STOP),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                ),
-            )
-            .setOngoing(true)
-            .build()
+    private fun startInForeground(connectedDevice: Boolean) {
+        if (isForeground && foregroundConnectedDevice == connectedDevice) {
+            refreshForegroundNotification()
+            return
+        }
+        val contentText = foregroundText(connectedDevice)
+        val notification = buildForegroundNotification(contentText)
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
@@ -420,13 +639,71 @@ class RobotService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
         isForeground = true
+        foregroundConnectedDevice = connectedDevice
+        lastForegroundText = contentText
     }
+
+    private fun foregroundText(connectedDevice: Boolean = foregroundConnectedDevice): String {
+        val robot = mutableStatus.value
+        val battery = ServoBatterySafety.evaluate(robot.servoBatteryVoltage, robot.servoBatteryLive)
+        return if (battery.isLow) {
+            battery.message()
+        } else if (connectedDevice) {
+            "Watching the ESP32 safety link"
+        } else {
+            "Waiting for ESP32 USB"
+        }
+    }
+
+    private fun refreshForegroundNotification() {
+        if (!isForeground) return
+        val contentText = foregroundText()
+        if (contentText == lastForegroundText) return
+        getSystemService(NotificationManager::class.java).notify(
+            NOTIFICATION_ID,
+            buildForegroundNotification(contentText),
+        )
+        lastForegroundText = contentText
+    }
+
+    private fun buildForegroundNotification(contentText: String) =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_robot_notification)
+            .setContentTitle("Pixel Robot")
+            .setContentText(contentText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
+            .setContentIntent(activityPendingIntent())
+            .addAction(0, "STOP + TORQUE OFF", stopPendingIntent())
+            .setOngoing(true)
+            .build()
+
+    private fun activityPendingIntent(): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    private fun stopPendingIntent(): PendingIntent =
+        PendingIntent.getService(
+            this,
+            1,
+            Intent(this, RobotService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     override fun onDestroy() {
         controlServer?.close()
         controlServer = null
         policyController.close()
+        runRecorder.close()
         closeTransport()
+        if (isForeground) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            isForeground = false
+            foregroundConnectedDevice = false
+        }
         unregisterReceiver(usbReceiver)
         scope.cancel()
         super.onDestroy()
@@ -451,6 +728,8 @@ class RobotService : Service() {
         private const val NOTIFICATION_ID = 10
         private const val HANDSHAKE_TIMEOUT_MS = 5_000L
         private const val RETRY_MS = 1_000L
+        private const val SERVO_TELEMETRY_INTERVAL_MS = 250L
+        private const val SERVO_TELEMETRY_LIVE_MS = 1_000L
     }
 }
 

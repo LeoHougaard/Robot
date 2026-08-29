@@ -84,6 +84,10 @@ action dimensions must never be mixed.
 It therefore prevents a permanently lifted leg from hiding inside averaged
 gait terms without introducing a simulation-only deployment dependency.
 
+Servo-current sensing is being validated as a separate, versioned policy
+family. It does not change the 180-value V2 contract. See
+[`TRAINING-CURRENT-OBSERVATION.md`](TRAINING-CURRENT-OBSERVATION.md).
+
 ## Stages
 
 ### 1. Core

@@ -29,6 +29,7 @@ training/assets/onshape/
 autoresearch/runs/
 autoresearch/escalations/
 autoresearch/review/
+pixel_robot/run_data/
 
 # Generated rollout evidence
 autoresearch/*cycle*/

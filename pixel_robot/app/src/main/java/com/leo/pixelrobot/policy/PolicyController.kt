@@ -3,6 +3,7 @@ package com.leo.pixelrobot.policy
 import android.content.res.AssetManager
 import android.os.SystemClock
 import com.leo.pixelrobot.robot.RobotProtocol
+import com.leo.pixelrobot.robot.RunSessionRecorder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -43,6 +44,7 @@ class PolicyController(
     assets: AssetManager,
     private val scope: CoroutineScope,
     calibrationOverrideJson: String? = null,
+    private val recorder: RunSessionRecorder,
     private val send: (ByteArray) -> Unit,
 ) : Closeable {
     private val contract = PolicyContract.load(assets)
@@ -64,6 +66,10 @@ class PolicyController(
     fun updateRequest(forward: Float, yawRate: Float) {
         contract.requireRequest(forward, 0f, yawRate)
         request.set(MotionRequest(forward, yawRate))
+        runCatching { recorder.recordEvent(
+            "motion_request",
+            JSONObject().put("forward_m_s", forward).put("yaw_rate_rad_s", yawRate),
+        ) }
     }
 
     fun onRobotMessage(message: JSONObject) {
@@ -84,12 +90,26 @@ class PolicyController(
     fun startPolicy() {
         check(runJob?.isActive != true) { "policy is already running" }
         while (messages.tryReceive().isSuccess) Unit
+        runCatching {
+            recorder.start("policy")
+            val initialRequest = request.get()
+            recorder.recordEvent(
+                "policy_start_requested",
+                JSONObject()
+                    .put("forward_m_s", initialRequest.forward)
+                    .put("yaw_rate_rad_s", initialRequest.yawRate),
+            )
+        }
         runJob = scope.launch { run() }
     }
 
     fun standAtCapturedPose() {
         check(runJob?.isActive != true) { "another robot operation is already running" }
         while (messages.tryReceive().isSuccess) Unit
+        runCatching {
+            recorder.start("stand")
+            recorder.recordEvent("stand_requested")
+        }
         runJob = scope.launch {
             try {
                 withTimeout(STAND_OPERATION_TIMEOUT_MS) { moveToCapturedPose() }
@@ -137,7 +157,15 @@ class PolicyController(
             } else {
                 readAnglesWithVerifiedTorqueOff(sampleCount = 2)
             }
+            recorder.recordEvent(
+                "policy_preflight_positions",
+                JSONObject().put("servo_angles_deg", preflightAngles.jsonObject()),
+            )
             val sessionGyroBias = measureStationaryGyroBiasDps()
+            recorder.recordEvent(
+                "session_gyro_bias",
+                JSONObject().put("gyro_bias_sensor_dps", sessionGyroBias.jsonArray()),
+            )
             mutableStatus.value = mutableStatus.value.copy(
                 detail = "Setting policy torque to 100%",
                 torquePercent = SERVO_TORQUE_LIMIT / 10,
@@ -149,13 +177,16 @@ class PolicyController(
             armAttempted = true
             send(RobotProtocol.arm())
             var state = awaitPolicyState(expectedSequence = 0, timeoutMs = 2_000)
+            require(state.optBoolean("feedback_complete", false)) { "initial servo feedback is incomplete" }
             var nextTickNs = SystemClock.elapsedRealtimeNanos()
             while (currentCoroutineContext().isActive) {
+                val frameStartedNs = SystemClock.elapsedRealtimeNanos()
+                val inputState = state
                 val sampleMs = state.getLong("sample_ms") and 0xffff_ffffL
                 val dt = previousSampleMs?.let { previous ->
                     val elapsed = (sampleMs - previous) and 0xffff_ffffL
-                    if (elapsed in 5..100) elapsed / 1000f else FRAME_DT
-                } ?: FRAME_DT
+                    if (elapsed in 5..100) elapsed / 1000f else contract.controlFrameSeconds
+                } ?: contract.controlFrameSeconds
                 val vectors = stateVectors(state, gravity, dt, sessionGyroBias)
                 val joints = vectors.second
                 val jointVelocity = previousJointPosition?.let { previous ->
@@ -164,12 +195,15 @@ class PolicyController(
 
                 val target = request.get()
                 val commandTarget = floatArrayOf(target.forward, 0f, target.yawRate)
-                val alpha = (FRAME_DT / contract.commandSmoothingSeconds).coerceAtMost(1f)
+                val alpha = (
+                    contract.controlFrameSeconds / contract.commandSmoothingSeconds
+                ).coerceAtMost(1f)
                 command = FloatArray(3) { command[it] + alpha * (commandTarget[it] - command[it]) }
                 val stateSequence = state.getLong("seq")
+                val previousActionForObservation = requireNotNull(actionsBySequence[stateSequence]).copyOf()
                 val frame = vectors.first + command + joints +
                     FloatArray(ACTION_COUNT) { 0.05f * jointVelocity[it] } +
-                    requireNotNull(actionsBySequence[stateSequence]) { "missing action for feedback sequence $stateSequence" }
+                    previousActionForObservation
                 if (history == null) history = Array(HISTORY_COUNT) { frame.copyOf() }
                 else {
                     for (index in 0 until HISTORY_COUNT - 1) history[index] = history[index + 1]
@@ -198,9 +232,39 @@ class PolicyController(
                 previousJointPosition = joints
                 previousSampleMs = sampleMs
                 actionsBySequence.keys.removeAll { it < sequence - 2 }
-                state = awaitPolicyState(sequence, FEEDBACK_TIMEOUT_MS)
+                state = coalescePolicyAngles(
+                    next = awaitPolicyState(sequence, FEEDBACK_TIMEOUT_MS),
+                    previous = inputState,
+                )
                 val tracking = maximumTrackingError(state, targets)
                 peakTrackingError = maxOf(peakTrackingError, tracking.second)
+                runCatching { recorder.recordDerivedFrame(
+                    JSONObject()
+                        .put("command_sequence", sequence)
+                        .put("input_state_sequence", stateSequence)
+                        .put("feedback_state_sequence", state.getLong("seq"))
+                        .put("firmware_sample_ms", sampleMs)
+                        .put("dt_s", dt)
+                        .put("command_target", commandTarget.jsonArray())
+                        .put("command_applied", command.jsonArray())
+                        .put("gyro_body_rad_s", vectors.first.copyOfRange(0, 3).jsonArray())
+                        .put("projected_gravity_body", vectors.first.copyOfRange(3, 6).jsonArray())
+                        .put("joint_position_rad", joints.jsonArray())
+                        .put("joint_velocity_rad_s", jointVelocity.jsonArray())
+                        .put("previous_applied_action", previousActionForObservation.jsonArray())
+                        .put("observation", observation.jsonArray())
+                        .put("requested_action", requestedAction.jsonArray())
+                        .put("filtered_action", filteredAction.jsonArray())
+                        .put("applied_action", appliedAction.jsonArray())
+                        .put("policy_target_position_rad", policyPosition.jsonArray())
+                        .put("servo_target_deg", targets.jsonObject())
+                        .put("tracking_error_deg", tracking.second)
+                        .put("worst_tracking_servo_id", tracking.first)
+                        .put("inference_ms", inferenceMs)
+                        .put("frame_compute_ns", SystemClock.elapsedRealtimeNanos() - frameStartedNs)
+                        .put("scheduled_tick_ns", nextTickNs)
+                        .put("input_robot_state", JSONObject(inputState.toString())),
+                ) }
                 mutableStatus.value = PolicyRuntimeStatus(
                     active = true,
                     commanding = true,
@@ -214,7 +278,7 @@ class PolicyController(
                     peakTrackingErrorDegrees = peakTrackingError,
                     worstTrackingServoId = tracking.first,
                 )
-                nextTickNs += FRAME_PERIOD_NS
+                nextTickNs += contract.controlFramePeriodNanoseconds
                 val remainingNs = nextTickNs - SystemClock.elapsedRealtimeNanos()
                 if (remainingNs > 0) delay((remainingNs + 999_999L) / 1_000_000L)
             }
@@ -230,10 +294,10 @@ class PolicyController(
         } catch (error: Throwable) {
             if (startedFromHeldPose && !armAttempted) {
                 keepHoldingAfterFailedStart(
-                    "Policy not started: ${error.message}; stand torque remains on",
+                    "Policy not started: ${error.detail()}; stand torque remains on",
                 )
             } else {
-                safeDisarm("Policy stopped: ${error.message}")
+                safeDisarm("Policy stopped: ${error.detail()}")
             }
         } finally {
             runJob = null
@@ -249,32 +313,45 @@ class PolicyController(
         try {
             val measured = readStableAngles(sampleCount = 1)
             val target = calibration.servoTargets(FloatArray(ACTION_COUNT))
-            val maximumDelta = calibration.servoIds.maxOf { servoId ->
-                kotlin.math.abs(requireNotNull(target[servoId]) - requireNotNull(measured[servoId]))
-            }
-            val stepCount = maxOf(1, kotlin.math.ceil(maximumDelta / STAND_STEP_DEG).toInt())
-                .coerceAtMost(MAX_STAND_STEPS)
-            val poses = (1..stepCount).map { stepIndex ->
-                val fraction = stepIndex.toFloat() / stepCount
-                calibration.servoIds.associate { servoId ->
-                    val start = requireNotNull(measured[servoId])
-                    val interpolated = start + (requireNotNull(target[servoId]) - start) * fraction
-                    servoId to interpolated
-                }
-            }
+            val trajectory = StandTrajectory.create(
+                startByServoId = measured,
+                targetByServoId = target,
+                servoIds = calibration.servoIds.toList(),
+                nominalStepDegrees = STAND_NOMINAL_STEP_DEG,
+                maximumStepDegrees = STAND_MAXIMUM_STEP_DEG,
+                minimumSteps = MIN_STAND_STEPS,
+                maximumSteps = MAX_STAND_STEPS,
+            )
+            val poses = trajectory.poses
+            recorder.recordEvent(
+                "stand_trajectory",
+                JSONObject()
+                    .put("measured_start_deg", measured.jsonObject())
+                    .put("target_deg", target.jsonObject())
+                    .put("fractions", trajectory.fractions.jsonArray())
+                    .put("step_count", poses.size)
+                    .put("step_ms", STAND_STEP_MS)
+                    .put("maximum_delta_deg", trajectory.maximumDeltaDegrees)
+                    .put("maximum_step_deg", trajectory.maximumStepDegrees),
+            )
 
             send(RobotProtocol.torqueLimitAll(SERVO_TORQUE_LIMIT))
             awaitMessage("ok", 2_000) { it.optString("cmd") == "servo_torque_limit" }
             send(RobotProtocol.torqueAll(true))
             awaitMessage("ok", 3_000) { it.optString("cmd") == "servo_torque" }
-            val command = RobotProtocol.playPoseSequence(
-                poses,
+            // Upload small acknowledged records, then start them atomically.
+            // A damaged or missing record cannot start partial motion.
+            StandProgramUploader.uploadAndStart(
+                poses = poses,
                 stepMilliseconds = STAND_STEP_MS,
                 speed = STAND_SPEED,
                 acceleration = STAND_ACCELERATION,
-            )
-            send(command)
-            awaitMessage("ok", 3_000) { it.optString("cmd") == "play" }
+            ) { command, expectedAcknowledgement ->
+                send(command)
+                awaitMessage("ok", 3_000) {
+                    it.optString("cmd") == expectedAcknowledgement
+                }
+            }
             mutableStatus.value = mutableStatus.value.copy(
                 detail = "Standing up",
                 torquePercent = SERVO_TORQUE_LIMIT / 10,
@@ -286,10 +363,11 @@ class PolicyController(
                 detail = "Standing; ready to run the trained policy",
                 executionProvider = policy.executionProvider,
             )
+            recorder.recordEvent("stand_complete")
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            safeDisarm("Stand failed: ${error.message}")
+            safeDisarm("Stand failed: ${error.detail()}")
         }
     }
 
@@ -373,7 +451,6 @@ class PolicyController(
                     if (sequence < expectedSequence) continue
                     require(sequence == expectedSequence) { "feedback sequence $sequence is ahead of $expectedSequence" }
                     require(message.optBoolean("armed", false)) { "firmware reports policy disarmed" }
-                    require(message.optBoolean("feedback_complete", false)) { "servo feedback is incomplete" }
                     return@withTimeout message
                 }
             }
@@ -386,12 +463,19 @@ class PolicyController(
             detail = "Sampling the ESP32 gyro",
         )
         val gyroSamples = ArrayList<FloatArray>(GYRO_ZERO_SAMPLE_COUNT)
-        repeat(GYRO_ZERO_SAMPLE_COUNT) { sampleIndex ->
+        var attempts = 0
+        while (gyroSamples.size < GYRO_ZERO_SAMPLE_COUNT && attempts < GYRO_ZERO_MAX_ATTEMPTS) {
+            attempts += 1
             send(RobotProtocol.imuStatus())
             val sample = awaitMessage("imu", 2_000)
-            require(sample.optBoolean("available", false)) { "ESP32 IMU is unavailable" }
-            gyroSamples += sample.getJSONObject("gyro").vector3()
-            if (sampleIndex + 1 < GYRO_ZERO_SAMPLE_COUNT) delay(GYRO_ZERO_SAMPLE_INTERVAL_MS)
+            if (sample.optBoolean("available", false)) {
+                val vector = runCatching { sample.optJSONObject("gyro")?.vector3() }.getOrNull()
+                if (vector != null) gyroSamples += vector
+            }
+            if (gyroSamples.size < GYRO_ZERO_SAMPLE_COUNT) delay(GYRO_ZERO_SAMPLE_INTERVAL_MS)
+        }
+        require(gyroSamples.size == GYRO_ZERO_SAMPLE_COUNT) {
+            "ESP32 gyro did not return $GYRO_ZERO_SAMPLE_COUNT valid samples"
         }
         return FloatArray(3) { axis -> gyroSamples.map { it[axis] }.average().toFloat() }
     }
@@ -435,6 +519,7 @@ class PolicyController(
     }
 
     private fun safeDisarm(detail: String) {
+        runCatching { recorder.recordEvent("disarm_requested", JSONObject().put("detail", detail)) }
         runCatching { send(RobotProtocol.command("stop")) }
         runCatching { send(RobotProtocol.command("policy_disarm")) }
         runCatching { send(RobotProtocol.torqueAll(false)) }
@@ -452,6 +537,7 @@ class PolicyController(
             peakTrackingErrorDegrees = previous.peakTrackingErrorDegrees,
             worstTrackingServoId = previous.worstTrackingServoId,
         )
+        runCatching { recorder.finish("stopped", detail) }
     }
 
     private fun keepHoldingAfterFailedStart(detail: String) {
@@ -466,6 +552,9 @@ class PolicyController(
             executionProvider = policy.executionProvider,
             torquePercent = SERVO_TORQUE_LIMIT / 10,
         )
+        runCatching {
+            recorder.recordEvent("policy_start_failed_while_holding", JSONObject().put("detail", detail))
+        }
     }
 
     override fun close() {
@@ -476,23 +565,40 @@ class PolicyController(
     companion object {
         private const val ACTION_COUNT = 12
         private const val HISTORY_COUNT = 4
-        private const val FRAME_DT = 0.02f
-        private const val FRAME_PERIOD_NS = 20_000_000L
         private const val FEEDBACK_TIMEOUT_MS = 80L
         private const val SERVO_TORQUE_LIMIT = 1000
         private const val TORQUE_ENABLE_ADDRESS = 0x28
         private const val CAPTURE_SAMPLE_INTERVAL_MS = 40L
         private const val CAPTURE_STABILITY_DEG = 1f
-        private const val STAND_STEP_DEG = 3f
+        private const val STAND_NOMINAL_STEP_DEG = 1.5f
+        private const val STAND_MAXIMUM_STEP_DEG = 3f
+        private const val MIN_STAND_STEPS = 12
         private const val MAX_STAND_STEPS = 24
-        private const val STAND_STEP_MS = 200
+        private const val STAND_STEP_MS = 80
         private const val STAND_SETTLE_MS = 500L
         private const val STAND_OPERATION_TIMEOUT_MS = 15_000L
         private const val STAND_SPEED = 360
         private const val STAND_ACCELERATION = 60
         private const val GYRO_ZERO_SAMPLE_COUNT = 25
+        private const val GYRO_ZERO_MAX_ATTEMPTS = 40
         private const val GYRO_ZERO_SAMPLE_INTERVAL_MS = 20L
     }
+}
+
+internal fun coalescePolicyAngles(next: JSONObject, previous: JSONObject): JSONObject {
+    if (next.optBoolean("feedback_complete", false)) return next
+    val nextAngles = next.getJSONArray("angles_deg")
+    val previousAngles = previous.getJSONArray("angles_deg")
+    require(nextAngles.length() == 12 && previousAngles.length() == 12) {
+        "policy feedback must contain 12 servo angles"
+    }
+    val merged = JSONObject(next.toString())
+    val mergedAngles = merged.getJSONArray("angles_deg")
+    repeat(12) { index ->
+        if (mergedAngles.isNull(index)) mergedAngles.put(index, previousAngles.getDouble(index))
+    }
+    merged.put("feedback_coalesced", true)
+    return merged
 }
 
 private fun JSONArray.floatArray(): FloatArray = FloatArray(length()) { index ->
@@ -501,8 +607,16 @@ private fun JSONArray.floatArray(): FloatArray = FloatArray(length()) { index ->
 
 private fun JSONArray.intArray(): IntArray = IntArray(length()) { index -> getInt(index) }
 
+private fun FloatArray.jsonArray(): JSONArray = JSONArray(toList())
+
+private fun Map<Int, Float>.jsonObject(): JSONObject = JSONObject().also { output ->
+    toSortedMap().forEach { (key, value) -> output.put(key.toString(), value) }
+}
+
 private fun JSONObject.vector3(): FloatArray = floatArrayOf(
     getDouble("x").toFloat(),
     getDouble("y").toFloat(),
     getDouble("z").toFloat(),
 ).also { require(it.all(Float::isFinite)) }
+
+private fun Throwable.detail(): String = message?.takeIf(String::isNotBlank) ?: javaClass.simpleName

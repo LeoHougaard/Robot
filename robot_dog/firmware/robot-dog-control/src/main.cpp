@@ -65,6 +65,7 @@
 static constexpr uint8_t MAX_SERVOS = 12;
 static constexpr uint8_t MAX_PROGRAM_STEPS = 24;
 static constexpr size_t SERIAL_JSON_CAPACITY = 6144;
+static constexpr size_t SERIAL_RX_BUFFER_BYTES = 8192;
 static constexpr uint32_t STATE_INTERVAL_MS = 500;
 static constexpr uint8_t CONFIG_VERSION = 2;
 static constexpr uint16_t DEFAULT_MONITOR_INTERVAL_MS = 250;
@@ -87,7 +88,17 @@ static constexpr uint8_t STS_TORQUE_LIMIT_ADDR = 0x30;
 static constexpr uint8_t STS_LOCK_ADDR = 0x37;
 static constexpr uint8_t STS_PRESENT_POSITION_ADDR = 0x38;
 static constexpr uint8_t STS_PRESENT_VOLTAGE_ADDR = 0x3E;
+static constexpr uint8_t STS_PRESENT_CURRENT_ADDR = 0x45;
+static constexpr uint8_t STS_PRESENT_TELEMETRY_BYTES = 15;
+static constexpr float STS_CURRENT_STEP_MA = 6.5f;
+static constexpr float STS_7V4_NO_LOAD_CURRENT_A = 0.15f;
+static constexpr float STS_7V4_TORQUE_CONSTANT_KG_CM_PER_A = 7.8f;
+static constexpr float KG_CM_TO_NM = 0.0980665f;
+// Keep the control-critical synchronized read on the proven position/speed
+// block. Current is a second synchronized read and never decides whether
+// position feedback is complete.
 static constexpr uint8_t STS_PRESENT_STATE_BYTES = 4;
+static constexpr uint8_t STS_PRESENT_CURRENT_BYTES = 2;
 static constexpr uint16_t STS_TORQUE_LIMIT_MAX = 1000;
 static constexpr uint16_t COMMISSIONING_TORQUE_LIMIT = 1000;
 static constexpr uint8_t STS_MODE_SERVO = 0;
@@ -95,6 +106,11 @@ static constexpr uint8_t STS_MODE_MOTOR = 1;
 static constexpr uint16_t POLICY_FRAME_TIMEOUT_MS = 120;
 static constexpr uint8_t POLICY_MAX_FEEDBACK_FAILURES = 3;
 static constexpr size_t USB_SERIAL_PACKET_BYTES = 64;
+// Conservative warning thresholds for the robot's two-cell LiPo. These are
+// telemetry only: low voltage never changes the motion-control state.
+static constexpr float SERVO_BATTERY_WARNING_V = 7.0f;
+static constexpr float SERVO_BATTERY_CRITICAL_V = 6.6f;
+static constexpr uint32_t SERVO_BATTERY_LIVE_MS = 1500;
 
 struct ServoConfig {
   uint8_t id = 0;
@@ -125,6 +141,23 @@ struct ProgramStep {
   uint8_t accel = 50;
   float pose[MAX_SERVOS];
   bool hasPose[MAX_SERVOS];
+};
+
+struct ServoNativeFeedback {
+  uint16_t position = 0;
+  int16_t speed = 0;
+};
+
+struct ServoNativeTelemetry {
+  uint16_t position = 0;
+  int16_t speed = 0;
+  int16_t load = 0;
+  uint8_t voltage = 0;
+  uint8_t temperature = 0;
+  uint8_t asyncWriteFlag = 0;
+  uint8_t servoStatus = 0;
+  bool moving = false;
+  int16_t current = 0;
 };
 
 struct ImuState {
@@ -186,6 +219,7 @@ struct PolicyControlState {
   uint32_t lastFrameAt = 0;
   uint32_t lastSequence = 0;
   uint8_t feedbackFailures = 0;
+  bool compactFeedback = false;
   bool savedMonitorEnabled[MAX_SERVOS] = {false};
 };
 
@@ -313,15 +347,40 @@ public:
     return true;
   }
 
-  bool syncReadPositionSpeed(
+  bool readTelemetry(
+    uint8_t id,
+    ServoNativeTelemetry &telemetry,
+    uint8_t &packetStatus
+  ) {
+    if (!bus) return false;
+
+    clearRx();
+    uint8_t params[] = {STS_PRESENT_POSITION_ADDR, STS_PRESENT_TELEMETRY_BYTES};
+    writePacket(id, 0x02, params, sizeof(params));
+
+    uint8_t response[STS_PRESENT_TELEMETRY_BYTES + 6];
+    if (!readResponse(id, response, sizeof(response), 20, packetStatus)) return false;
+    const uint8_t *data = &response[5];
+    telemetry.position = decodeWord(data[0], data[1]);
+    telemetry.speed = decodeSigned(decodeWord(data[2], data[3]), 15);
+    telemetry.load = decodeSigned(decodeWord(data[4], data[5]), 10);
+    telemetry.voltage = data[6];
+    telemetry.temperature = data[7];
+    telemetry.asyncWriteFlag = data[8];
+    telemetry.servoStatus = data[9];
+    telemetry.moving = data[10] != 0;
+    telemetry.current = decodeSigned(decodeWord(data[13], data[14]), 15);
+    return true;
+  }
+
+  bool syncReadFeedback(
     const uint8_t *ids,
     uint8_t count,
-    uint16_t *positions,
-    int16_t *speeds,
+    ServoNativeFeedback *feedback,
     bool *received,
     uint8_t *statusErrors
   ) {
-    if (!bus || !ids || !positions || !speeds || !received || !statusErrors || count == 0) return false;
+    if (!bus || !ids || !feedback || !received || !statusErrors || count == 0) return false;
     if (count > MAX_SERVOS) count = MAX_SERVOS;
 
     uint8_t params[2 + MAX_SERVOS];
@@ -346,12 +405,50 @@ public:
 
       for (uint8_t i = 0; i < count; i++) {
         if (ids[i] != responseId || received[i]) continue;
-        uint16_t rawPosition = data[0] | (static_cast<uint16_t>(data[1]) << 8);
-        uint16_t rawSpeed = data[2] | (static_cast<uint16_t>(data[3]) << 8);
-        positions[i] = rawPosition;
-        speeds[i] = (rawSpeed & 0x8000)
-          ? -static_cast<int16_t>(rawSpeed & 0x7FFF)
-          : static_cast<int16_t>(rawSpeed);
+        feedback[i].position = decodeWord(data[0], data[1]);
+        feedback[i].speed = decodeSigned(decodeWord(data[2], data[3]), 15);
+        statusErrors[i] = responseStatus;
+        received[i] = true;
+        replies++;
+        break;
+      }
+    }
+    return replies == count;
+  }
+
+  bool syncReadCurrent(
+    const uint8_t *ids,
+    uint8_t count,
+    int16_t *current,
+    bool *received,
+    uint8_t *statusErrors
+  ) {
+    if (!bus || !ids || !current || !received || !statusErrors || count == 0) return false;
+    if (count > MAX_SERVOS) count = MAX_SERVOS;
+
+    uint8_t params[2 + MAX_SERVOS];
+    params[0] = STS_PRESENT_CURRENT_ADDR;
+    params[1] = STS_PRESENT_CURRENT_BYTES;
+    for (uint8_t i = 0; i < count; i++) {
+      params[2 + i] = ids[i];
+      current[i] = 0;
+      received[i] = false;
+      statusErrors[i] = 0;
+    }
+
+    clearRx();
+    writePacket(0xFE, 0x82, params, count + 2);
+
+    uint8_t replies = 0;
+    uint32_t startedAt = millis();
+    while (replies < count && millis() - startedAt < 8) {
+      uint8_t responseId = 0;
+      uint8_t data[STS_PRESENT_CURRENT_BYTES];
+      uint8_t responseStatus = 0;
+      if (!readDataResponse(responseId, data, sizeof(data), 2, responseStatus)) continue;
+      for (uint8_t i = 0; i < count; i++) {
+        if (ids[i] != responseId || received[i]) continue;
+        current[i] = decodeSigned(decodeWord(data[0], data[1]), 15);
         statusErrors[i] = responseStatus;
         received[i] = true;
         replies++;
@@ -472,6 +569,16 @@ public:
 private:
   HardwareSerial *bus = nullptr;
 
+  static uint16_t decodeWord(uint8_t low, uint8_t high) {
+    return low | (static_cast<uint16_t>(high) << 8);
+  }
+
+  static int16_t decodeSigned(uint16_t raw, uint8_t directionBit) {
+    const uint16_t directionMask = static_cast<uint16_t>(1U << directionBit);
+    const int16_t magnitude = static_cast<int16_t>(raw & ~directionMask);
+    return (raw & directionMask) ? -magnitude : magnitude;
+  }
+
   void clearRx() {
     if (!bus) return;
     while (bus->available()) bus->read();
@@ -560,9 +667,9 @@ private:
     uint16_t timeoutMs,
     uint8_t &statusError
   ) {
-    if (!bus || !data || dataLen == 0 || dataLen > 8) return false;
+    if (!bus || !data || dataLen == 0 || dataLen > STS_PRESENT_TELEMETRY_BYTES) return false;
 
-    uint8_t buffer[14];
+    uint8_t buffer[STS_PRESENT_TELEMETRY_BYTES + 6];
     uint8_t expectedLen = dataLen + 6;
     uint8_t index = 0;
     uint32_t startedAt = millis();
@@ -655,11 +762,33 @@ uint32_t lastStateAt = 0;
 uint32_t nextServoBatterySampleAt = 0;
 float servoBatteryVoltage = 0;
 bool hasServoBatteryVoltage = false;
+uint32_t servoBatterySampleMs = 0;
 String inputLine;
 bool discardInputLine = false;
+size_t serialRxBufferBytes = 0;
 NetworkMessage networkMessages[NET_MESSAGE_LOG_SIZE];
 uint32_t networkMessageSeq = 0;
 uint8_t networkMessageSlot = 0;
+
+const char *servoBatteryLevel() {
+  if (!hasServoBatteryVoltage) return "unknown";
+  if (servoBatteryVoltage <= SERVO_BATTERY_CRITICAL_V) return "critical";
+  if (servoBatteryVoltage <= SERVO_BATTERY_WARNING_V) return "warning";
+  return "normal";
+}
+
+void addServoBatteryToJson(JsonDocument &doc) {
+  if (hasServoBatteryVoltage) doc["servoBatteryVoltage"] = servoBatteryVoltage;
+  else doc["servoBatteryVoltage"] = nullptr;
+  doc["servoBatteryLevel"] = servoBatteryLevel();
+  doc["servoBatteryWarningVoltage"] = SERVO_BATTERY_WARNING_V;
+  doc["servoBatteryCriticalVoltage"] = SERVO_BATTERY_CRITICAL_V;
+  doc["servoBatterySampleMs"] = hasServoBatteryVoltage ? servoBatterySampleMs : 0;
+  doc["servoBatteryLive"] = hasServoBatteryVoltage &&
+    !policyControl.armed && !programPlaying && millis() - servoBatterySampleMs <= SERVO_BATTERY_LIVE_MS;
+}
+
+void sampleServoBatteryNow();
 
 ServoConfig *findServo(uint8_t id) {
   for (uint8_t i = 0; i < servoCount; i++) {
@@ -785,8 +914,7 @@ void sendState(bool setupRange = false) {
   doc["playing"] = programPlaying;
   doc["wifi"] = WiFi.isConnected();
   doc["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
-  if (hasServoBatteryVoltage) doc["servoBatteryVoltage"] = servoBatteryVoltage;
-  else doc["servoBatteryVoltage"] = nullptr;
+  addServoBatteryToJson(doc);
   JsonObject positions = doc["positions"].to<JsonObject>();
   JsonObject measured = doc["measured"].to<JsonObject>();
     JsonObject statusErrors = doc["statusErrors"].to<JsonObject>();
@@ -1056,24 +1184,23 @@ void stopAllServoVelocities();
 void stopAllServoMotors();
 bool sampleImu();
 
-bool syncReadConfiguredServoState(int16_t *rawSpeeds, bool *received) {
+bool syncReadConfiguredServoState(ServoNativeFeedback *feedback, bool *received) {
   if (servoCount != MAX_SERVOS) return false;
 
   uint8_t ids[MAX_SERVOS];
-  uint16_t positions[MAX_SERVOS] = {0};
   uint8_t statusErrors[MAX_SERVOS] = {0};
   for (uint8_t i = 0; i < servoCount; i++) {
     ids[i] = servos[i].id;
-    rawSpeeds[i] = 0;
+    feedback[i] = ServoNativeFeedback{};
     received[i] = false;
   }
 
-  bool complete = servoBus.syncReadPositionSpeed(
-    ids, servoCount, positions, rawSpeeds, received, statusErrors
+  bool complete = servoBus.syncReadFeedback(
+    ids, servoCount, feedback, received, statusErrors
   );
   for (uint8_t i = 0; i < servoCount; i++) {
     if (!received[i]) continue;
-    servos[i].measuredAngle = busPositionToMeasuredAngle(servos[i], positions[i]);
+    servos[i].measuredAngle = busPositionToMeasuredAngle(servos[i], feedback[i].position);
     servos[i].hasMeasuredAngle = true;
     servos[i].statusError = statusErrors[i];
     servos[i].hasStatusError = true;
@@ -1081,34 +1208,91 @@ bool syncReadConfiguredServoState(int16_t *rawSpeeds, bool *received) {
   return complete;
 }
 
+bool syncReadConfiguredServoCurrent(int16_t *current, bool *received) {
+  if (servoCount != MAX_SERVOS) return false;
+
+  uint8_t ids[MAX_SERVOS];
+  uint8_t statusErrors[MAX_SERVOS] = {0};
+  for (uint8_t i = 0; i < servoCount; i++) {
+    ids[i] = servos[i].id;
+    current[i] = 0;
+    received[i] = false;
+  }
+  return servoBus.syncReadCurrent(
+    ids, servoCount, current, received, statusErrors
+  );
+}
+
 void sendPolicyState(
   uint32_t sequence,
+  const ServoNativeFeedback *feedback,
   const bool *received,
+  const int16_t *current,
+  const bool *currentReceived,
   uint32_t feedbackMicros = 0,
+  uint32_t currentMicros = 0,
   uint32_t frameMicros = 0
 ) {
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(3072);
   doc["type"] = "policy_state";
   doc["armed"] = policyControl.armed;
   doc["seq"] = sequence;
   doc["sample_ms"] = imuState.sampleMs;
   doc["feedback_us"] = feedbackMicros;
+  doc["current_us"] = currentMicros;
   doc["frame_us"] = frameMicros;
+  doc["compact"] = policyControl.compactFeedback;
+  if (!policyControl.compactFeedback) {
+    doc["mag_available"] = imuState.magAvailable;
+    doc["imu_roll_deg"] = imuState.roll;
+    doc["imu_pitch_deg"] = imuState.pitch;
+    doc["imu_yaw_deg"] = imuState.yaw;
+    addServoBatteryToJson(doc);
+  }
   bool feedbackComplete = true;
+  bool currentComplete = true;
   JsonArray ids = doc["ids"].to<JsonArray>();
   JsonArray angles = doc["angles_deg"].to<JsonArray>();
+  JsonArray currentRaw = doc["current_raw"].to<JsonArray>();
+  JsonArray statusErrors = doc["status_errors"].to<JsonArray>();
+  JsonArray positionRaw;
+  JsonArray speedRaw;
+  if (!policyControl.compactFeedback) {
+    positionRaw = doc["position_raw"].to<JsonArray>();
+    speedRaw = doc["speed_raw"].to<JsonArray>();
+  }
   for (uint8_t i = 0; i < servoCount; i++) {
     ids.add(servos[i].id);
-    if (received[i]) angles.add(servos[i].measuredAngle);
-    else angles.add(nullptr);
+    if (received[i]) {
+      angles.add(servos[i].measuredAngle);
+      statusErrors.add(servos[i].statusError);
+      if (!policyControl.compactFeedback) {
+        positionRaw.add(feedback[i].position);
+        speedRaw.add(feedback[i].speed);
+      }
+    } else {
+      angles.add(nullptr);
+      statusErrors.add(nullptr);
+      if (!policyControl.compactFeedback) {
+        positionRaw.add(nullptr);
+        speedRaw.add(nullptr);
+      }
+    }
+    if (currentReceived[i]) currentRaw.add(current[i]);
+    else currentRaw.add(nullptr);
     feedbackComplete = feedbackComplete && received[i];
+    currentComplete = currentComplete && currentReceived[i];
   }
   doc["feedback_complete"] = feedbackComplete;
+  doc["current_complete"] = currentComplete;
   JsonArray accel = doc["accel_mg"].to<JsonArray>();
   JsonArray gyro = doc["gyro_dps"].to<JsonArray>();
+  JsonArray mag;
+  if (!policyControl.compactFeedback) mag = doc["mag_raw"].to<JsonArray>();
   for (uint8_t i = 0; i < 3; i++) {
     accel.add(imuState.accel[i]);
     gyro.add(imuState.gyro[i]);
+    if (!policyControl.compactFeedback) mag.add(imuState.mag[i]);
   }
   sendJson(doc);
 }
@@ -1160,6 +1344,7 @@ void disarmPolicy(const char *reason, bool notify) {
   policyControl.armed = false;
   policyControl.lastFrameAt = 0;
   policyControl.feedbackFailures = 0;
+  policyControl.compactFeedback = false;
   if (wasArmed) {
     for (uint8_t i = 0; i < servoCount; i++) {
       servos[i].monitorEnabled = policyControl.savedMonitorEnabled[i];
@@ -1191,9 +1376,13 @@ void handlePolicyArm(JsonDocument &doc) {
   stopAllServoMotors();
   for (uint8_t i = 0; i < servoCount; i++) ensureServoMode(servos[i]);
 
-  int16_t rawSpeeds[MAX_SERVOS] = {0};
+  // Refresh once before arming. This is outside the 50 Hz control loop, so a
+  // voltage query cannot compete with synchronized policy feedback.
+  sampleServoBatteryNow();
+
+  ServoNativeFeedback feedback[MAX_SERVOS];
   bool received[MAX_SERVOS] = {false};
-  if (!syncReadConfiguredServoState(rawSpeeds, received) || !sampleImu()) {
+  if (!syncReadConfiguredServoState(feedback, received) || !sampleImu()) {
     sendError("policy arm failed synchronized servo or IMU feedback");
     return;
   }
@@ -1228,7 +1417,13 @@ void handlePolicyArm(JsonDocument &doc) {
   policyControl.lastFrameAt = millis();
   policyControl.lastSequence = 0;
   policyControl.feedbackFailures = 0;
-  sendPolicyState(0, received);
+  policyControl.compactFeedback = doc["compact_feedback"] | false;
+  int16_t current[MAX_SERVOS] = {0};
+  bool currentReceived[MAX_SERVOS] = {false};
+  uint32_t currentStartedAt = micros();
+  syncReadConfiguredServoCurrent(current, currentReceived);
+  uint32_t currentMicros = micros() - currentStartedAt;
+  sendPolicyState(0, feedback, received, current, currentReceived, 0, currentMicros);
 }
 
 void handlePolicyFrame(JsonDocument &doc) {
@@ -1270,10 +1465,10 @@ void handlePolicyFrame(JsonDocument &doc) {
   policyControl.lastSequence = sequence;
   policyControl.lastFrameAt = millis();
 
-  int16_t rawSpeeds[MAX_SERVOS] = {0};
+  ServoNativeFeedback feedback[MAX_SERVOS];
   bool received[MAX_SERVOS] = {false};
   uint32_t feedbackStartedAt = micros();
-  bool feedbackComplete = syncReadConfiguredServoState(rawSpeeds, received);
+  bool feedbackComplete = syncReadConfiguredServoState(feedback, received);
   bool imuComplete = sampleImu();
   uint32_t feedbackMicros = micros() - feedbackStartedAt;
   for (uint8_t i = 0; i < servoCount; i++) {
@@ -1291,10 +1486,19 @@ void handlePolicyFrame(JsonDocument &doc) {
       return;
     }
   }
+  int16_t current[MAX_SERVOS] = {0};
+  bool currentReceived[MAX_SERVOS] = {false};
+  uint32_t currentStartedAt = micros();
+  syncReadConfiguredServoCurrent(current, currentReceived);
+  uint32_t currentMicros = micros() - currentStartedAt;
   sendPolicyState(
     sequence,
+    feedback,
     received,
+    current,
+    currentReceived,
     feedbackMicros,
+    currentMicros,
     micros() - frameStartedAt
   );
 }
@@ -1659,17 +1863,22 @@ void disarmServosAtBoot() {
   }
 }
 
-void runServoBatteryMonitor() {
-  if (policyControl.armed || programPlaying || millis() < nextServoBatterySampleAt) return;
-  nextServoBatterySampleAt = millis() + 1000;
+void sampleServoBatteryNow() {
   hasServoBatteryVoltage = false;
   for (uint8_t i = 0; i < servoCount; i++) {
     if (!servos[i].enabled) continue;
     if (servoBus.readVoltage(servos[i].id, servoBatteryVoltage)) {
       hasServoBatteryVoltage = true;
+      servoBatterySampleMs = millis();
       return;
     }
   }
+}
+
+void runServoBatteryMonitor() {
+  if (policyControl.armed || programPlaying || millis() < nextServoBatterySampleAt) return;
+  nextServoBatterySampleAt = millis() + 1000;
+  sampleServoBatteryNow();
 }
 
 void handleConfigSet(JsonDocument &doc) {
@@ -1779,6 +1988,83 @@ void startProgram(JsonDocument &doc) {
   currentStep = 0;
   nextProgramAt = 0;
   sendOk("play");
+}
+
+void handleProgramClear() {
+  programPlaying = false;
+  programLoop = false;
+  programStepCount = 0;
+  currentStep = 0;
+  nextProgramAt = 0;
+  sendOk("program_clear");
+}
+
+void handleProgramStep(JsonDocument &doc) {
+  if (programStepCount >= MAX_PROGRAM_STEPS) {
+    sendError("program already has the maximum number of steps");
+    return;
+  }
+  if (!doc["poses"].is<JsonObject>()) {
+    sendError("program_step requires poses keyed by servo id");
+    return;
+  }
+
+  ProgramStep &step = programSteps[programStepCount];
+  step.durationMs = constrain(doc["ms"] | 500, 20, 10000);
+  step.speed = constrain(doc["speed"] | 900, 1, 4095);
+  step.accel = constrain(doc["accel"] | 50, 0, 254);
+  for (uint8_t i = 0; i < MAX_SERVOS; i++) step.hasPose[i] = false;
+
+  for (JsonPair pair : doc["poses"].as<JsonObject>()) {
+    uint8_t id = atoi(pair.key().c_str());
+    ServoConfig *servo = findServo(id);
+    if (!servo || !servo->enabled) {
+      sendError("program_step references an unknown or disabled servo id");
+      return;
+    }
+    if (!pair.value().is<float>() && !pair.value().is<int>()) {
+      sendError("program_step poses must be numeric");
+      return;
+    }
+    uint8_t index = servo - servos;
+    float angle = pair.value().as<float>();
+    if (!isfinite(angle) || angle < 0.0f || angle > STS_FULL_SCALE_DEGREES) {
+      sendError("program_step pose is outside the servo's physical range");
+      return;
+    }
+    step.pose[index] = angle;
+    step.hasPose[index] = true;
+  }
+
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (servos[i].enabled && !step.hasPose[i]) {
+      sendError("program_step must include every enabled servo");
+      return;
+    }
+  }
+  programStepCount++;
+  sendOk("program_step");
+}
+
+void handleProgramStart(JsonDocument &doc) {
+  if (programStepCount == 0) {
+    sendError("program has no uploaded steps");
+    return;
+  }
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (!readServoAngle(servos[i].id) || servos[i].statusError != 0) {
+      sendError("servo hardware status must be healthy before playback");
+      return;
+    }
+  }
+
+  stopAllServoVelocities();
+  stopAllServoMotors();
+  programLoop = doc["loop"] | false;
+  programPlaying = true;
+  currentStep = 0;
+  nextProgramAt = 0;
+  sendOk("program_start");
 }
 
 void handleWifiSet(JsonDocument &doc) {
@@ -1919,6 +2205,64 @@ void handleServoBusProbe(JsonDocument &doc) {
   response["length"] = readLength;
   JsonArray raw = response["bytes"].to<JsonArray>();
   for (uint8_t i = 0; i < count; i++) raw.add(bytes[i]);
+  sendJson(response);
+}
+
+void handleServoTelemetry(JsonDocument &doc) {
+  uint8_t id = doc["id"] | 0;
+  ServoConfig *servo = findServo(id);
+  if (!servo || !servo->enabled) {
+    sendError("servo_telemetry requires an enabled servo id");
+    return;
+  }
+  if (policyControl.armed || programPlaying) {
+    sendError("servo telemetry is unavailable during motion control");
+    return;
+  }
+
+  ServoNativeTelemetry telemetry;
+  uint8_t packetStatus = 0;
+  if (!servoBus.readTelemetry(id, telemetry, packetStatus)) {
+    sendError("servo telemetry read failed");
+    return;
+  }
+
+  servo->measuredAngle = busPositionToMeasuredAngle(*servo, telemetry.position);
+  servo->hasMeasuredAngle = true;
+  servo->statusError = packetStatus;
+  servo->hasStatusError = true;
+
+  const float currentMa = telemetry.current * STS_CURRENT_STEP_MA;
+  const float signedCurrentA = currentMa / 1000.0f;
+  const float torqueCurrentA = max(0.0f, fabsf(signedCurrentA) - STS_7V4_NO_LOAD_CURRENT_A);
+  const float estimatedTorqueKgCm = copysignf(
+    torqueCurrentA * STS_7V4_TORQUE_CONSTANT_KG_CM_PER_A,
+    signedCurrentA
+  );
+
+  StaticJsonDocument<896> response;
+  response["type"] = "servo_telemetry";
+  response["id"] = id;
+  response["name"] = servo->name;
+  response["sample_ms"] = millis();
+  response["position_raw"] = telemetry.position;
+  response["position_deg"] = rawBusPositionToAngle(telemetry.position);
+  response["joint_angle_deg"] = servo->measuredAngle;
+  response["speed_raw"] = telemetry.speed;
+  response["speed_rpm"] = telemetry.speed * 60.0f / 4096.0f;
+  response["load_raw"] = telemetry.load;
+  response["load_percent"] = telemetry.load / 10.0f;
+  response["voltage_v"] = telemetry.voltage * 0.1f;
+  response["temperature_c"] = telemetry.temperature;
+  response["async_write_flag"] = telemetry.asyncWriteFlag;
+  response["servo_status"] = telemetry.servoStatus;
+  response["packet_status"] = packetStatus;
+  response["moving"] = telemetry.moving;
+  response["current_raw"] = telemetry.current;
+  response["current_ma"] = currentMa;
+  response["estimated_torque_kg_cm"] = estimatedTorqueKgCm;
+  response["estimated_torque_nm"] = estimatedTorqueKgCm * KG_CM_TO_NM;
+  response["force_calibrated"] = false;
   sendJson(response);
 }
 
@@ -2262,7 +2606,11 @@ void handleCommand(const String &line) {
     // bidirectional 50 Hz policy stream. Dropping one frame is preferable to
     // aborting motion: the next valid frame advances the sequence, while the
     // independent stale-frame watchdog still disarms sustained loss.
-    if (!policyControl.armed) sendError("invalid json");
+    if (!policyControl.armed) {
+      String message = String("invalid json: ") + err.c_str() +
+        " (" + String(line.length()) + " bytes)";
+      sendError(message.c_str());
+    }
     return;
   }
 
@@ -2285,8 +2633,8 @@ void handleCommand(const String &line) {
     response["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
     response["policyArmed"] = policyControl.armed;
     response["policyFrameTimeoutMs"] = POLICY_FRAME_TIMEOUT_MS;
-    if (hasServoBatteryVoltage) response["servoBatteryVoltage"] = servoBatteryVoltage;
-    else response["servoBatteryVoltage"] = nullptr;
+    response["serialRxBufferBytes"] = serialRxBufferBytes;
+    addServoBatteryToJson(response);
     JsonObject imu = response["imu"].to<JsonObject>();
     imu["available"] = imuState.available;
     imu["monitor"] = imuState.monitorEnabled;
@@ -2354,6 +2702,12 @@ void handleCommand(const String &line) {
     sendOk("policy_disarm");
   } else if (strcmp(cmd, "play") == 0) {
     startProgram(doc);
+  } else if (strcmp(cmd, "program_clear") == 0) {
+    handleProgramClear();
+  } else if (strcmp(cmd, "program_step") == 0) {
+    handleProgramStep(doc);
+  } else if (strcmp(cmd, "program_start") == 0) {
+    handleProgramStart(doc);
   } else if (strcmp(cmd, "wifi_set") == 0) {
     handleWifiSet(doc);
   } else if (strcmp(cmd, "wifi_status") == 0) {
@@ -2375,6 +2729,8 @@ void handleCommand(const String &line) {
     handleServoPing(doc);
   } else if (strcmp(cmd, "servo_bus_probe") == 0) {
     handleServoBusProbe(doc);
+  } else if (strcmp(cmd, "servo_telemetry") == 0) {
+    handleServoTelemetry(doc);
   } else if (strcmp(cmd, "servo_scan") == 0) {
     handleServoScan(doc);
   } else if (strcmp(cmd, "servo_set_id") == 0) {
@@ -2577,9 +2933,9 @@ void runNetworkServices() {
 }
 
 void setup() {
-  Serial.setRxBufferSize(4096);
+  serialRxBufferBytes = Serial.setRxBufferSize(SERIAL_RX_BUFFER_BYTES);
   Serial.setTxBufferSize(2048);
-  Serial.begin(921600);
+  Serial.begin(2000000);
   inputLine.reserve(SERIAL_JSON_CAPACITY);
   delay(300);
   loadConfig();

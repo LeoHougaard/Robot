@@ -26,4 +26,26 @@ class RobotControlPageTest {
         assertTrue(page.contains("navigator.sendBeacon(\"/api/stop\""))
         assertTrue(page.contains("if (powered)"))
     }
+
+    @Test
+    fun completedRunCanBeDownloadedWithoutExposingTheServerToTheLan() {
+        assertTrue(page.contains("id=\"download\""))
+        assertTrue(page.contains("/api/session/latest"))
+        assertTrue(page.contains("latest_session_available"))
+    }
+
+    @Test
+    fun servoBatteryWarningIsVisible() {
+        assertTrue(page.contains("id=\"battery\""))
+        assertTrue(page.contains("servo_battery_message"))
+        assertTrue(page.contains("battery-critical"))
+    }
+
+    @Test
+    fun oneServoIdCanBeSelectedForStandLoadTelemetry() {
+        assertTrue(page.contains("id=\"servo-id\""))
+        assertTrue(page.contains("/api/servo-telemetry"))
+        assertTrue(page.contains("servo_telemetry_selected_id"))
+        assertTrue(page.contains("not calibrated contact force"))
+    }
 }

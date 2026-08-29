@@ -1,6 +1,6 @@
 # Robot integration audit
 
-Audited on 2026-08-15 from the consolidated repository:
+Audited on 2026-08-25 from the consolidated repository:
 
 - `C:\Users\Leo\Code Projects\Robot\robot_dog`
 - `C:\Users\Leo\Code Projects\Robot`
@@ -23,15 +23,21 @@ not servo power.
 
 The firmware already provides the safe foundation the Android app needs:
 
-- host link at 921600 baud;
+- host link at 2,000,000 baud;
 - newline-delimited JSON input and whitespace-padded CRLF JSON output;
 - `hello` handshake after USB open/reset;
+- atomic stand upload using acknowledged `program_clear`, `program_step`, and
+  `program_start` messages, with every JSON line under 512 bytes;
 - `policy_arm` gated by exact confirmation, calibrated limits, 12 unique
   enabled servo IDs, synchronized feedback, clean servo status, and live IMU;
 - `policy_frame` with strictly increasing sequence and all 12 absolute-degree
   targets;
 - rejection of non-finite, missing, out-of-limit, or >6 degree step targets;
-- synchronized servo position/speed plus IMU feedback in `policy_state`;
+- the proven synchronized ST3215 position/speed read plus IMU feedback in
+  `policy_state`; the independent battery monitor supplies rail voltage and
+  warning-only 2S LiPo classification (warning <=7.0 V, critical <=6.6 V);
+- a separate synchronized all-servo current read whose loss is reported but
+  does not invalidate critical position feedback or stop policy control;
 - disarm after three incomplete feedback frames;
 - independent stale-frame disarm after 120 ms.
 
@@ -70,3 +76,9 @@ logging, camera preview/latest-frame analysis, thermal reporting, and local or
 remote motion requests. It never emits servo pulses. The ESP32 remains the
 authority for actuator limits, feedback validation, sequence validation, and
 loss-of-host response.
+
+Run logging is schema-versioned JSONL. It begins before standing, preserves the
+raw bidirectional protocol, and records the exact observation/action pipeline,
+policy identity, calibration, timing, actuator targets and feedback, Android
+thermal/battery/storage samples, and termination reason. See
+[RUN-DATA.md](RUN-DATA.md) for the contract and measurement limits.

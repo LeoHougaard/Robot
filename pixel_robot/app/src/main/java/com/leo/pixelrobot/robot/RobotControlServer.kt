@@ -3,6 +3,7 @@ package com.leo.pixelrobot.robot
 import android.content.res.AssetManager
 import org.json.JSONObject
 import java.io.Closeable
+import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -19,6 +20,8 @@ class RobotControlServer(
     private val startTest: () -> Unit,
     private val stop: () -> Unit,
     private val reconnect: () -> Unit,
+    private val selectServoTelemetry: (Int?) -> Unit,
+    private val latestSession: () -> File?,
 ) : Closeable {
     private val page = assets.open("robot_control.html").bufferedReader().use { it.readText() }
     private val server = ServerSocket()
@@ -91,6 +94,14 @@ class RobotControlServer(
                     JSON_CONTENT_TYPE,
                     status().put("ok", true).toString(),
                 )
+                method == "GET" && path == "/api/session/latest" -> {
+                    val file = latestSession()
+                    if (file == null || !file.isFile) {
+                        respond(socket, 404, JSON_CONTENT_TYPE, errorJson("no completed run session"))
+                    } else {
+                        respondFile(socket, file)
+                    }
+                }
                 method == "POST" && path == "/api/start" -> {
                     val request = JSONObject(body.ifBlank { "{}" })
                     updateCommand(
@@ -118,6 +129,13 @@ class RobotControlServer(
                 }
                 method == "POST" && path == "/api/reconnect" -> {
                     reconnect()
+                    respondStatus(socket)
+                }
+                method == "POST" && path == "/api/servo-telemetry" -> {
+                    val request = JSONObject(body.ifBlank { "{}" })
+                    selectServoTelemetry(
+                        if (!request.has("id") || request.isNull("id")) null else request.getInt("id"),
+                    )
                     respondStatus(socket)
                 }
                 else -> respond(socket, 404, JSON_CONTENT_TYPE, errorJson("not found"))
@@ -151,6 +169,23 @@ class RobotControlServer(
         socket.getOutputStream().use { output ->
             output.write(headers)
             output.write(payload)
+            output.flush()
+        }
+    }
+
+    private fun respondFile(socket: Socket, file: File) {
+        val headers = buildString {
+            append("HTTP/1.1 200 OK\r\n")
+            append("Content-Type: application/x-ndjson\r\n")
+            append("Content-Length: ${file.length()}\r\n")
+            append("Content-Disposition: attachment; filename=\"${file.name}\"\r\n")
+            append("Cache-Control: no-store\r\n")
+            append("X-Content-Type-Options: nosniff\r\n")
+            append("Connection: close\r\n\r\n")
+        }.toByteArray(StandardCharsets.US_ASCII)
+        socket.getOutputStream().use { output ->
+            output.write(headers)
+            file.inputStream().use { input -> input.copyTo(output) }
             output.flush()
         }
     }

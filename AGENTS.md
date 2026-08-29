@@ -81,6 +81,7 @@ Onshape:
 
 ## Training rules
 
+- Current-aware training must use a versioned fit of complete Pixel run data, not the UI torque estimate alone.
 - Preserve V1 as the known working flat policy.
 - Keep V2 checkpoints separate; their 180-value observation differs from V1.
 - V2 order is Core, Robust, Goal completion, Rough, then separate recovery.
@@ -96,6 +97,7 @@ See `training/TRAINING-V2.md` for the method and acceptance gates.
 
 ## Safety and persistence
 
+Leo operates the physical robot. Agents must not initiate motion or policy runs unless he explicitly asks.
 1. Confirm remote identity is exactly `leo` before changing backend state.
 2. Inspect running workloads before starting or stopping containers.
 3. Do not interrupt another workload unless explicitly requested.

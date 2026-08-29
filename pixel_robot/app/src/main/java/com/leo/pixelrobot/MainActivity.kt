@@ -1,6 +1,7 @@
 package com.leo.pixelrobot
 
 import android.Manifest
+import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -8,10 +9,13 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -22,20 +26,25 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.leo.pixelrobot.databinding.ActivityMainBinding
+import com.leo.pixelrobot.robot.FirmwareCapabilities
 import com.leo.pixelrobot.robot.LinkState
 import com.leo.pixelrobot.robot.RobotService
 import com.leo.pixelrobot.robot.RobotStatus
+import com.leo.pixelrobot.robot.ServoTelemetry
+import com.leo.pixelrobot.robot.ServoBatterySafety
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -56,10 +65,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             robotService = (binder as RobotService.LocalBinder).service
             configureMotionControls()
+            selectDisplayedServo()
             statusJob?.cancel()
             statusJob = lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -102,31 +115,45 @@ class MainActivity : AppCompatActivity() {
         }
         cameraExecutor = Executors.newSingleThreadExecutor()
 
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         ContextCompat.startForegroundService(this, Intent(this, RobotService::class.java))
         binding.reconnectButton.setOnClickListener { robotService?.reconnect() }
+        binding.shareLastRunButton.setOnClickListener { shareLastRun() }
         binding.stopButton.setOnClickListener {
             binding.yawSlider.value = 0f
             robotService?.emergencyStop()
         }
         binding.startPolicyButton.setOnClickListener {
-            robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value)
-            robotService?.startPolicy()
+            runCatching {
+                robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value)
+                robotService?.startPolicy()
+            }.onFailure { binding.runtimeStatus.text = it.message }
         }
         binding.standAtStartPoseButton.setOnClickListener {
             runCatching { robotService?.standAtCapturedPose() }
                 .onFailure { binding.runtimeStatus.text = it.message }
         }
         binding.forwardSlider.addOnChangeListener { _, value, _ ->
-            robotService?.updateMotionRequest(value, binding.yawSlider.value)
+            runCatching { robotService?.updateMotionRequest(value, binding.yawSlider.value) }
+                .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
         binding.yawSlider.addOnChangeListener { _, value, _ ->
-            robotService?.updateMotionRequest(binding.forwardSlider.value, value)
+            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, value) }
+                .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
         binding.cameraSwitch.setOnCheckedChangeListener { _, enabled ->
             if (enabled) enableCamera() else disableCamera()
         }
+        configureServoTelemetrySelector()
         renderMotionLabels()
     }
 
@@ -151,22 +178,124 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderStatus(status: RobotStatus) {
+        val servoBattery = ServoBatterySafety.evaluate(
+            status.servoBatteryVoltage,
+            status.servoBatteryLive,
+        )
         binding.connectionStatus.text = when (status.linkState) {
-            LinkState.READY -> "USB ready${status.firmwareVersion?.let { " • firmware $it" } ?: ""}"
+            LinkState.READY -> buildString {
+                append("USB ready${status.firmwareVersion?.let { " • firmware $it" } ?: ""}")
+                if (servoBattery.isLow) append("\n${servoBattery.message()}")
+            }
             else -> status.detail
         }
+        binding.connectionStatus.setTextColor(
+            ContextCompat.getColor(this, if (servoBattery.isLow) R.color.danger else R.color.ink),
+        )
         binding.telemetryStatus.text = buildString {
             append("device: ${status.deviceName ?: "none"}")
             status.lastSequence?.let { append("\nsequence: $it") }
-            append("\nservo battery: ")
-            append(status.servoBatteryVoltage?.let { "%.1f V".format(it) } ?: "not detected")
-            if (status.servoBatteryVoltage != null && robotService?.policyStatus?.value?.active == true) {
-                append(" (last idle reading)")
-            }
+            append("\n${servoBattery.message()}")
             status.feedbackComplete?.let { append(" • feedback: ${if (it) "complete" else "INCOMPLETE"}") }
         }
+        robotService?.recordingStatus()?.let { recording ->
+            val summary = if (recording.active) {
+                "recording: ${recording.activeFileName} • ${recording.recordCount} records"
+            } else {
+                "last run: ${recording.latestFileName ?: "none"}"
+            }
+            binding.telemetryStatus.append("\n$summary")
+            recording.error?.let { binding.telemetryStatus.append("\nrecording error: $it") }
+        }
+        binding.shareLastRunButton.isEnabled = robotService?.latestRunFile() != null
+        renderServoTelemetry(status)
         updateArmAvailability()
     }
+
+    private fun configureServoTelemetrySelector() {
+        val choices = listOf(getString(R.string.select_servo_id)) + (1..12).map { "Servo ID $it" }
+        binding.servoIdSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            choices,
+        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        binding.servoIdSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectDisplayedServo()
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                robotService?.selectServoTelemetry(null)
+            }
+        }
+    }
+
+    private fun selectDisplayedServo() {
+        val position = binding.servoIdSpinner.selectedItemPosition
+        robotService?.selectServoTelemetry(position.takeIf { it in 1..12 })
+    }
+
+    private fun renderServoTelemetry(status: RobotStatus) {
+        val selectedId = status.selectedServoId
+        val spinnerPosition = selectedId ?: 0
+        if (binding.servoIdSpinner.selectedItemPosition != spinnerPosition) {
+            binding.servoIdSpinner.setSelection(spinnerPosition)
+        }
+        val policy = robotService?.policyStatus?.value
+        val telemetry = status.servoTelemetry?.takeIf { it.id == selectedId }
+        binding.servoTorqueValue.text = if (telemetry == null) {
+            getString(R.string.servo_torque_waiting)
+        } else {
+            String.format(Locale.US, "Torque: %+.3f N m", telemetry.estimatedTorqueNm)
+        }
+        binding.servoForceStatus.text = when {
+            selectedId == null -> getString(R.string.servo_load_waiting)
+            status.linkState != LinkState.READY -> "Connect the ESP32 to read servo $selectedId."
+            !FirmwareCapabilities.supportsPolicyServoTelemetry(status.firmwareVersion) ->
+                "ESP32 firmware ${status.firmwareVersion ?: "unknown"} cannot stream torque. Install firmware 0.1.12."
+            telemetry != null && policy?.active == true -> telemetry.formatPolicyTorqueForDisplay()
+            telemetry != null -> telemetry.formatForDisplay()
+            policy?.active == true -> "Waiting for the next policy-frame torque sample from servo $selectedId..."
+            policy?.holdingPose != true -> "Servo $selectedId selected. Tap STAND or start the policy to read load."
+            else -> "Waiting for servo $selectedId telemetry..."
+        }
+    }
+
+    private fun ServoTelemetry.formatForDisplay(): String = String.format(
+        Locale.US,
+        "%s, ID %d\nLoad: %+.1f%% (raw %d)\nCurrent: %+.0f mA (raw %d)\nEstimated joint torque: %+.3f N m, %+.2f kg cm\nPosition: %.2f deg joint, %.2f deg raw (%d)\nSpeed: %+.3f rpm (raw %d), moving: %s\nVoltage: %.1f V, temperature: %d C\nStatus: servo 0x%02X, packet 0x%02X, async %d",
+        name,
+        id,
+        loadPercent,
+        loadRaw,
+        currentMilliamps,
+        currentRaw,
+        estimatedTorqueNm,
+        estimatedTorqueKgCm,
+        jointAngleDegrees,
+        positionDegrees,
+        positionRaw,
+        speedRpm,
+        speedRaw,
+        if (moving) "yes" else "no",
+        voltage,
+        temperatureCelsius,
+        servoStatus,
+        packetStatus,
+        asyncWriteFlag,
+    )
+
+    private fun ServoTelemetry.formatPolicyTorqueForDisplay(): String = String.format(
+        Locale.US,
+        "All 12 servo currents sampled every policy frame\n%s, ID %d\nCurrent: %+.0f mA (raw %d)\nEstimated joint torque: %+.3f N m, %+.2f kg cm\nJoint position: %.2f deg",
+        name,
+        id,
+        currentMilliamps,
+        currentRaw,
+        estimatedTorqueNm,
+        estimatedTorqueKgCm,
+        jointAngleDegrees,
+    )
 
     private fun updateArmAvailability() {
         val ready = robotService?.status?.value?.linkState == LinkState.READY
@@ -193,6 +322,21 @@ class MainActivity : AppCompatActivity() {
     private fun renderMotionLabels() {
         binding.forwardRequestLabel.text = getString(R.string.forward_request, binding.forwardSlider.value)
         binding.yawRequestLabel.text = getString(R.string.yaw_request, binding.yawSlider.value)
+    }
+
+    private fun shareLastRun() {
+        val file = robotService?.latestRunFile()
+        if (file == null) {
+            binding.runtimeStatus.setText(R.string.no_completed_run)
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        val share = Intent(Intent.ACTION_SEND)
+            .setType("application/x-ndjson")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        share.clipData = ClipData.newRawUri(file.name, uri)
+        startActivity(Intent.createChooser(share, getString(R.string.share_run_chooser)))
     }
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])

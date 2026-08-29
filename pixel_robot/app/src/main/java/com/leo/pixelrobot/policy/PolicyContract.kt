@@ -13,6 +13,9 @@ class PolicyContract private constructor(value: JSONObject) {
     val profileId: String = value.getString("profile_id")
     val profileSha256: String = value.getString("profile_sha256")
     val weightsSha256: String = value.getString("weights_sha256")
+    val controlHz: Int = value.getInt("control_hz")
+    val controlFrameSeconds: Float = 1f / controlHz
+    val controlFramePeriodNanoseconds: Long = 1_000_000_000L / controlHz
     val commandSmoothingSeconds: Float = value.optDouble("command_smoothing_time_s", 0.4).toFloat()
     val forwardMinimum: Float
     val forwardMaximum: Float
@@ -35,11 +38,13 @@ class PolicyContract private constructor(value: JSONObject) {
         require(profileId.matches(Regex("[a-z0-9][a-z0-9-]{0,63}"))) { "invalid policy profile id" }
         require(profileSha256.matches(Regex("[A-Fa-f0-9]{64}"))) { "invalid policy profile hash" }
         require(weightsSha256.matches(Regex("[A-Fa-f0-9]{64}"))) { "invalid policy weights hash" }
-        require(value.getInt("control_hz") == 50) { "policy control rate must be 50 Hz" }
+        require(controlHz in 10..100 && 1000 % controlHz == 0) {
+            "policy control rate must divide 1000 Hz and be within 10..100 Hz"
+        }
         require(value.getInt("observation_size") == 180)
         require(value.getInt("observation_history") == 4)
         require(value.getInt("action_size") == ACTION_COUNT)
-        require(commandSmoothingSeconds in FRAME_SECONDS..2f)
+        require(commandSmoothingSeconds in controlFrameSeconds..2f)
 
         val limits = value.getJSONObject("validated_command_limits")
         val forward = limits.getJSONArray("forward_m_s").pair()
@@ -128,8 +133,6 @@ class PolicyContract private constructor(value: JSONObject) {
 
     companion object {
         private const val ACTION_COUNT = 12
-        private const val FRAME_SECONDS = 0.02f
-
         fun load(assets: AssetManager): PolicyContract = PolicyContract(
             JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
         )

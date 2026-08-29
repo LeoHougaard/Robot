@@ -1,6 +1,6 @@
 # Robot Dog Commands
 
-The UI and ESP32 use the same newline-delimited JSON command objects over USB serial at `460800` baud and over the Wi-Fi HTTP bridge.
+The UI and ESP32 use the same newline-delimited JSON command objects over USB serial at `2000000` baud and over the Wi-Fi HTTP bridge.
 
 ## Wi-Fi HTTP Bridge
 
@@ -148,6 +148,16 @@ Enables torque and nudges one enabled servo by a relative angle in degrees. For 
 
 Reads the current reported angle from one servo or all enabled servos. The value is returned in the `measured` object on the next `state` response. With `setup:true`, the value is reported in the raw full `0-360` endpoint-setup range instead of the servo's saved min/max range, and that `state` response includes `"setup":true`.
 
+`servo_telemetry`
+
+```json
+{"cmd":"servo_telemetry","id":3}
+```
+
+Reads the ST3215 runtime feedback block for one enabled servo while motion control is idle. The reply contains position, configured joint angle, speed, signed motor load, voltage, temperature, asynchronous-write flag, servo status, packet status, movement flag, signed current, and estimated joint torque. During policy control, `policy_state` carries synchronized position/speed and current for all 12 servos, so the firmware rejects the separate point read.
+
+The load value is motor-drive duty, where magnitude `1000` means 100 percent. Current uses 6.5 mA per register step. Neither value is calibrated contact force. See [ST3215 protocol and load telemetry](ST3215-PROTOCOL.md).
+
 `monitor_set`
 
 ```json
@@ -247,10 +257,10 @@ Stops program playback. It does not cut servo torque, because that can make a le
 `policy_arm`
 
 ```json
-{"cmd":"policy_arm","confirm":"CALIBRATED_AND_LIFTED"}
+{"cmd":"policy_arm","confirm":"CALIBRATED_AND_LIFTED","compact_feedback":true}
 ```
 
-Enters the guarded 50 Hz learned-policy transport. It succeeds only with 12
+Enters the guarded learned-policy transport with a 50 Hz host target. It succeeds only with 12
 unique enabled IDs 1-12, non-default calibrated min/home/max values, live
 synchronized position/speed feedback from every servo, a live IMU, and the
 exact lifted-robot confirmation. It stops manual programs and servo monitors
@@ -264,11 +274,15 @@ without moving the joints.
 
 Sends one absolute-degree target for every servo. Sequence numbers must
 increase. The firmware rejects missing values, calibrated-limit violations,
-and changes over 6 degrees from the previous 20 ms frame. The response is a
-`policy_state` JSON line containing synchronized servo angles, raw speed
-registers, feedback flags, and IMU acceleration (mg) and gyro (degrees/s).
-Three incomplete feedback frames disarm policy control. A host pause over
-120 ms also disarms it and holds the last target.
+and changes over 6 degrees from the previous nominal frame. The compact
+`policy_state` response contains aligned servo IDs, angles, current, packet
+status, and IMU acceleration (mg) and gyro (degrees/s), plus `feedback_us`,
+`current_us`, `frame_us`, `feedback_complete`, and `current_complete` timing and
+validity fields. Position/speed is the safety-critical synchronized read. The
+separate synchronized current read is optional: an incomplete current sample
+does not stop the policy. Three consecutive incomplete critical feedback frames
+disarm policy control. A host pause over 120 ms also disarms it and holds the
+last target.
 
 `policy_disarm`
 

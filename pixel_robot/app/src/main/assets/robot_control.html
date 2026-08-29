@@ -32,7 +32,7 @@
     .eyebrow { color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
     .subtitle { margin-top: 10px; color: var(--muted); max-width: 620px; }
     .panel { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 94%, transparent); }
-    .status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .status-item { min-height: 76px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #11171a; }
     .status-item span { display: block; color: var(--muted); font-size: 12px; }
     .status-item strong { display: block; margin-top: 5px; overflow-wrap: anywhere; }
@@ -40,6 +40,8 @@
     .dot.ready { background: var(--green); box-shadow: 0 0 12px #55d68b77; }
     .dot.active { background: var(--blue); box-shadow: 0 0 12px #6db7ff77; }
     .dot.blocked { background: var(--red); }
+    .battery-warning { color: var(--amber); }
+    .battery-critical { color: var(--red); }
     .controls { display: grid; gap: 18px; }
     .control-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
     output { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 800; }
@@ -52,11 +54,19 @@
     #stand { background: var(--amber); }
     #stop { background: var(--red); }
     #reconnect { min-height: 40px; margin-top: 12px; background: #d6e5ea; }
+    #download { min-height: 40px; margin-top: 12px; background: var(--blue); }
     #message { min-height: 22px; margin-top: 12px; color: var(--muted); }
     .restriction { margin-top: 14px; color: var(--muted); font-size: 13px; }
+    .servo-picker { width: 100%; min-height: 48px; margin-top: 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #11171a; color: var(--text); font: inherit; }
+    .telemetry-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .telemetry-value { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #11171a; }
+    .telemetry-value span { display: block; color: var(--muted); font-size: 12px; }
+    .telemetry-value strong { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    #servo-torque { color: var(--accent); font-size: 28px; }
     @media (max-width: 620px) {
       .status-grid { grid-template-columns: 1fr; }
       .buttons { grid-template-columns: 1fr; }
+      .telemetry-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -70,6 +80,30 @@
       <div class="status-item"><span>USB link</span><strong><i id="link-dot" class="dot"></i><span id="link">Checking</span></strong></div>
       <div class="status-item"><span>Policy</span><strong><i id="policy-dot" class="dot"></i><span id="policy">Disarmed</span></strong></div>
       <div class="status-item"><span>Servo tracking</span><strong id="feedback">Preflight on start</strong></div>
+      <div class="status-item"><span>2S servo battery</span><strong id="battery">Waiting for reading</strong></div>
+    </section>
+
+    <section class="panel">
+      <h2>Servo load sensing</h2>
+      <select id="servo-id" class="servo-picker" aria-label="Select one servo ID">
+        <option value="">Select one servo ID</option>
+        <option value="1">Servo ID 1</option><option value="2">Servo ID 2</option>
+        <option value="3">Servo ID 3</option><option value="4">Servo ID 4</option>
+        <option value="5">Servo ID 5</option><option value="6">Servo ID 6</option>
+        <option value="7">Servo ID 7</option><option value="8">Servo ID 8</option>
+        <option value="9">Servo ID 9</option><option value="10">Servo ID 10</option>
+        <option value="11">Servo ID 11</option><option value="12">Servo ID 12</option>
+      </select>
+      <p id="servo-load-state" class="restriction">Choose a servo ID. Policy mode samples all 12 servos on every feedback frame.</p>
+      <div class="telemetry-grid">
+        <div class="telemetry-value"><span>Motor load</span><strong id="servo-load">Waiting</strong></div>
+        <div class="telemetry-value"><span>Current</span><strong id="servo-current">Waiting</strong></div>
+        <div class="telemetry-value"><span>Estimated joint torque</span><strong id="servo-torque">Waiting</strong></div>
+        <div class="telemetry-value"><span>Joint position</span><strong id="servo-position">Waiting</strong></div>
+        <div class="telemetry-value"><span>Speed and motion</span><strong id="servo-speed">Waiting</strong></div>
+        <div class="telemetry-value"><span>Voltage and temperature</span><strong id="servo-health">Waiting</strong></div>
+      </div>
+      <p class="restriction">The ST3215 reports motor load and current, not calibrated contact force. The torque estimate uses the 7.4 V servo constants. Foot force needs linkage geometry and calibration.</p>
     </section>
 
     <section class="panel controls">
@@ -100,6 +134,7 @@
       <h2>Controller message</h2>
       <p id="message">Connecting to the Pixel service.</p>
       <button id="reconnect">Reconnect Pixel USB</button>
+      <button id="download" disabled>Download last run data</button>
       <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
       <p class="restriction">This policy is limited to forward motion and curved turns. Reverse, strafe, and in-place turns remain disabled in this build.</p>
     </section>
@@ -161,6 +196,34 @@
       } else {
         ui.feedback.textContent = status.feedback_complete === false ? "Feedback incomplete" : "Preflight on start";
       }
+      ui.battery.textContent = status.servo_battery_message || "Servo battery not detected";
+      ui.battery.className = status.servo_battery_level === "critical"
+        ? "battery-critical"
+        : status.servo_battery_level === "warning" ? "battery-warning" : "";
+      const selectedServo = status.servo_telemetry_selected_id;
+      if (selectedServo != null && ui["servo-id"].value !== String(selectedServo)) {
+        ui["servo-id"].value = String(selectedServo);
+      }
+      ui["servo-load-state"].textContent = status.servo_telemetry_message || "Choose one servo ID";
+      const servo = status.servo_telemetry;
+      if (status.servo_telemetry_live && servo && servo.id === selectedServo) {
+        ui["servo-current"].textContent = `${Number(servo.current_ma).toFixed(0)} mA (raw ${servo.current_raw})`;
+        ui["servo-torque"].textContent = `${Number(servo.estimated_torque_nm).toFixed(3)} N m, ${Number(servo.estimated_torque_kg_cm).toFixed(2)} kg cm`;
+        ui["servo-position"].textContent = `${Number(servo.joint_angle_deg).toFixed(2)} deg`;
+        if (servo.full_runtime_fields) {
+          ui["servo-load"].textContent = `${Number(servo.load_percent).toFixed(1)}% (raw ${servo.load_raw})`;
+          ui["servo-speed"].textContent = `${Number(servo.speed_rpm).toFixed(3)} rpm, ${servo.moving ? "moving" : "still"}`;
+          ui["servo-health"].textContent = `${Number(servo.voltage_v).toFixed(1)} V, ${servo.temperature_c} C, status 0x${Number(servo.servo_status).toString(16).padStart(2, "0")}`;
+        } else {
+          ui["servo-load"].textContent = "Idle full-block only";
+          ui["servo-speed"].textContent = "Control feedback kept separate";
+          ui["servo-health"].textContent = "Idle full-block only";
+        }
+      } else {
+        for (const id of ["servo-load", "servo-current", "servo-torque", "servo-position", "servo-speed", "servo-health"]) {
+          ui[id].textContent = "Waiting";
+        }
+      }
       if (Number.isFinite(status.forward_min) && Number.isFinite(status.forward_max)) {
         ui.forward.min = status.forward_min;
         ui.forward.max = status.forward_max;
@@ -171,6 +234,10 @@
         ui.yaw.min = status.yaw_min;
         ui.yaw.max = status.yaw_max;
       }
+      ui.download.disabled = !status.latest_session_available;
+      ui.download.textContent = status.latest_session_file
+        ? `Download ${status.latest_session_file}`
+        : "Download last run data";
       updateButtons();
       ui.message.textContent = status.policy_detail;
     }
@@ -208,6 +275,11 @@
       post("/api/stop").catch(() => {});
     });
     ui.reconnect.addEventListener("click", () => post("/api/reconnect"));
+    ui["servo-id"].addEventListener("change", () => {
+      const id = Number(ui["servo-id"].value);
+      post("/api/servo-telemetry", { id: Number.isInteger(id) && id > 0 ? id : null });
+    });
+    ui.download.addEventListener("click", () => { window.location.href = "/api/session/latest"; });
     window.addEventListener("pagehide", () => {
       if (powered) navigator.sendBeacon("/api/stop", new Blob(["{}"], { type: "application/json" }));
     });
