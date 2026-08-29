@@ -40,7 +40,9 @@ import com.leo.pixelrobot.robot.RobotStatus
 import com.leo.pixelrobot.robot.ServoTelemetry
 import com.leo.pixelrobot.robot.ServoBatterySafety
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -356,20 +358,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shareTrainingCapture() {
-        val file = runCatching { robotService?.latestTrainingCaptureFile() }
-            .onFailure { binding.runtimeStatus.text = it.message }
-            .getOrNull()
-        if (file == null) {
-            binding.runtimeStatus.setText(R.string.no_completed_run)
-            return
+        binding.shareTrainingCaptureButton.isEnabled = false
+        binding.runtimeStatus.text = "Building verified training capture..."
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { robotService?.latestTrainingCaptureFile() }
+            }
+            binding.shareTrainingCaptureButton.isEnabled = robotService?.latestRunFile() != null
+            val file = result.onFailure { binding.runtimeStatus.text = it.message }.getOrNull()
+            if (file == null) {
+                if (result.isSuccess) binding.runtimeStatus.setText(R.string.no_completed_run)
+                return@launch
+            }
+            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+            val share = Intent(Intent.ACTION_SEND)
+                .setType("application/zip")
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            share.clipData = ClipData.newRawUri(file.name, uri)
+            startActivity(
+                Intent.createChooser(share, getString(R.string.share_training_capture_chooser)),
+            )
         }
-        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
-        val share = Intent(Intent.ACTION_SEND)
-            .setType("application/zip")
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        share.clipData = ClipData.newRawUri(file.name, uri)
-        startActivity(Intent.createChooser(share, getString(R.string.share_training_capture_chooser)))
     }
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
