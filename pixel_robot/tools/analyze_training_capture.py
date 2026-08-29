@@ -22,7 +22,8 @@ def _write_dashboard(
 ) -> Path:
     cards = "\n".join(
         f'''<section><h2>{html.escape(path.stem.replace("-", " ").title())}</h2>
-<img src="{html.escape(path.relative_to(output_dir).as_posix())}" alt="{html.escape(path.stem)}"></section>'''
+<a class="full" href="{html.escape(path.relative_to(output_dir).as_posix())}" target="_blank">Open full size</a>
+<div class="chart"><img src="{html.escape(path.relative_to(output_dir).as_posix())}" alt="{html.escape(path.stem)}"></div></section>'''
         for path in graphs
     )
     dashboard = output_dir / "index.html"
@@ -35,7 +36,8 @@ def _write_dashboard(
 body{{font:16px system-ui,sans-serif;max-width:1400px;margin:auto;padding:20px;background:#f5f5f5;color:#171717}}
 h1{{margin-bottom:4px}} p{{margin-top:0;color:#555;overflow-wrap:anywhere}}
 section{{background:white;margin:20px 0;padding:16px;border:1px solid #ddd;border-radius:8px}}
-h2{{font-size:18px;margin:0 0 12px;text-transform:capitalize}} img{{display:block;width:100%;height:auto}}
+h2{{font-size:18px;margin:0;text-transform:capitalize}} .full{{display:inline-block;margin:6px 0 12px}}
+.chart{{overflow-x:auto}} img{{display:block;width:100%;height:auto}}
 </style></head><body>
 <h1>Robot run graphs</h1>
 <p>{html.escape(source.name)} · selected servo ID {servo_id}</p>

@@ -36,7 +36,12 @@ class PlotRunDataTest(unittest.TestCase):
 
             self.assertEqual(len(outputs), 4)
             self.assertTrue(all(path.is_file() for path in outputs))
+            all_current = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Each servo uses its own", all_current)
+            self.assertIn("ID 1", all_current)
+            self.assertIn("ID 2", all_current)
             self.assertIn("Servo 2 current", outputs[1].read_text(encoding="utf-8"))
+            self.assertIn("square-root scale", outputs[1].read_text(encoding="utf-8"))
             self.assertIn("Applied target", outputs[2].read_text(encoding="utf-8"))
             self.assertIn("20 ms target", outputs[3].read_text(encoding="utf-8"))
 
