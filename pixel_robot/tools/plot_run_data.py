@@ -10,6 +10,8 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from run_data_source import open_run_text
+
 
 COLORS = [
     "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2",
@@ -19,7 +21,7 @@ COLORS = [
 
 def _load_frames(path: Path) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as stream:
+    with open_run_text(path) as (stream, _):
         for line_number, line in enumerate(stream, start=1):
             if not line.strip():
                 continue
@@ -76,7 +78,10 @@ def _target_series(frames: list[dict[str, Any]], servo_id: int) -> list[float | 
     return [
         float(value) if isinstance(value, (int, float)) else None
         for frame in frames
-        for value in [frame.get("servo_target_deg", {}).get(str(servo_id))]
+        for value in [
+            frame.get("input_applied_servo_target_deg", frame.get("servo_target_deg", {}))
+            .get(str(servo_id))
+        ]
     ]
 
 
@@ -184,7 +189,7 @@ def plot_run(run: Path, output_dir: Path, servo_id: int) -> list[Path]:
     ])
     _chart(outputs[2], f"Servo {servo_id} position tracking", "Position (degrees)", elapsed, [
         ("Measured", angles[servo_id], "#2563eb"),
-        ("Target", _target_series(frames, servo_id), "#dc2626"),
+        ("Applied target", _target_series(frames, servo_id), "#dc2626"),
     ])
     intervals = [None] + [(later - earlier) * 1_000.0 for earlier, later in zip(elapsed, elapsed[1:])]
     timing = [
@@ -193,6 +198,7 @@ def plot_run(run: Path, output_dir: Path, servo_id: int) -> list[Path]:
         ("Firmware frame", [float(frame.get("input_robot_state", {}).get("frame_us")) / 1_000.0 if isinstance(frame.get("input_robot_state", {}).get("frame_us"), (int, float)) else None for frame in frames], "#16a34a"),
         ("Current read", [float(frame.get("input_robot_state", {}).get("current_us")) / 1_000.0 if isinstance(frame.get("input_robot_state", {}).get("current_us"), (int, float)) else None for frame in frames], "#ea580c"),
         ("Inference", [float(frame.get("inference_ms")) if isinstance(frame.get("inference_ms"), (int, float)) else None for frame in frames], "#0891b2"),
+        ("Command to feedback", [float(frame.get("command_to_feedback_ns")) / 1_000_000.0 if isinstance(frame.get("command_to_feedback_ns"), (int, float)) else None for frame in frames], "#be123c"),
     ]
     _chart(outputs[3], "Control timing", "Milliseconds", elapsed, timing, reference_y=20.0)
     return outputs

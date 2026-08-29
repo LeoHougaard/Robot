@@ -45,10 +45,11 @@ value to zero and hold the last finite current value, matching deployment.
 ## Required simulation fit
 
 Before launching this policy family, export the Pixel training-capture ZIP and
-run `pixel_robot/tools/fit_sim_from_run_data.py` on it. The tool verifies the
-run, deployed actor, metadata, and calibration hashes. Save the versioned JSON
-report with the training manifest. The task configuration must consume all
-identifiable fields:
+run `pixel_robot/tools/analyze_training_capture.py` on it with
+`--require-50hz`. The tool verifies the run, deployed actor, metadata, and
+calibration hashes, then writes the fit and graphs. Save `simulation-fit.json`
+with the training manifest. The task configuration must consume all identifiable
+fields:
 
 - per-servo current bias, range, noise, clipping, coverage, and dropout;
 - target-to-measured joint error, lag, and effective speed;

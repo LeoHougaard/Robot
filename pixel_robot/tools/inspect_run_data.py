@@ -10,6 +10,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from run_data_source import open_run_text
+
 
 def _numbers(value: Any) -> list[float]:
     if not isinstance(value, list):
@@ -69,7 +71,7 @@ def _idle_servo_telemetry(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 def summarize_run(path: Path) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as stream:
+    with open_run_text(path) as (stream, source_label):
         for line_number, line in enumerate(stream, start=1):
             if not line.strip():
                 continue
@@ -143,6 +145,43 @@ def summarize_run(path: Path) -> dict[str, Any]:
     nonmonotonic_sequences = sum(
         current <= previous for previous, current in zip(sequences, sequences[1:])
     )
+    feedback_ticks = [
+        int(tick)
+        for data in frame_data
+        for tick in [
+            data.get("input_feedback_tick", data.get("input_robot_state", {}).get("tick"))
+            if isinstance(data, dict)
+            else None
+        ]
+        if isinstance(tick, int)
+    ]
+    missing_feedback_ticks = sum(
+        max(0, current - previous - 1)
+        for previous, current in zip(feedback_ticks, feedback_ticks[1:])
+    )
+    nonmonotonic_feedback_ticks = sum(
+        current <= previous for previous, current in zip(feedback_ticks, feedback_ticks[1:])
+    )
+    applied_sequences = [
+        int(sequence)
+        for data in frame_data
+        for sequence in [
+            data.get("input_state_sequence", data.get("input_robot_state", {}).get("seq"))
+            if isinstance(data, dict)
+            else None
+        ]
+        if isinstance(sequence, int)
+    ]
+    repeated_applied_sequences = sum(
+        current == previous
+        for previous, current in zip(applied_sequences, applied_sequences[1:])
+    )
+    command_to_feedback_ms = [
+        float(data["command_to_feedback_ns"]) / 1_000_000.0
+        for data in frame_data
+        if isinstance(data, dict)
+        and isinstance(data.get("command_to_feedback_ns"), (int, float))
+    ]
 
     tracking = [
         float(data["tracking_error_deg"])
@@ -219,8 +258,23 @@ def summarize_run(path: Path) -> dict[str, Any]:
 
     start_data = records[0].get("data", {})
     end_data = records[-1].get("data", {}) if records[-1].get("type") == "session_end" else {}
+    gate_reasons: list[str] = []
+    if len(feedback_ticks) < 2:
+        gate_reasons.append("firmware feedback ticks are absent")
+    if not firmware_intervals:
+        gate_reasons.append("no valid firmware sample intervals")
+    elif not 19.0 <= (_percentile(firmware_intervals, 0.5) or 0.0) <= 21.0:
+        gate_reasons.append("median firmware interval is outside 19-21 ms")
+    if (_percentile(firmware_intervals, 0.95) or float("inf")) > 25.0:
+        gate_reasons.append("p95 firmware interval exceeds 25 ms")
+    if missing_feedback_ticks:
+        gate_reasons.append("firmware feedback ticks are missing")
+    if nonmonotonic_feedback_ticks:
+        gate_reasons.append("firmware feedback ticks are not strictly increasing")
+    if incomplete_feedback:
+        gate_reasons.append("critical servo feedback is incomplete")
     return {
-        "file": str(path),
+        "file": source_label,
         "schema_version": start_data.get("schema_version") if isinstance(start_data, dict) else None,
         "session_id": session_id,
         "complete": records[-1].get("type") == "session_end",
@@ -234,12 +288,21 @@ def summarize_run(path: Path) -> dict[str, Any]:
         "firmware_sample_interval_ms": _stats(firmware_intervals),
         "missing_command_sequences": missing_sequences,
         "nonmonotonic_command_sequences": nonmonotonic_sequences,
+        "missing_feedback_ticks": missing_feedback_ticks,
+        "nonmonotonic_feedback_ticks": nonmonotonic_feedback_ticks,
+        "repeated_applied_command_sequences": repeated_applied_sequences,
         "incomplete_feedback_frames": incomplete_feedback,
         "current_complete_frames": current_complete_frames,
         "incomplete_current_frames": incomplete_current,
         "firmware_feedback_read_ms": _stats(feedback_us),
         "firmware_current_read_ms": _stats(current_us),
         "firmware_frame_ms": _stats(firmware_frame_us),
+        "command_to_feedback_ms": _stats(command_to_feedback_ms),
+        "transport_50hz_gate": {
+            "passed": not gate_reasons,
+            "target_period_ms": 20,
+            "reasons": gate_reasons,
+        },
         "servo_current": servo_current,
         "idle_servo_telemetry": _idle_servo_telemetry(records),
         "max_abs_pitch_deg": max((abs(value) for value in pitches), default=None),
@@ -255,7 +318,11 @@ def summarize_run(path: Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run", type=Path, help="exported .jsonl or .interrupted.jsonl run")
+    parser.add_argument(
+        "run",
+        type=Path,
+        help="exported JSONL run or training-capture ZIP",
+    )
     parser.add_argument("--json", action="store_true", help="emit machine-readable summary JSON")
     args = parser.parse_args()
     try:

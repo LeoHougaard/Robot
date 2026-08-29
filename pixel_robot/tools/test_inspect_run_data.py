@@ -72,6 +72,7 @@ class InspectRunDataTest(unittest.TestCase):
         self.assertEqual(summary["servo_current"]["1"]["coverage_fraction"], 1.0)
         self.assertEqual(summary["servo_current"]["1"]["maximum_abs_ma"], 45.5)
         self.assertEqual(summary["firmware_current_read_ms"]["median"], 3.2)
+        self.assertFalse(summary["transport_50hz_gate"]["passed"])
         self.assertEqual(summary["idle_servo_telemetry"]["2"]["sample_count"], 1)
         self.assertEqual(
             summary["idle_servo_telemetry"]["2"]["measurements"]["load_raw"]["minimum"],

@@ -205,6 +205,7 @@ class PolicyController(
                 command = FloatArray(3) { command[it] + alpha * (commandTarget[it] - command[it]) }
                 val stateSequence = state.getLong("seq")
                 val previousActionForObservation = requireNotNull(actionsBySequence[stateSequence]).copyOf()
+                val inputAppliedTargets = requireNotNull(targetsBySequence[stateSequence])
                 val frame = vectors.first + command + joints +
                     FloatArray(ACTION_COUNT) { 0.05f * jointVelocity[it] } +
                     previousActionForObservation
@@ -275,6 +276,7 @@ class PolicyController(
                         .put("applied_action", appliedAction.jsonArray())
                         .put("policy_target_position_rad", policyPosition.jsonArray())
                         .put("servo_target_deg", targets.jsonObject())
+                        .put("input_applied_servo_target_deg", inputAppliedTargets.jsonObject())
                         .put("tracking_error_deg", tracking.second)
                         .put("worst_tracking_servo_id", tracking.first)
                         .put("inference_ms", inferenceMs)

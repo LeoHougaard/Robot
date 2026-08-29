@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import statistics
 from pathlib import Path
 from typing import Any, Iterable
-import zipfile
+
+from run_data_source import open_run_text, verify_training_capture
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -80,36 +80,9 @@ def _load_records(path: Path) -> list[dict[str, Any]]:
 
 
 def _load_training_capture(path: Path) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
-    with zipfile.ZipFile(path) as archive:
-        names = set(archive.namelist())
-        if "manifest.json" not in names:
-            raise ValueError("training capture has no manifest.json")
-        for name in names:
-            parts = Path(name.replace("\\", "/")).parts
-            if name.startswith(("/", "\\")) or ".." in parts:
-                raise ValueError(f"unsafe ZIP entry: {name}")
-        manifest = json.loads(archive.read("manifest.json"))
-        if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
-            raise ValueError("unsupported training capture manifest")
-        files = manifest.get("files")
-        if not isinstance(files, list):
-            raise ValueError("training capture file manifest is missing")
-        for item in files:
-            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
-                raise ValueError("invalid training capture file record")
-            entry = item["path"]
-            if entry not in names:
-                raise ValueError(f"training capture is missing {entry}")
-            payload = archive.read(entry)
-            if len(payload) != item.get("size_bytes"):
-                raise ValueError(f"size mismatch for {entry}")
-            if hashlib.sha256(payload).hexdigest() != item.get("sha256"):
-                raise ValueError(f"SHA-256 mismatch for {entry}")
-        run_entry = manifest.get("run_entry")
-        if not isinstance(run_entry, str) or run_entry not in names:
-            raise ValueError("training capture run_entry is missing")
-        run_text = archive.read(run_entry).decode("utf-8")
-        return f"{path}!/{run_entry}", _parse_records(run_text.splitlines()), manifest
+    manifest = verify_training_capture(path)
+    with open_run_text(path, manifest) as (stream, label):
+        return label, _parse_records(stream), manifest
 
 
 def _input_angles(frame: dict[str, Any]) -> dict[str, float]:
@@ -123,6 +96,14 @@ def _input_angles(frame: dict[str, Any]) -> dict[str, float]:
         for servo_id, angle in zip(ids, angles)
         if isinstance(servo_id, int) and isinstance(angle, (int, float))
     }
+
+
+def _applied_targets(frame: dict[str, Any]) -> dict[str, Any]:
+    matched = frame.get("input_applied_servo_target_deg")
+    if isinstance(matched, dict):
+        return matched
+    targets = frame.get("servo_target_deg")
+    return targets if isinstance(targets, dict) else {}
 
 
 def _servo_metadata(start_record: dict[str, Any]) -> tuple[dict[str, str], list[float]]:
@@ -167,6 +148,9 @@ def _servo_report(
     lag_squared_errors = {
         servo_id: {lag: [] for lag in range(max_lag_frames + 1)} for servo_id in servo_ids
     }
+    has_sequence_matched_targets = any(
+        isinstance(frame.get("input_applied_servo_target_deg"), dict) for frame in frames
+    )
 
     for index, frame in enumerate(frames):
         measured = _input_angles(frame)
@@ -185,19 +169,26 @@ def _servo_report(
             target_index = index - lag
             if target_index < 0:
                 continue
-            targets = frames[target_index].get("servo_target_deg", {})
+            targets = _applied_targets(frames[target_index])
             for servo_id in servo_ids:
                 target = targets.get(servo_id)
                 angle = measured.get(servo_id)
                 if isinstance(target, (int, float)) and angle is not None:
                     lag_squared_errors[servo_id][lag].append((angle - float(target)) ** 2)
 
+    if has_sequence_matched_targets:
+        for frame in frames:
+            feedback = _input_angles(frame)
+            for servo_id, target in _applied_targets(frame).items():
+                if servo_id in feedback and isinstance(target, (int, float)):
+                    errors.setdefault(servo_id, []).append(float(target) - feedback[servo_id])
+
     for index in range(len(frames) - 1):
         frame = frames[index]
         following = frames[index + 1]
         following_state = following.get("input_robot_state", {})
         command_sequence = frame.get("command_sequence")
-        if following_state.get("seq") == command_sequence:
+        if not has_sequence_matched_targets and following_state.get("seq") == command_sequence:
             feedback = _input_angles(following)
             for servo_id, target in frame.get("servo_target_deg", {}).items():
                 if servo_id in feedback and isinstance(target, (int, float)):
@@ -214,8 +205,8 @@ def _servo_report(
         seconds = sample_interval_ms / 1000.0
         current_angles = _input_angles(frame)
         following_angles = _input_angles(following)
-        current_targets = frame.get("servo_target_deg", {})
-        following_targets = following.get("servo_target_deg", {})
+        current_targets = _applied_targets(frame)
+        following_targets = _applied_targets(following)
         for servo_id in servo_ids:
             if servo_id in current_angles and servo_id in following_angles:
                 measured_speeds[servo_id].append(
@@ -431,6 +422,8 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
     )
     firmware_interval_p95 = _percentile(sample_intervals_ms, 0.95)
     transport_gate_reasons: list[str] = []
+    if len(integer_feedback_ticks) < 2:
+        transport_gate_reasons.append("firmware feedback ticks are absent")
     if not sample_intervals_ms:
         transport_gate_reasons.append("no valid firmware sample intervals")
     elif not 19.0 <= statistics.median(sample_intervals_ms) <= 21.0:

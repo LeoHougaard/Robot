@@ -45,6 +45,12 @@ Create SVG graphs without extra Python packages. Choose the servo ID to inspect:
 python tools\plot_run_data.py "<robot-run.jsonl>" --servo-id 2
 ```
 
+Or run validation, fitting, and graphs directly from the exported ZIP:
+
+```powershell
+python tools\analyze_training_capture.py "<training-capture.zip>" --servo-id 2 --require-50hz
+```
+
 This writes all-servo current, selected-servo current, selected-servo
 target-versus-measured position, and control-timing graphs beside the run.
 
@@ -117,7 +123,8 @@ Each `derived_policy_frame` additionally records:
   exact 180-value actor observation;
 - raw actor output, filtered action, safety-limited applied action, policy-space
   position target, and calibrated servo-degree target;
-- maximum target/feedback error and the worst servo ID;
+- newly commanded servo targets, the applied targets matched to each input
+  state sequence, maximum target/feedback error, and the worst servo ID;
 - the complete input `policy_state` used for that inference.
 
 Once per second, an `android_system_sample` event records Pixel thermal status,

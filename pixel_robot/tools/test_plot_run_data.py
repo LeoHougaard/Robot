@@ -20,6 +20,7 @@ class PlotRunDataTest(unittest.TestCase):
                         "frame_compute_ns": 18_000_000,
                         "inference_ms": 1.2,
                         "servo_target_deg": {"2": 100.0 + index},
+                        "input_applied_servo_target_deg": {"2": 99.0 + index},
                         "input_robot_state": {
                             "ids": [1, 2],
                             "angles_deg": [90.0 + index, 99.0 + index],
@@ -36,6 +37,7 @@ class PlotRunDataTest(unittest.TestCase):
             self.assertEqual(len(outputs), 4)
             self.assertTrue(all(path.is_file() for path in outputs))
             self.assertIn("Servo 2 current", outputs[1].read_text(encoding="utf-8"))
+            self.assertIn("Applied target", outputs[2].read_text(encoding="utf-8"))
             self.assertIn("20 ms target", outputs[3].read_text(encoding="utf-8"))
 
 

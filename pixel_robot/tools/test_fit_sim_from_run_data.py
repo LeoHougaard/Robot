@@ -85,6 +85,26 @@ class FitSimFromRunDataTest(unittest.TestCase):
         self.assertEqual(report["training_capture"]["context"]["profile_id"], "test")
         self.assertEqual(report["selection"]["selected_complete_policy_run_count"], 1)
 
+    def test_sequence_matched_targets_control_tracking_fit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_path = Path(directory) / "run.jsonl"
+            self._write_run(run_path, complete_session=True, with_policy=True)
+            records = [json.loads(line) for line in run_path.read_text().splitlines()]
+            for record in records:
+                if record["type"] != "derived_policy_frame":
+                    continue
+                data = record["data"]
+                measured = data["input_robot_state"]["angles_deg"][0]
+                data["input_applied_servo_target_deg"] = {"1": measured}
+            run_path.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+
+            report = fit_path(run_path, max_lag_frames=3)
+
+        self.assertEqual(report["runs"][0]["servos"]["1"]["error_deg"]["mae"], 0.0)
+
     @unittest.skipUnless(
         (
             Path(__file__).resolve().parents[2]

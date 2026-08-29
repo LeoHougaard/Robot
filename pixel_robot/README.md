@@ -109,6 +109,14 @@ python tools\fit_sim_from_run_data.py "<robot-run.jsonl-or-training-capture.zip>
 python tools\plot_run_data.py "<robot-run.jsonl>" --servo-id 2
 ```
 
+The one-command path accepts the training-capture ZIP directly, verifies every
+hash, writes the summary and simulation fit, creates all four graphs, and can
+enforce the physical 50 Hz gate:
+
+```powershell
+python tools\analyze_training_capture.py "<training-capture.zip>" --servo-id 2 --require-50hz
+```
+
 The graph command writes SVG plots for all-servo current, the selected servo's
 current and position tracking, and control timing. Full recordings and generated
 plots stay under `pixel_robot/run_data/` and remain outside Git.
