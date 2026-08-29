@@ -117,6 +117,13 @@ enforce the physical 50 Hz gate:
 python tools\analyze_training_capture.py "<training-capture.zip>" --servo-id 2 --require-50hz
 ```
 
+When operator handling needs to be excluded, keep the downloaded files intact
+and create a provenance-bearing policy-time slice before fitting:
+
+```powershell
+python tools\trim_training_capture.py "<training-capture.zip>" --start-seconds 0 --end-seconds 51.0 --output-run "<trimmed.jsonl>" --output-capture "<trimmed-training-capture.zip>" --reason "operator handling removed"
+```
+
 The graph command writes SVG plots for all-servo current, the selected servo's
 current and position tracking, and control timing. Full recordings and generated
 plots stay under `pixel_robot/run_data/` and remain outside Git.
