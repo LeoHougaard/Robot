@@ -106,3 +106,11 @@ transport gate. Do not use that run to claim a 50 Hz deployment.
 Firmware 0.1.13 and Pixel app 0.2.7 implement the clocked pipeline, but the gate
 still requires a new operator-run recording whose fit report has
 `transport_50hz_gate.passed` set to `true`.
+
+The trimmed 2026-08-29 walking capture
+`robot-run-20260829-195709-660-8aea13e2-trimmed-training-capture.zip`
+(SHA-256 `bd8d95b3da2eacf578f0d97b328c02e8504d7a1224474dbe5a5e4eaf5d0bd212`)
+retains 2,199 policy frames over 50.982 seconds with complete current and
+critical feedback for all 12 servos. It is valid evidence for current,
+tracking, saturation, and effective-lag fitting. Its measured rate is 43.12 Hz
+(23 ms median firmware interval), so it does not close the separate 50 Hz gate.
