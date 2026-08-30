@@ -2,7 +2,7 @@ const token = new URLSearchParams(location.search).get("token") || sessionStorag
 if (token) sessionStorage.setItem("robot-control-token", token);
 if (location.search) history.replaceState({}, "", location.pathname);
 
-const state = { data: null, profile: null, saved: null, section: "robot", expert: false, busy: false, query: "" };
+const state = { data: null, profile: null, saved: null, section: "robot", expert: false, busy: false, query: "", runtimeFields: {}, videoMetadata: null, reviewVideos: [], selectedReview: null, retainedPreviewFallback: false };
 const icons = { robot: "◇", run: "▶", surface: "▱", physics: "◉", motion: "↝", initialization: "⌖", randomization: "≋", actuators: "⌁", disturbance: "≈", rewards: "☆", ppo: "∿" };
 
 async function api(path, options = {}) {
@@ -20,6 +20,7 @@ async function api(path, options = {}) {
 }
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>\"']/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;",'\"':"&quot;","'":"&#39;"})[character]); }
 function getPath(object, path) { return path.split(".").reduce((value, part) => Array.isArray(value) ? value[Number(part)] : value[part], object); }
 function setPath(object, path, value) {
   const parts = path.split(".");
@@ -182,6 +183,7 @@ async function refreshStatus(force = false) {
   try {
     const result = await api(`/api/status${force ? "?force=1" : ""}`);
     const fields = result.fields || {};
+    state.runtimeFields = fields;
     const training = fields.training || "unknown";
     const activeHash = fields.profile_sha || "";
     const synced = activeHash && state.data.profile_hash.startsWith(activeHash);
@@ -192,11 +194,90 @@ async function refreshStatus(force = false) {
     const values = [fields.container || "—", fields.task || "—", fields.surface || "—", fields.progress || fields.target || "—", fields.best || "—", fields.gpu || "—", activeHash ? activeHash.slice(0, 10) : "No active profile"];
     document.querySelectorAll("#run-details dd").forEach((node, index) => node.textContent = values[index]);
     document.querySelector("#video-context").textContent = `Newest run: ${fields.task || "unknown task"} · ${fields.surface || "unknown surface"}`;
+    renderVideoContext();
   } catch (error) {
     runtime.className = "sync-item bad";
     runtime.querySelector("small").textContent = error.message;
     document.querySelector("#run-title").textContent = "unreachable";
   }
+}
+
+function renderVideoContext() {
+  const fields = state.runtimeFields || {};
+  const context = document.querySelector("#video-context");
+  const empty = document.querySelector("#video-empty");
+  const video = document.querySelector("#training-video");
+  const metadata = state.videoMetadata;
+  const activeExperiment = String(fields.outputs || "").split(/[\\/]/).filter(Boolean).at(-1) || "";
+  if (state.selectedReview) {
+    const review = state.selectedReview;
+    if (state.retainedPreviewFallback) {
+      context.textContent = `Retained reference - not active run ${activeExperiment || "unknown"}: ${review.title || `Checkpoint ${review.epoch || "?"}`}`;
+      return;
+    }
+    const reward = Number.isFinite(Number(review.reward)) ? ` · shortlist reward ${Number(review.reward).toFixed(2)}` : "";
+    context.textContent = `${review.title || `Checkpoint ${review.epoch || "?"}`} · held-out terrain ${Number(review.terrain_sample_index) + 1}/5 · camera ${Number(review.view_index) + 1}/5${reward}`;
+    return;
+  }
+  if (metadata && metadata.matches_active_run && (!activeExperiment || metadata.experiment === activeExperiment)) {
+    const terrainSample = Number.isInteger(metadata.terrain_sample_index) ? ` · terrain sample ${metadata.terrain_sample_index + 1}/5` : "";
+    context.textContent = `Current clip: ${metadata.experiment} · step ${metadata.step}${terrainSample} · following robot env ${metadata.env_index} · camera ${metadata.view_index + 1}/5`;
+    return;
+  }
+  if (fields.training === "running" && metadata && video.getAttribute("src")) {
+    const terrainSample = Number.isInteger(metadata.terrain_sample_index) ? ` · terrain sample ${metadata.terrain_sample_index + 1}/5` : "";
+    context.textContent = `Latest verified clip: ${metadata.experiment} · step ${metadata.step}${terrainSample} · following robot env ${metadata.env_index} · camera ${metadata.view_index + 1}/5 · ${fields.surface || "unknown surface"}; live scratch training continues in ${activeExperiment || "the active run"}`;
+    return;
+  }
+  video.pause();
+  video.removeAttribute("src");
+  video.classList.remove("video-visible");
+  empty.classList.remove("panel-hidden");
+  if (fields.training === "running") {
+    if (state.profile && !state.profile.training.record_video) {
+      empty.textContent = "Training is running headlessly for full speed. Visual checkpoint reviews appear here between training blocks.";
+      context.textContent = `Active run: ${fields.task || "unknown task"} · ${fields.surface || "unknown surface"} · reviews rotate across five held-out terrain samples and camera angles`;
+    } else {
+      empty.textContent = "The current run is recording its first followed-robot clip. Fetch newest when it completes.";
+      context.textContent = `Active run: ${fields.task || "unknown task"} · ${fields.surface || "unknown surface"} · clips rotate across five terrain-stratified robots`;
+    }
+  } else {
+    context.textContent = `Newest run: ${fields.task || "unknown task"} · ${fields.surface || "unknown surface"}`;
+  }
+}
+
+function renderReviewGallery() {
+  const gallery = document.querySelector("#review-gallery");
+  if (!state.reviewVideos.length) {
+    gallery.innerHTML = `<p class="review-empty">The comparison set will appear here after the strongest checkpoints are rendered.</p>`;
+    return;
+  }
+  gallery.innerHTML = state.reviewVideos.map(review => {
+    const title = escapeHtml(review.title || `Checkpoint ${review.epoch || "?"}`);
+    const reward = Number.isFinite(Number(review.reward)) ? `<span>shortlist reward ${Number(review.reward).toFixed(2)}</span>` : "";
+    const terrain = Number.isInteger(review.terrain_sample_index) ? Number(review.terrain_sample_index) + 1 : "?";
+    const view = Number.isInteger(review.view_index) ? Number(review.view_index) + 1 : "?";
+    return `<article class="review-item" data-review-id="${escapeHtml(review.id)}">
+      <div class="review-video"><video controls muted playsinline preload="metadata" src="${escapeHtml(review.video_url)}?token=${encodeURIComponent(token)}"></video></div>
+      <div class="review-label"><strong>${title}</strong><small><span>terrain ${terrain}/5</span><span>camera ${view}/5</span>${reward}</small><button type="button" data-open-review="${escapeHtml(review.id)}">Follow in large view</button></div>
+    </article>`;
+  }).join("");
+  gallery.querySelectorAll("[data-open-review]").forEach(button => button.addEventListener("click", () => showReview(button.dataset.openReview, true)));
+}
+
+function showReview(reviewId, expand = false, retainedPreviewFallback = false) {
+  const review = state.reviewVideos.find(item => item.id === reviewId);
+  if (!review) return;
+  state.selectedReview = review;
+  state.retainedPreviewFallback = retainedPreviewFallback;
+  const video = document.querySelector("#training-video");
+  const empty = document.querySelector("#video-empty");
+  video.src = `${review.video_url}?token=${encodeURIComponent(token)}&t=${Date.now()}`;
+  video.classList.add("video-visible");
+  empty.classList.add("panel-hidden");
+  video.load();
+  renderVideoContext();
+  if (expand) setLargeVideo(true);
 }
 
 async function save() {
@@ -222,7 +303,7 @@ async function runAction(action) {
   finally { state.busy = false; renderChecks(); await refreshStatus(true); }
 }
 
-async function refreshVideo() {
+async function refreshVideo(expand = false, quiet = false) {
   const empty = document.querySelector("#video-empty");
   const video = document.querySelector("#training-video");
   const button = document.querySelector("#refresh-video");
@@ -232,11 +313,18 @@ async function refreshVideo() {
   try {
     const result = await api("/api/action", { method: "POST", body: JSON.stringify({action:"refresh_video"}) });
     if (!result.ok) throw new Error(result.output || "No video is available.");
+    state.videoMetadata = result.video_metadata || null;
+    state.selectedReview = null;
+    state.retainedPreviewFallback = false;
+    // The renderer intentionally overwrites the same remote rollout path for
+    // each validation sample. A matching source pathname therefore does not
+    // mean the video bytes or followed robot instance are unchanged.
     video.src = `/api/video/latest?token=${encodeURIComponent(token)}&t=${Date.now()}`;
     video.classList.add("video-visible"); empty.classList.add("panel-hidden"); video.load();
-    setLargeVideo(true);
+    if (expand) setLargeVideo(true);
+    renderVideoContext();
     document.querySelector("#console-output").textContent = result.output || "Newest video loaded.";
-  } catch (error) { empty.textContent = error.message; video.classList.remove("video-visible"); empty.classList.remove("panel-hidden"); }
+  } catch (error) { if (!quiet) { state.videoMetadata = null; renderVideoContext(); empty.textContent = error.message; video.classList.remove("video-visible"); empty.classList.remove("panel-hidden"); } }
   finally { button.disabled = false; }
 }
 
@@ -244,7 +332,7 @@ function setLargeVideo(expanded) {
   const card = document.querySelector("#video-card");
   const button = document.querySelector("#expand-video");
   card.classList.toggle("expanded", expanded);
-  button.textContent = expanded ? "Close large view" : "Large view";
+  button.textContent = expanded ? "Hide comparisons" : "Show comparisons";
   button.setAttribute("aria-expanded", String(expanded));
   document.body.classList.toggle("video-expanded", expanded);
 }
@@ -259,8 +347,20 @@ async function selectProfile(profileId) {
 async function init() {
   try {
     state.data = await api("/api/bootstrap"); state.profile = clone(state.data.profile); state.saved = clone(state.data.profile);
+    state.videoMetadata = state.data.video_metadata || null;
+    state.reviewVideos = state.data.review_videos || [];
+    renderReviewGallery();
     populateProfiles(); render(); await refreshStatus(true);
+    if (
+      state.runtimeFields.training === "running" &&
+      state.profile &&
+      !state.profile.training.record_video &&
+      state.reviewVideos.length
+    ) showReview(state.reviewVideos[0].id, false);
     setInterval(() => refreshStatus(false), 10000);
+    setInterval(() => {
+      if (state.runtimeFields.training === "running" && state.profile.training.record_video && !state.busy) refreshVideo(false, true);
+    }, 60000);
   } catch (error) {
     document.body.innerHTML = `<main class="fatal-error"><h1>Control center unavailable</h1><p>${error.message}</p><p>Open the exact tokenized URL printed by Start-RobotControlCenter.ps1.</p></main>`;
   }
@@ -272,7 +372,7 @@ document.querySelector("#profile-select").addEventListener("change", event => se
 document.querySelector("#save-button").addEventListener("click", save);
 document.querySelector("#refresh-status").addEventListener("click", () => refreshStatus(true));
 document.querySelector("#start-training").addEventListener("click", () => runAction("start_training"));
-document.querySelector("#refresh-video").addEventListener("click", refreshVideo);
+document.querySelector("#refresh-video").addEventListener("click", () => refreshVideo(false, false));
 document.querySelector("#expand-video").addEventListener("click", () => setLargeVideo(!document.querySelector("#video-card").classList.contains("expanded")));
 document.querySelector("#training-video").addEventListener("loadeddata", event => event.target.play().catch(() => {}));
 document.addEventListener("keydown", event => { if (event.key === "Escape") setLargeVideo(false); });

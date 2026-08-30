@@ -45,7 +45,7 @@ FIELD_GROUPS: list[dict[str, Any]] = [
         "title": "Surface",
         "summary": "Select the terrain family and the contact material Isaac Sim will build.",
         "fields": [
-            {"path": "environment.surface", "label": "Surface", "type": "select", "options": ["Flat", "Random rough", "Slopes", "Mixed curriculum"], "description": "Terrain beneath the robot. Selecting a non-flat surface also selects the V2 Rough task; selecting Flat returns to V2 Core. Save before starting because a running Isaac scene cannot change terrain."},
+            {"path": "environment.surface", "label": "Surface", "type": "select", "options": ["Flat", "Random rough", "Slopes", "Steps", "Mixed curriculum"], "description": "Terrain beneath the robot. Selecting a non-flat surface also selects the V2 Rough task; selecting Flat returns to V2 Core. Save before starting because a running Isaac scene cannot change terrain."},
             {"path": "terrain.roughness_min", "label": "Roughness minimum", "type": "number", "min": 0, "max": 0.25, "step": 0.0025, "unit": "m", "description": "Smallest vertical displacement in random rough terrain."},
             {"path": "terrain.roughness_max", "label": "Roughness maximum", "type": "number", "min": 0, "max": 0.5, "step": 0.0025, "unit": "m", "description": "Largest vertical displacement at maximum curriculum difficulty."},
             {"path": "terrain.slope_max", "label": "Maximum slope", "type": "number", "min": 0, "max": 0.8, "step": 0.01, "description": "Steepest generated pyramid slope at maximum difficulty."},
@@ -457,6 +457,54 @@ def validate_profile(profile: object, *, for_launch: bool = False) -> dict[str, 
         errors.append("disturbance.push_interval_min_s cannot exceed push_interval_max_s.")
     if profile["terrain"]["roughness_min"] > profile["terrain"]["roughness_max"]:
         errors.append("terrain.roughness_min cannot exceed terrain.roughness_max.")
+    step_height_min = profile["terrain"].get("step_height_min", 0.004)
+    step_height_max = profile["terrain"].get("step_height_max", 0.018)
+    step_width = profile["terrain"].get("step_width", 0.16)
+    step_platform_width = profile["terrain"].get("step_platform_width", 0.80)
+    for path, value in (
+        ("terrain.step_height_min", step_height_min),
+        ("terrain.step_height_max", step_height_max),
+        ("terrain.step_width", step_width),
+        ("terrain.step_platform_width", step_platform_width),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            errors.append(f"{path} must be a positive number.")
+    if (
+        isinstance(step_height_min, (int, float))
+        and not isinstance(step_height_min, bool)
+        and isinstance(step_height_max, (int, float))
+        and not isinstance(step_height_max, bool)
+        and step_height_min > step_height_max
+    ):
+        errors.append("terrain.step_height_min cannot exceed terrain.step_height_max.")
+
+    response_alpha = profile.get("actuators", {}).get("response_alpha_by_joint")
+    if response_alpha is not None and (
+        not isinstance(response_alpha, list)
+        or len(response_alpha) != expected
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not 0.0 < value <= 1.0
+            for value in response_alpha
+        )
+    ):
+        errors.append(
+            "actuators.response_alpha_by_joint must contain 12 values within (0, 1]."
+        )
+    response_scale_min = randomization.get("actuator_response_scale_min", 1.0)
+    response_scale_max = randomization.get("actuator_response_scale_max", 1.0)
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or value <= 0.0
+        for value in (response_scale_min, response_scale_max)
+    ):
+        errors.append("Actuator response scales must be positive numbers.")
+    elif response_scale_min > response_scale_max:
+        errors.append(
+            "domain_randomization actuator response scale minimum cannot exceed its maximum."
+        )
     stage = profile["training"]["stage"]
     surface = profile["environment"]["surface"]
     if stage in ("V2Goal", "V2Rough"):

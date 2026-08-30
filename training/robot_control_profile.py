@@ -81,13 +81,17 @@ def apply_agent_profile(
         return agent_cfg
     config = agent_cfg["params"]["config"]
     agent_cfg["params"]["seed"] = profile["training"]["seed"]
-    if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_v3":
+    policy_family = os.environ.get("SIMPLE_DOG_POLICY_FAMILY")
+    if policy_family in ("current_v3", "current_body_v4"):
         # The selected profile owns robot geometry and hardware limits, but its
         # PPO block was tuned for the 180-input V2 family. Keep CurrentV3's
         # separately reviewed optimizer/network contract and namespace.
-        config["name"] = (
-            "quadruped_current_v3_" + profile["profile_id"].replace("-", "_")
+        prefix = (
+            "quadruped_current_body_v4_"
+            if policy_family == "current_body_v4"
+            else "quadruped_current_v3_"
         )
+        config["name"] = prefix + profile["profile_id"].replace("-", "_")
         return agent_cfg
     ppo = profile["ppo"]
     config["name"] = "quadruped_v2_" + profile["profile_id"].replace("-", "_")

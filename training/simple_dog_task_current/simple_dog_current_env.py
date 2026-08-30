@@ -61,6 +61,15 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         )
         self._latest_current_validity = torch.ones(joint_shape, device=self.device)
         self._latest_normalized_current = torch.zeros(joint_shape, device=self.device)
+        self._reset_settle_steps_remaining = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._reset_hold_active_mask = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self._reset_hold_joint_position = self._robot.data.default_joint_pos.torch[
+            :, self._policy_joint_ids
+        ].clone()
 
         self._fit_current_bias = self._joint_tensor(self.cfg.current_bias_ma)
         self._fit_current_scale = self._joint_tensor(self.cfg.current_scale_ma)
@@ -71,6 +80,9 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         self._fit_residual_mad = self._joint_tensor(self.cfg.actuator_residual_mad_rad)
 
         self._episode_sums["posture_tracking"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self._episode_sums["posture_attitude_error"] = torch.zeros(
             self.num_envs, device=self.device
         )
         self._evaluation_posture_height_sum = 0.0
@@ -84,6 +96,58 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         all_envs = torch.arange(self.num_envs, device=self.device)
         self._sample_current_model(all_envs)
         self._sample_posture_targets(all_envs, immediate=True)
+        self._start_reset_settle(all_envs)
+
+    def _start_reset_settle(self, env_ids: torch.Tensor) -> None:
+        """Drop in a randomized held pose before handing control to PPO."""
+
+        settle_steps = max(
+            0, round(self.cfg.reset_settle_time_s / self.step_dt)
+        )
+        default_position = self._robot.data.default_joint_pos.torch[
+            env_ids[:, None], self._policy_joint_ids
+        ].clone()
+        randomization = self.cfg.reset_hold_randomization_rad
+        if settle_steps and randomization > 0.0:
+            default_position += torch.empty_like(default_position).uniform_(
+                -randomization, randomization
+            )
+        joint_limits = self._robot.data.joint_pos_limits.torch[
+            env_ids[:, None], self._policy_joint_ids
+        ]
+        hold_position = torch.maximum(
+            torch.minimum(default_position, joint_limits[:, :, 1]),
+            joint_limits[:, :, 0],
+        )
+        self._reset_hold_joint_position[env_ids] = hold_position
+        self._reset_settle_steps_remaining[env_ids] = settle_steps
+        self._reset_hold_active_mask[env_ids] = settle_steps > 0
+
+        full_joint_position = self._robot.data.default_joint_pos.torch[
+            env_ids
+        ].clone()
+        full_joint_position[:, self._policy_joint_ids] = hold_position
+        full_joint_velocity = torch.zeros_like(
+            self._robot.data.default_joint_vel.torch[env_ids]
+        )
+        self._robot.write_joint_position_to_sim_index(
+            position=full_joint_position, env_ids=env_ids
+        )
+        self._robot.write_joint_velocity_to_sim_index(
+            velocity=full_joint_velocity, env_ids=env_ids
+        )
+        self._actuator_target_state[env_ids] = hold_position
+        self._last_simulated_target[env_ids] = hold_position
+        if self.cfg.print_play_metrics and torch.any(env_ids == 0):
+            print(
+                "RESET_DROP "
+                f"clearance_m={self.cfg.reset_spawn_clearance_m:.3f} "
+                f"settle_steps={settle_steps} "
+                f"settle_seconds={settle_steps * self.step_dt:.3f} "
+                f"joint_randomization_deg="
+                f"{math.degrees(randomization):.1f}",
+                flush=True,
+            )
 
     def _joint_tensor(self, values) -> torch.Tensor:
         if len(values) != self.cfg.action_space:
@@ -158,6 +222,8 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         )
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        settling = self._reset_settle_steps_remaining > 0
+        actions = torch.where(settling.unsqueeze(1), 0.0, actions)
         self._apply_posture_commands()
         self._action_delay_buffer = torch.roll(
             self._action_delay_buffer, shifts=-1, dims=1
@@ -179,8 +245,24 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
             self._last_simulated_target - maximum_delta,
             self._last_simulated_target + maximum_delta,
         )
+        target[settling] = self._reset_hold_joint_position[settling]
         self._last_simulated_target = target.clone()
         self._processed_actions = target
+        self._reset_hold_active_mask = settling
+        if torch.any(settling):
+            self._actions[settling] = 0.0
+            self._previous_actions[settling] = 0.0
+            self._raw_actions[settling] = 0.0
+            self._previous_raw_actions[settling] = 0.0
+            self._filtered_actions[settling] = 0.0
+            self._previous_filtered_actions[settling] = 0.0
+            self._actuator_target_state[settling] = self._reset_hold_joint_position[
+                settling
+            ]
+            releasing = settling & (self._reset_settle_steps_remaining == 1)
+            self._reset_settle_steps_remaining[settling] -= 1
+            if self.cfg.print_play_metrics and bool(releasing[0].item()):
+                print("POLICY_CONTROL_ENABLED", flush=True)
 
     def _simulate_current(self) -> tuple[torch.Tensor, torch.Tensor]:
         effort = torch.abs(
@@ -285,8 +367,18 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         )
         posture = (height_score + roll_score + pitch_score) / 3.0
         term = posture * self.cfg.posture_tracking_reward_scale * self.step_dt
+        attitude_error = (
+            torch.abs(roll - self._posture_commands[:, 1])
+            + torch.abs(pitch - self._posture_commands[:, 2])
+        )
+        attitude_term = (
+            attitude_error
+            * self.cfg.posture_attitude_error_penalty_scale
+            * self.step_dt
+        )
         self._episode_sums["posture_tracking"] += term
-        return reward + term
+        self._episode_sums["posture_attitude_error"] += attitude_term
+        return reward + term + attitude_term
 
     def _begin_evaluation_segment(self, segment_index: int) -> None:
         self._evaluation_posture_height_sum = 0.0
@@ -347,3 +439,4 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
             :, self._policy_joint_ids
         ]
         self._last_simulated_target[env_ids] = default_policy_position[env_ids]
+        self._start_reset_settle(env_ids)

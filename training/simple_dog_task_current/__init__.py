@@ -32,6 +32,34 @@ gym.register(
 
 
 gym.register(
+    id="Isaac-Locomotion-CurrentV3-Forward-Specialist-Simple-Dog-Direct-v0",
+    entry_point=f"{__name__}.simple_dog_current_env:SimpleDogCurrentV3Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.simple_dog_current_env_cfg:"
+            "SimpleDogCurrentV3ForwardSpecialistEnvCfg"
+        ),
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Isaac-Locomotion-CurrentV3-Reverse-Specialist-Simple-Dog-Direct-v0",
+    entry_point=f"{__name__}.simple_dog_current_env:SimpleDogCurrentV3Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.simple_dog_current_env_cfg:"
+            "SimpleDogCurrentV3ReverseSpecialistEnvCfg"
+        ),
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
     id="Isaac-Locomotion-CurrentV3-Strafe-Simple-Dog-Direct-v0",
     entry_point=f"{__name__}.simple_dog_current_env:SimpleDogCurrentV3Env",
     disable_env_checker=True,

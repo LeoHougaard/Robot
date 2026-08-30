@@ -1,0 +1,412 @@
+"""CurrentBodyV4 mixed-command body control with deployable dual history."""
+
+from __future__ import annotations
+
+import math
+
+import torch
+
+from simple_dog_task_v2.simple_dog_v2_env import SimpleDogV2Env
+from simple_dog_task_current.simple_dog_current_env import SimpleDogCurrentV3Env
+from .simple_dog_current_body_v4_env_cfg import (
+    SimpleDogCurrentBodyV4HardEnvCfg,
+)
+
+
+class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
+    cfg: SimpleDogCurrentBodyV4HardEnvCfg
+
+    def __init__(self, cfg, render_mode=None, **kwargs):
+        super().__init__(cfg, render_mode, **kwargs)
+        self._timing_history = torch.ones(
+            self.num_envs,
+            self.cfg.observation_history_length,
+            1,
+            device=self.device,
+        )
+        self._v4_command_modes = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._current_model_weights = torch.zeros(
+            self.num_envs, 4, device=self.device
+        )
+        self._sample_current_model(
+            torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        )
+        self._episode_sums["body_tracking"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self._episode_sums["diagonal_multiplier"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        all_envs = torch.arange(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._sample_command_targets(all_envs, immediate=True)
+        self._sample_posture_targets(all_envs, immediate=True)
+
+    def _apply_startup_domain_randomization(self) -> None:
+        super()._apply_startup_domain_randomization()
+        if not self.cfg.domain_randomization_enabled:
+            return
+        low, high = self.cfg.independent_inertia_scale
+        env_ids = torch.arange(
+            self.num_envs, dtype=torch.int32, device=self.device
+        )
+        body_ids = torch.arange(
+            len(self._robot.body_names), dtype=torch.int32, device=self.device
+        )
+        inertia = self._robot.data.body_inertia.torch[
+            env_ids[:, None], body_ids
+        ].clone()
+        scale = torch.exp(
+            torch.empty(
+                (self.num_envs, len(self._robot.body_names), 1),
+                device=self.device,
+            ).uniform_(math.log(low), math.log(high))
+        )
+        # Scale each complete body tensor uniformly. Independent axis scaling
+        # can violate the rigid-body inertia triangle inequalities even when
+        # the resulting matrix remains positive definite.
+        inertia *= scale
+        self._robot.set_inertias_index(
+            inertias=inertia, body_ids=body_ids, env_ids=env_ids
+        )
+
+    def _sample_current_model(self, env_ids: torch.Tensor) -> None:
+        super()._sample_current_model(env_ids)
+        if not hasattr(self, "_current_model_weights"):
+            return
+        ranges = (
+            self.cfg.current_model_effort_weight,
+            self.cfg.current_model_tracking_weight,
+            self.cfg.current_model_velocity_weight,
+            self.cfg.current_model_memory_weight,
+        )
+        sampled = torch.empty(
+            len(env_ids), 4, device=self.device
+        )
+        for index, bounds in enumerate(ranges):
+            sampled[:, index].uniform_(*bounds)
+        self._current_model_weights[env_ids] = sampled / sampled.sum(
+            dim=1, keepdim=True
+        )
+
+    @staticmethod
+    def _signed_magnitude(
+        count: int, minimum: float, maximum: float, device
+    ) -> torch.Tensor:
+        magnitude = torch.empty(count, device=device).uniform_(minimum, maximum)
+        sign = torch.where(
+            torch.rand(count, device=device) < 0.5,
+            -torch.ones(count, device=device),
+            torch.ones(count, device=device),
+        )
+        return magnitude * sign
+
+    def _sample_command_targets(
+        self, env_ids: torch.Tensor, *, immediate: bool
+    ) -> None:
+        if hasattr(self, "_gait_landing_counts"):
+            self._gait_landing_counts[env_ids] = 0.0
+            self._steps_since_complete_gait_cycle[env_ids] = 0.0
+            self._foot_swing_duty_ema[env_ids] = 0.5
+        count = len(env_ids)
+        targets = torch.zeros(count, 3, device=self.device)
+        sample = torch.rand(count, device=self.device)
+        mixed_end = self.cfg.mixed_command_fraction
+        posture_end = mixed_end + self.cfg.posture_only_fraction
+        isolated_end = posture_end + self.cfg.isolated_motion_fraction
+        modes = torch.full(
+            (count,), 3, dtype=torch.long, device=self.device
+        )
+        modes[sample < mixed_end] = 0
+        modes[(sample >= mixed_end) & (sample < posture_end)] = 1
+        modes[(sample >= posture_end) & (sample < isolated_end)] = 2
+        if hasattr(self, "_v4_command_modes"):
+            self._v4_command_modes[env_ids] = modes
+
+        mixed = modes == 0
+        mixed_count = int(mixed.sum().item())
+        if mixed_count:
+            targets[mixed, 0] = self._signed_magnitude(
+                mixed_count, 0.05, max(abs(v) for v in self.cfg.command_forward_v4), self.device
+            )
+            targets[mixed, 1] = self._signed_magnitude(
+                mixed_count, 0.04, max(abs(v) for v in self.cfg.command_lateral_v4), self.device
+            )
+            targets[mixed, 2] = self._signed_magnitude(
+                mixed_count, 0.08, max(abs(v) for v in self.cfg.command_yaw_v4), self.device
+            )
+
+        isolated = modes == 2
+        isolated_ids = torch.nonzero(isolated, as_tuple=False).squeeze(-1)
+        if len(isolated_ids):
+            axes = torch.randint(0, 3, (len(isolated_ids),), device=self.device)
+            for axis, minimum, maximum in (
+                (0, 0.05, max(abs(v) for v in self.cfg.command_forward_v4)),
+                (1, 0.04, max(abs(v) for v in self.cfg.command_lateral_v4)),
+                (2, 0.08, max(abs(v) for v in self.cfg.command_yaw_v4)),
+            ):
+                selected = isolated_ids[axes == axis]
+                if len(selected):
+                    targets[selected, axis] = self._signed_magnitude(
+                        len(selected), minimum, maximum, self.device
+                    )
+
+        tail = (
+            torch.rand(count, device=self.device)
+            < self.cfg.capability_tail_fraction
+        ) & (modes != 3)
+        targets[tail] *= self.cfg.capability_tail_scale
+        self._command_targets[env_ids] = targets
+        self._command_steps_remaining[env_ids] = self._random_step_counts(
+            count, self.cfg.command_hold_s
+        )
+        if immediate:
+            self._commands[env_ids] = targets
+        if hasattr(self, "_posture_targets"):
+            self._sample_posture_targets(env_ids, immediate=immediate)
+
+    def _sample_posture_targets(
+        self, env_ids: torch.Tensor, *, immediate: bool
+    ) -> None:
+        count = len(env_ids)
+        targets = torch.zeros(count, 3, device=self.device)
+        if hasattr(self, "_v4_command_modes"):
+            modes = self._v4_command_modes[env_ids]
+        else:
+            modes = torch.zeros(count, dtype=torch.long, device=self.device)
+        active = (modes == 0) | (modes == 1)
+        active_count = int(active.sum().item())
+        if active_count:
+            targets[active, 0] = self._signed_magnitude(
+                active_count, 0.006, max(abs(v) for v in self.cfg.posture_height_offset), self.device
+            )
+            targets[active, 1] = self._signed_magnitude(
+                active_count, 0.025, max(abs(v) for v in self.cfg.posture_roll), self.device
+            )
+            targets[active, 2] = self._signed_magnitude(
+                active_count, 0.025, max(abs(v) for v in self.cfg.posture_pitch), self.device
+            )
+        tail = (
+            torch.rand(count, device=self.device)
+            < self.cfg.capability_tail_fraction
+        ) & active
+        targets[tail] *= self.cfg.capability_tail_scale
+        self._posture_targets[env_ids] = targets
+        self._posture_steps_remaining[env_ids] = self._command_steps_remaining[
+            env_ids
+        ]
+        if immediate:
+            self._posture_commands[env_ids] = targets
+
+    def _apply_posture_commands(self) -> None:
+        if self._evaluation_segments:
+            return super()._apply_posture_commands()
+        alpha = min(
+            1.0,
+            self.step_dt / max(self.cfg.posture_smoothing_time_s, self.step_dt),
+        )
+        self._posture_commands += alpha * (
+            self._posture_targets - self._posture_commands
+        )
+
+    def _simulate_current(self) -> tuple[torch.Tensor, torch.Tensor]:
+        effort = torch.abs(
+            self._robot.data.applied_torque.torch[:, self._policy_joint_ids]
+        )
+        effort_limit = self._robot.data.joint_effort_limits.torch[
+            :, self._policy_joint_ids
+        ].clamp_min(1.0e-6)
+        effort_fraction = torch.clamp(effort / effort_limit, 0.0, 1.5)
+        joint_position = self._robot.data.joint_pos.torch[
+            :, self._policy_joint_ids
+        ]
+        joint_velocity = self._robot.data.joint_vel.torch[
+            :, self._policy_joint_ids
+        ]
+        tracking = torch.clamp(
+            torch.abs(self._last_simulated_target - joint_position)
+            / (3.0 * self._fit_residual_mad).clamp_min(0.03),
+            0.0,
+            2.0,
+        )
+        velocity = torch.clamp(
+            torch.abs(joint_velocity) / self._fit_speed_limit.clamp_min(0.1),
+            0.0,
+            2.0,
+        )
+        weights = self._current_model_weights
+        normalized_source = (
+            weights[:, 0:1] * effort_fraction
+            + weights[:, 1:2] * tracking
+            + weights[:, 2:3] * velocity
+            + weights[:, 3:4] * self._last_finite_current
+        )
+        current_ma = self._fit_current_bias + (
+            normalized_source
+            * self._fit_current_scale
+            * self._current_effort_scale
+        )
+        current_ma += torch.empty_like(current_ma).uniform_(-1.0, 1.0) * (
+            self._fit_current_noise
+        )
+        current_ma = torch.minimum(
+            torch.clamp_min(current_ma, 0.0), self._fit_current_clip
+        )
+        normalized = torch.minimum(
+            torch.clamp_min(
+                (current_ma - self._fit_current_bias) / self._fit_current_scale,
+                0.0,
+            ),
+            self._fit_current_clip / self._fit_current_scale,
+        )
+        self._current_delay_buffer = torch.roll(
+            self._current_delay_buffer, shifts=-1, dims=1
+        )
+        self._current_delay_buffer[:, -1] = normalized
+        maximum_delay = self.cfg.current_delay_steps[1]
+        gather_index = (maximum_delay - self._current_delay).unsqueeze(1)
+        delayed = torch.gather(
+            self._current_delay_buffer, 1, gather_index
+        ).squeeze(1)
+        validity = torch.rand_like(delayed) >= self._current_dropout_probability
+        held = torch.where(validity, delayed, self._last_finite_current)
+        self._last_finite_current = held.clone()
+        self._latest_current_validity = validity.float()
+        self._latest_normalized_current = held
+        return held, validity.float()
+
+    def _get_observations(self) -> dict:
+        SimpleDogV2Env._get_observations(self)
+        current, validity = self._simulate_current()
+        current_frame = torch.cat((current, validity), dim=1)
+        self._current_history = torch.roll(
+            self._current_history, shifts=-1, dims=1
+        )
+        self._current_history[:, -1] = current_frame
+        interval = torch.empty(
+            self.num_envs, 1, device=self.device
+        ).uniform_(*self.cfg.timing_interval_ms)
+        if not self.cfg.domain_randomization_enabled:
+            interval.fill_(self.cfg.timing_reference_ms)
+        timing = interval / self.cfg.timing_reference_ms
+        self._timing_history = torch.roll(
+            self._timing_history, shifts=-1, dims=1
+        )
+        self._timing_history[:, -1] = timing
+        fresh = ~self._current_history_ready
+        if torch.any(fresh):
+            self._current_history[fresh] = current_frame[fresh].unsqueeze(1).expand(
+                -1, self.cfg.observation_history_length, -1
+            )
+            self._timing_history[fresh] = timing[fresh].unsqueeze(1).expand(
+                -1, self.cfg.observation_history_length, -1
+            )
+            self._current_history_ready[fresh] = True
+        full_history = torch.cat(
+            (self._observation_history, self._current_history, self._timing_history),
+            dim=2,
+        )
+        selected = full_history[:, self.cfg.selected_history_indices].flatten(
+            start_dim=1
+        )
+        body_command = torch.cat(
+            (self._commands, self._posture_commands), dim=1
+        )
+        observation = torch.cat((selected, body_command), dim=1)
+        if observation.shape[1] != self.cfg.observation_space:
+            raise RuntimeError(
+                "CurrentBodyV4 observation mismatch: "
+                f"expected {self.cfg.observation_space}, received {observation.shape[1]}"
+            )
+        return {"policy": observation}
+
+    def _get_rewards(self) -> torch.Tensor:
+        body_forward, body_lateral, _, _, _, _ = self._get_physical_motion()
+        angular_velocity = self._semantic_vector_b(
+            self._robot.data.root_ang_vel_b.torch
+        )[:, 2]
+        height, roll, pitch = self._body_posture()
+        desired_height = (
+            self.cfg.nominal_support_height_m + self._posture_commands[:, 0]
+        )
+        actual = torch.stack(
+            (body_forward, body_lateral, angular_velocity, height, roll, pitch),
+            dim=1,
+        )
+        requested = torch.cat(
+            (
+                self._commands,
+                desired_height.unsqueeze(1),
+                self._posture_commands[:, 1:3],
+            ),
+            dim=1,
+        )
+        scales = torch.tensor(
+            self.cfg.body_tracking_error_scales,
+            dtype=actual.dtype,
+            device=self.device,
+        ).unsqueeze(0)
+        normalized_error = (actual - requested) / scales
+        smooth_absolute_error = torch.sqrt(
+            torch.square(normalized_error) + 1.0e-4
+        ) - 0.01
+        tracking = torch.exp(
+            -self.cfg.body_tracking_kernel_scale
+            * smooth_absolute_error.mean(dim=1)
+        )
+
+        requested_motion = requested[:, :3] / scales[:, :3]
+        actual_motion = actual[:, :3] / scales[:, :3]
+        zero_error = torch.linalg.vector_norm(requested_motion, dim=1)
+        motion_error = torch.linalg.vector_norm(
+            requested_motion - actual_motion, dim=1
+        )
+        moving_gate = zero_error > 0.25
+        progress_gate = torch.clamp(
+            (zero_error - motion_error) / zero_error.clamp_min(1.0e-6),
+            0.0,
+            1.0,
+        )
+        current_air_time = self._contact_sensor.data.current_air_time.torch[
+            :, self._feet_sensor_ids
+        ]
+        current_contact_time = self._contact_sensor.data.current_contact_time.torch[
+            :, self._feet_sensor_ids
+        ]
+        diagonal_score = self._dense_diagonal_gait_reward(
+            current_air_time, current_contact_time
+        )
+        multiplier = (
+            self.cfg.diagonal_prior_weight
+            * moving_gate.float()
+            * progress_gate
+            * diagonal_score
+        )
+        reward = tracking * (1.0 + multiplier) * self.step_dt
+        settling = getattr(
+            self,
+            "_reset_hold_active_mask",
+            torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+        )
+        reward = torch.where(settling, 0.0, reward)
+        self._episode_sums["body_tracking"] += torch.where(
+            settling, 0.0, tracking * self.step_dt
+        )
+        self._episode_sums["diagonal_multiplier"] += torch.where(
+            settling, 0.0, multiplier * self.step_dt
+        )
+        if self.cfg.print_play_metrics and not bool(settling[0].item()):
+            self._play_step_count += 1
+        return reward
+
+    def _reset_idx(self, env_ids: torch.Tensor | None):
+        super()._reset_idx(env_ids)
+        if env_ids is None:
+            env_ids = torch.arange(
+                self.num_envs, dtype=torch.long, device=self.device
+            )
+        if hasattr(self, "_timing_history"):
+            self._timing_history[env_ids] = 1.0

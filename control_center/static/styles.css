@@ -141,11 +141,24 @@ main { min-width: 0; }
 .video-frame video.video-visible { display: block; }
 .video-frame p { color: #596369; font-size: 9px; text-align: center; padding: 20px; }
 .video-card > p { color: #69747a; font-size: 9px; line-height: 1.45; margin: 9px 0 0; }
-.video-card.expanded { position: fixed; z-index: 100; inset: 24px; margin: 0; padding: 20px; display: flex; flex-direction: column; background: #0d1012; border-color: #4c6335; box-shadow: 0 24px 100px rgba(0,0,0,.92); }
+.review-gallery { display: grid; gap: 9px; margin-top: 12px; }
+.video-card:not(.expanded) .review-gallery { display: none; }
+.review-item { border: 1px solid var(--line-soft); border-radius: 6px; overflow: hidden; background: #0b0e10; }
+.review-video { aspect-ratio: 16 / 9; background: #000; }
+.review-video video { width: 100%; height: 100%; display: block; object-fit: contain; }
+.review-label { padding: 8px 9px 9px; }
+.review-label strong { display: block; font-size: 10px; color: #d7dcde; }
+.review-label small { display: flex; flex-wrap: wrap; gap: 4px 9px; color: #778187; font-size: 8px; margin-top: 4px; }
+.review-label button { color: var(--green); background: transparent; border: 0; padding: 6px 0 0; font-size: 8px; }
+.review-empty { color: #596369; font-size: 9px; line-height: 1.45; margin: 0; padding: 8px 0; }
+.video-card.expanded { position: fixed; z-index: 100; inset: 24px; margin: 0; padding: 20px; overflow: auto; background: #0d1012; border-color: #4c6335; box-shadow: 0 24px 100px rgba(0,0,0,.92); }
 .video-card.expanded .video-head h3 { font-size: 18px; }
-.video-card.expanded .video-frame { flex: 1; min-height: 0; aspect-ratio: auto; }
+.video-card.expanded .video-frame { max-height: 58vh; aspect-ratio: 16 / 9; }
 .video-card.expanded .video-frame video { object-fit: contain; }
 .video-card.expanded > p { font-size: 11px; }
+.video-card.expanded .review-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.video-card.expanded .review-label strong { font-size: 12px; }
+.video-card.expanded .review-label small, .video-card.expanded .review-label button { font-size: 10px; }
 body.video-expanded { overflow: hidden; }
 body.video-expanded::before { content: ""; position: fixed; z-index: 99; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(5px); }
 .check-title { display: flex; align-items: center; gap: 8px; }
@@ -192,4 +205,5 @@ dialog form > div:last-child { display: flex; justify-content: center; gap: 8px;
   .settings-grid, .run-rail, .robot-overview { grid-template-columns: minmax(0, 1fr); }
   .hero { align-items: center; }
   .video-card.expanded { inset: 8px; padding: 12px; }
+  .video-card.expanded .review-gallery { grid-template-columns: minmax(0, 1fr); }
 }

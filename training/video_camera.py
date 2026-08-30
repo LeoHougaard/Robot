@@ -15,11 +15,11 @@ class VideoCameraSample:
 # Body-frame offsets: forward, lateral, up.  Each clip gets a different
 # quartering view as well as a robot from a different part of the terrain.
 CAMERA_OFFSETS = (
-    (-0.80, 0.58, 0.42),
-    (-0.30, 0.88, 0.40),
-    (0.42, 0.78, 0.44),
-    (-0.80, -0.58, 0.42),
-    (-0.30, -0.88, 0.40),
+    (-0.42, 0.30, 0.24),
+    (-0.16, 0.46, 0.23),
+    (0.28, 0.38, 0.25),
+    (-0.42, -0.30, 0.24),
+    (-0.16, -0.46, 0.23),
 )
 
 

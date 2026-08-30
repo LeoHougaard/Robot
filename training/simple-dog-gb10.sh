@@ -42,15 +42,20 @@ latest_video() {
   # returns the rollout that was actually recorded most recently instead of
   # being pinned to the newest training-run directory.
   video="$(find "${ROOT}/logs/rl_games" -type f -name '*.mp4' -size +1024c \
-    -path '*/quadruped_v2_*/videos/*' -printf '%T@ %p\n' 2>/dev/null | \
+    \( -path '*/quadruped_v2_*/videos/*' \
+       -o -path '*/quadruped_current_v3_*/videos/*' \
+       -o -path '*/quadruped_current_body_v4_*/videos/*' \
+       -o -path '*/simple_dog_current_v3_rough_direct/videos/*' \) \
+    -printf '%T@ %p\n' 2>/dev/null | \
     sort -n | tail -1 | cut -d' ' -f2- || true)"
   [[ -z "$video" ]] || printf '%s\n' "$video"
 }
 
 render_latest_video() {
   local video_length="${1:-400}"
+  local sample_index="${2:-}"
   local latest experiment output_root checkpoint container_checkpoint task terrain
-  local profile_id profile_sha control_profile
+  local profile_id profile_sha control_profile simulation_fit simulation_fit_sha
   [[ "$video_length" =~ ^[0-9]+$ ]] && ((video_length >= 100 && video_length <= 3000)) || {
     printf 'Video length must be 100-3000 policy steps.\n' >&2
     return 2
@@ -59,6 +64,13 @@ render_latest_video() {
     printf 'Training is still running. A rollout can be rendered as soon as PPO releases Isaac Sim.\n' >&2
     return 3
   fi
+  if [[ -z "$sample_index" ]]; then
+    sample_index="$(( RANDOM % 5 ))"
+  fi
+  [[ "$sample_index" =~ ^[0-4]$ ]] || {
+    printf 'Validation sample must be 0-4.\n' >&2
+    return 2
+  }
   clear_stale_hub_lock
   latest="$(latest_run || true)"
   [[ -n "$latest" ]] || { printf 'No training run is available to render.\n' >&2; return 2; }
@@ -86,15 +98,19 @@ render_latest_video() {
     Isaac-Locomotion-V2-Goal-*) terrain="v2goal" ;;
     Isaac-Locomotion-V2-Rough-*) terrain="v2rough" ;;
     Isaac-Locomotion-CurrentV3-Core-*) terrain="currentv3core" ;;
+    Isaac-Locomotion-CurrentV3-Forward-Specialist-*) terrain="currentv3forwardspecialist" ;;
+    Isaac-Locomotion-CurrentV3-Reverse-Specialist-*) terrain="currentv3reversespecialist" ;;
     Isaac-Locomotion-CurrentV3-Reverse-*) terrain="currentv3reverse" ;;
     Isaac-Locomotion-CurrentV3-Strafe-*) terrain="currentv3strafe" ;;
     Isaac-Locomotion-CurrentV3-Turn-*) terrain="currentv3turn" ;;
     Isaac-Locomotion-CurrentV3-Goal-*) terrain="currentv3goal" ;;
     Isaac-Locomotion-CurrentV3-Posture-*) terrain="currentv3posture" ;;
     Isaac-Locomotion-CurrentV3-*) terrain="currentv3rough" ;;
+    Isaac-Locomotion-CurrentBodyV4-*) terrain="currentbodyv4hard" ;;
     *) printf 'Unsupported task for rollout rendering: %s\n' "$task" >&2; return 2 ;;
   esac
   control_profile=""
+  simulation_fit=""
   profile_id="$(cat "$latest/profile_id" 2>/dev/null || true)"
   if [[ -n "$profile_id" ]]; then
     [[ "$profile_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || {
@@ -112,11 +128,25 @@ render_latest_video() {
       return 2
     }
   fi
+  if [[ "$terrain" == currentbodyv4hard ]]; then
+    simulation_fit_sha="$(cat "$latest/simulation_fit_sha" 2>/dev/null || true)"
+    [[ "$simulation_fit_sha" =~ ^[a-f0-9]{64}$ ]] || {
+      printf 'Invalid simulation-fit SHA in the latest V4 run.\n' >&2
+      return 2
+    }
+    simulation_fit="/workspace/projects/training/fits/current-body-v4-${simulation_fit_sha:0:12}.json"
+    docker exec "$CONTAINER" test -f "$simulation_fit" || {
+      printf 'The latest run simulation fit is not deployed: %s\n' "$simulation_fit" >&2
+      return 2
+    }
+  fi
   docker exec \
     --workdir /workspace/isaaclab \
+    -e "SIMPLE_DOG_VALIDATION_SAMPLE=${sample_index}" \
+    -e "SIMPLE_DOG_REVIEW_NUM_ENVS=5" \
     "$CONTAINER" \
     /workspace/projects/training/render_simple_dog_playback.sh \
-      "$container_checkpoint" "$video_length" "$terrain" "$control_profile"
+      "$container_checkpoint" "$video_length" "$terrain" "$control_profile" "$simulation_fit"
 }
 
 render_checkpoint_video() {
@@ -136,19 +166,20 @@ render_checkpoint_video() {
      "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
      "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
      "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
-     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v4_*/*.pth ]] || {
     printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
     return 2
   }
   [[ "$terrain" == flat || "$terrain" == rough || "$terrain" == v2core ||
      "$terrain" == v2robust || "$terrain" == v2goal || "$terrain" == v2rough ||
-     "$terrain" == currentv3* ]] || {
+     "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]] || {
     printf 'Unsupported review terrain: %s\n' "$terrain" >&2
     return 2
   }
-  if [[ "$terrain" == currentv3* ]]; then
+  if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]]; then
     [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
-      printf 'CurrentV3 review requires its simulation fit.\n' >&2
+      printf 'Current-aware review requires its simulation fit.\n' >&2
       return 2
     }
     docker exec "$CONTAINER" test -f "$simulation_fit" || {
@@ -156,7 +187,7 @@ render_checkpoint_video() {
       return 2
     }
   elif [[ -n "$simulation_fit" ]]; then
-    printf 'A simulation fit may be supplied only for CurrentV3.\n' >&2
+    printf 'A simulation fit may be supplied only for current-aware review.\n' >&2
     return 2
   fi
   [[ "$sample_index" =~ ^[0-4]$ ]] || {
@@ -216,7 +247,7 @@ start_training() {
   [[ "$terrain" == flat || "$terrain" == rough || "$terrain" == rough_noscan ||
      "$terrain" == v2core || "$terrain" == v2robust ||
      "$terrain" == v2goal || "$terrain" == v2rough ||
-     "$terrain" == currentv3* ]] ||
+     "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]] ||
     { printf 'Invalid terrain: %s\n' "$terrain" >&2; exit 2; }
   [[ "$terrain" != v2robust && "$terrain" != v2goal &&
      ( "$terrain" != currentv3* || "$terrain" == currentv3core ||
@@ -228,6 +259,8 @@ start_training() {
   [[ -x "${ROOT}/run_simple_dog.sh" ]] ||
     { printf 'Training launcher is missing: %s\n' "${ROOT}/run_simple_dog.sh" >&2; exit 1; }
   if [[ -n "$checkpoint" ]]; then
+    [[ "$terrain" != currentbodyv4hard ]] ||
+      { printf 'CurrentBodyV4Hard must start from random actor and optimizer initialization.\n' >&2; exit 2; }
     [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
@@ -267,16 +300,16 @@ start_training() {
     docker exec "$CONTAINER" test -f "$control_profile" ||
       { printf 'Control profile does not exist: %s\n' "$control_profile" >&2; exit 2; }
   fi
-  if [[ "$terrain" == currentv3* ]]; then
+  if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]]; then
     [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] ||
-      { printf 'CurrentV3 simulation fit is outside the training fits directory.\n' >&2; exit 2; }
+      { printf 'Current-aware simulation fit is outside the training fits directory.\n' >&2; exit 2; }
     docker exec "$CONTAINER" test -f "$simulation_fit" ||
-      { printf 'CurrentV3 simulation fit does not exist: %s\n' "$simulation_fit" >&2; exit 2; }
+      { printf 'Current-aware simulation fit does not exist: %s\n' "$simulation_fit" >&2; exit 2; }
     simulation_fit_sha="$(docker exec "$CONTAINER" sha256sum "$simulation_fit" | awk '{print $1}')"
     [[ "$simulation_fit_sha" =~ ^[0-9a-f]{64}$ ]] ||
-      { printf 'Could not hash the CurrentV3 simulation fit.\n' >&2; exit 2; }
+      { printf 'Could not hash the current-aware simulation fit.\n' >&2; exit 2; }
   elif [[ -n "$simulation_fit" ]]; then
-    printf 'A simulation fit may be supplied only for CurrentV3.\n' >&2
+    printf 'A simulation fit may be supplied only for current-aware training.\n' >&2
     exit 2
   fi
   [[ "$record_video" == 0 || "$record_video" == 1 ]] ||
@@ -325,7 +358,7 @@ start_training() {
 }
 
 status_training() {
-  local container latest status progress reward gpu experiment surface
+  local container latest status progress reward gpu experiment surface task
 
   container="$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null || printf 'absent')"
   printf 'Container: %s\n' "$container"
@@ -350,11 +383,15 @@ status_training() {
   [[ ! -f "$latest/profile_id" ]] || { printf 'Profile:   '; cat "$latest/profile_id"; }
   [[ ! -f "$latest/profile_sha" ]] || { printf 'Profile SHA: '; cat "$latest/profile_sha"; }
   [[ ! -f "$latest/task" ]] || { printf 'Task:      '; cat "$latest/task"; }
+  task="$(cat "$latest/task" 2>/dev/null || true)"
   if [[ -f "$latest/control_profile.json" ]]; then
     surface="$({
       sed -n 's/.*"surface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
         "$latest/control_profile.json" | head -1
     } || true)"
+    if [[ "$task" == Isaac-Locomotion-CurrentBodyV4-Hard-* ]]; then
+      surface="Full-hard varied"
+    fi
     [[ -z "$surface" ]] || printf 'Surface:   %s\n' "$surface"
   fi
 
@@ -391,7 +428,7 @@ case "${1:-}" in
     latest_video
     ;;
   render-latest-video)
-    render_latest_video "${2:-400}"
+    render_latest_video "${2:-400}" "${3:-}"
     ;;
   render-checkpoint-video)
     render_checkpoint_video "${2:-}" "${3:-400}" "${4:-v2rough}" "${5:-}" "${6:-0}" "${7:-}"

@@ -60,6 +60,30 @@ class ControlProfileTests(unittest.TestCase):
         result = validate_profile(profile)
         self.assertTrue(any("flat-ground" in error for error in result["errors"]))
 
+    def test_steps_are_a_valid_rough_surface(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["training"]["stage"] = "V2Rough"
+        profile["environment"]["surface"] = "Steps"
+        profile["terrain"].update(
+            step_height_min=0.004,
+            step_height_max=0.018,
+            step_width=0.16,
+            step_platform_width=0.80,
+        )
+        result = validate_profile(profile)
+        self.assertEqual([], result["errors"])
+
+    def test_actuator_response_calibration_is_bounded_and_ordered(self) -> None:
+        profile = deepcopy(self.known_good)
+        profile["actuators"]["response_alpha_by_joint"] = [0.2] * 12
+        profile["domain_randomization"]["actuator_response_scale_min"] = 0.75
+        profile["domain_randomization"]["actuator_response_scale_max"] = 1.25
+        self.assertEqual([], validate_profile(profile)["errors"])
+
+        profile["actuators"]["response_alpha_by_joint"][8] = 0.0
+        result = validate_profile(profile)
+        self.assertTrue(any("response_alpha_by_joint" in error for error in result["errors"]))
+
     def test_hash_ignores_json_formatting(self) -> None:
         reformatted = json.loads(json.dumps(self.known_good, indent=7))
         self.assertEqual(profile_hash(self.known_good), profile_hash(reformatted))

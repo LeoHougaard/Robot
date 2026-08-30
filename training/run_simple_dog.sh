@@ -42,6 +42,14 @@ case "$terrain" in
     readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Reverse-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
     ;;
+  currentv3forwardspecialist)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Forward-Specialist-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3reversespecialist)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Reverse-Specialist-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
   currentv3strafe)
     readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Strafe-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
@@ -61,6 +69,14 @@ case "$terrain" in
   currentv3rough)
     readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Rough-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentbodyv4hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV4-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v4"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV4Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
     ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
@@ -114,14 +130,14 @@ with open(os.environ["SIMPLE_DOG_CONTROL_PROFILE"], encoding="utf-8") as handle:
 PY
 fi
 
-if [[ "$terrain" == currentv3* ]]; then
+if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4* ]]; then
   [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
-    printf 'CurrentV3 simulation fit is outside the training fits directory: %s\n' \
+    printf 'Current-aware simulation fit is outside the training fits directory: %s\n' \
       "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2
     exit 2
   }
   [[ -f "$SIMPLE_DOG_SIMULATION_FIT" ]] || {
-    printf 'CurrentV3 simulation fit does not exist: %s\n' "$SIMPLE_DOG_SIMULATION_FIT" >&2
+    printf 'Current-aware simulation fit does not exist: %s\n' "$SIMPLE_DOG_SIMULATION_FIT" >&2
     exit 2
   }
   cp "$SIMPLE_DOG_SIMULATION_FIT" "${run_dir}/simulation-fit.json"

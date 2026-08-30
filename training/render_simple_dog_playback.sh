@@ -8,6 +8,7 @@ terrain="${3:-flat}"
 control_profile="${4:-}"
 simulation_fit="${5:-}"
 task="Isaac-Velocity-Flat-Simple-Dog-Direct-Play-v0"
+review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-1}"
 case "$terrain" in
   flat) task="Isaac-Velocity-Flat-Simple-Dog-Direct-Play-v0" ;;
   rough) task="Isaac-Velocity-Rough-Simple-Dog-Direct-Validation-v0" ;;
@@ -22,8 +23,18 @@ case "$terrain" in
     }
     export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
     ;;
+  currentbodyv4hard)
+    task="Isaac-Locomotion-CurrentBodyV4-Simple-Dog-Direct-Play-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v4"
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'CurrentBodyV4 playback requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
+    ;;
   *)
-    printf 'Terrain must be a supported V1, V2, or CurrentV3 stage.\n' >&2
+    printf 'Terrain must be a supported V1, V2, CurrentV3, or CurrentBodyV4 stage.\n' >&2
     exit 2
     ;;
 esac
@@ -33,12 +44,13 @@ esac
    "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v4_*/*.pth ]] || {
   printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
   exit 2
 }
-if [[ "$terrain" != currentv3* && -n "$simulation_fit" ]]; then
-  printf 'A simulation fit may be supplied only for CurrentV3 playback.\n' >&2
+if [[ "$terrain" != currentv3* && "$terrain" != currentbodyv4hard && -n "$simulation_fit" ]]; then
+  printf 'A simulation fit may be supplied only for current-aware playback.\n' >&2
   exit 2
 fi
 [[ -f "$checkpoint" ]] || {
@@ -47,6 +59,10 @@ fi
 }
 [[ "$video_length" =~ ^[0-9]+$ ]] && (( video_length >= 100 && video_length <= 3000 )) || {
   printf 'Video length must be 100-3000 policy steps.\n' >&2
+  exit 2
+}
+[[ "$review_num_envs" =~ ^[0-9]+$ ]] && (( review_num_envs >= 1 && review_num_envs <= 64 )) || {
+  printf 'Review environment count must be 1-64.\n' >&2
   exit 2
 }
 if [[ -n "$control_profile" ]]; then
@@ -80,6 +96,7 @@ mkdir -p "$output_dir"
 printf 'running\n' >"${output_dir}/status"
 printf '%s\n' "$sample_index" >"${output_dir}/sample_index"
 printf 'Validation sample: %s/5\n' "$((sample_index + 1))"
+printf 'Review environments: %s\n' "$review_num_envs"
 
 on_exit() {
   exit_code=$?
@@ -97,7 +114,7 @@ export PYTHONUNBUFFERED=1
 /workspace/isaaclab/isaaclab.sh -p "${ROOT}/play_simple_dog.py" \
   --task="$task" \
   --checkpoint="$checkpoint" \
-  --num_envs=1 \
+  --num_envs="$review_num_envs" \
   --enable_cameras \
   --video \
   --video_length="$video_length" \

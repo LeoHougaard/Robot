@@ -1,11 +1,18 @@
 [CmdletBinding()]
 param(
     [ValidateRange(100, 3000)]
-    [int]$VideoLength = 400
+    [int]$VideoLength = 400,
+
+    [ValidateRange(0, 4)]
+    [int]$ValidationSample = 0
 )
 
 $ErrorActionPreference = "Stop"
-$sshTarget = "leo@gx10-ddb2.local"
+$sshHost = if ($env:ROBOT_GB10_HOST) { $env:ROBOT_GB10_HOST.Trim() } else { "gx10-ddb2.local" }
+if ($sshHost -notmatch '^[A-Za-z0-9.-]+$') {
+    throw "ROBOT_GB10_HOST must be a hostname or IPv4 address."
+}
+$sshTarget = "leo@$sshHost"
 $keyPath = Join-Path $env:LOCALAPPDATA "NVIDIA Corporation\Sync\config\nvsync.key"
 $remoteTraining = "/home/leo/isaac-workspace/projects/training"
 $remoteHelper = "$remoteTraining/simple-dog-gb10.sh"
@@ -14,7 +21,8 @@ $sshOptions = @(
     "-o", "IdentitiesOnly=yes",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
-    "-o", "StrictHostKeyChecking=yes"
+    "-o", "StrictHostKeyChecking=yes",
+    "-o", "HostKeyAlias=gx10-ddb2.local"
 )
 
 if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
@@ -30,9 +38,22 @@ $copies = @(
     @{ Local = "training\render_simple_dog_playback.sh"; Remote = $remoteTraining },
     @{ Local = "training\play_simple_dog.py"; Remote = $remoteTraining },
     @{ Local = "training\pose_goal_controller.py"; Remote = $remoteTraining },
+    @{ Local = "training\terrain_curriculum.py"; Remote = $remoteTraining },
+    @{ Local = "training\video_camera.py"; Remote = $remoteTraining },
     @{ Local = "training\robot_control_profile.py"; Remote = $remoteTraining },
+    @{ Local = "training\current_policy_fit.py"; Remote = $remoteTraining },
+    @{ Local = "training\simple_dog_task\simple_dog_env.py"; Remote = "$remoteTraining/simple_dog_task" },
+    @{ Local = "training\simple_dog_task\simple_dog_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task" },
     @{ Local = "training\simple_dog_task_v2\simple_dog_v2_env.py"; Remote = "$remoteTraining/simple_dog_task_v2" },
-    @{ Local = "training\simple_dog_task_v2\simple_dog_v2_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_v2" }
+    @{ Local = "training\simple_dog_task_v2\simple_dog_v2_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_v2" },
+    @{ Local = "training\simple_dog_task_current\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current" },
+    @{ Local = "training\simple_dog_task_current\simple_dog_current_env.py"; Remote = "$remoteTraining/simple_dog_task_current" },
+    @{ Local = "training\simple_dog_task_current\simple_dog_current_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current" },
+    @{ Local = "training\simple_dog_task_current_body_v4\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = "training\simple_dog_task_current_body_v4\simple_dog_current_body_v4_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = "training\simple_dog_task_current_body_v4\simple_dog_current_body_v4_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = "training\simple_dog_task_current_body_v4\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v4\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" }
 )
 foreach ($copy in $copies) {
     $localPath = Join-Path $PSScriptRoot $copy.Local
@@ -44,7 +65,7 @@ foreach ($copy in $copies) {
         throw "Could not deploy rollout file: $localPath"
     }
 }
-& ssh -n @sshOptions $sshTarget "chmod 0755 '$remoteHelper' '$remoteTraining/render_simple_dog_playback.sh' && '$remoteHelper' render-latest-video '$VideoLength'"
+& ssh -n @sshOptions $sshTarget "chmod 0755 '$remoteHelper' '$remoteTraining/render_simple_dog_playback.sh' && '$remoteHelper' render-latest-video '$VideoLength' '$ValidationSample'"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

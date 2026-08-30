@@ -214,6 +214,7 @@ class SimpleDogV2Env(SimpleDogEnv):
             key: torch.zeros(self.num_envs, device=self.device)
             for key in (
                 "locomotion",
+                "velocity_shortfall",
                 "track_yaw_rate",
                 "diagonal_gait",
                 "complete_gait_cycle",
@@ -925,6 +926,11 @@ class SimpleDogV2Env(SimpleDogEnv):
         locomotion = torch.where(
             moving_command, moving_locomotion, stationary_locomotion
         )
+        velocity_shortfall = torch.clamp(
+            self.cfg.minimum_command_speed_fraction - signed_progress,
+            min=0.0,
+            max=2.0,
+        ) * moving_command.float()
 
         yaw_error = torch.abs(self._commands[:, 2] - root_ang_vel_b[:, 2])
         yaw_quality = torch.exp(-yaw_error / self.cfg.yaw_tracking_std)
@@ -1366,9 +1372,30 @@ class SimpleDogV2Env(SimpleDogEnv):
             * (self._survival_steps > 5.0).float()
         )
 
+        if self.cfg.level_locomotion_gate_std > 0.0:
+            tilt = torch.linalg.vector_norm(projected_gravity[:, :2], dim=1)
+            level_gate = torch.exp(
+                -tilt / self.cfg.level_locomotion_gate_std
+            )
+
+            def gate_positive(value: torch.Tensor) -> torch.Tensor:
+                return torch.where(value > 0.0, value * level_gate, value)
+
+            # Edit the rewards that can otherwise pay for a tilted gait. Do not
+            # gate negative tracking values: becoming less level can never make
+            # a bad action less costly.
+            locomotion = gate_positive(locomotion)
+            diagonal_gait = gate_positive(diagonal_gait)
+            complete_gait_cycle = gate_positive(complete_gait_cycle)
+
         terms = {
             "locomotion": (
                 locomotion * self.cfg.locomotion_reward_scale * self.step_dt
+            ),
+            "velocity_shortfall": (
+                velocity_shortfall
+                * self.cfg.velocity_shortfall_penalty_scale
+                * self.step_dt
             ),
             "track_yaw_rate": (
                 yaw_tracking * self.cfg.yaw_reward_scale * self.step_dt
@@ -1822,6 +1849,7 @@ class SimpleDogV2Env(SimpleDogEnv):
 
         root_pose = self._robot.data.default_root_pose.torch[env_ids].clone()
         root_pose[:, :3] += self._terrain.env_origins[env_ids]
+        root_pose[:, 2] += self.cfg.reset_spawn_clearance_m
         reset_rotation = quat_from_euler_xyz(roll, pitch, yaw)
         root_pose[:, 3:7] = quat_mul(reset_rotation, root_pose[:, 3:7])
         root_velocity = self._robot.data.default_root_vel.torch[env_ids].clone()

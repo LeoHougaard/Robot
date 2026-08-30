@@ -73,10 +73,11 @@
           </div>
 
           <div class="video-card" id="video-card">
-            <div class="video-head"><div><p class="eyebrow">LATEST ROLLOUT</p><h3>Robot playback</h3></div><div class="video-actions"><button id="refresh-video">Fetch newest</button><button id="expand-video" aria-expanded="false">Large view</button></div></div>
+            <div class="video-head"><div><p class="eyebrow">VISUAL REVIEW</p><h3>Robot preview</h3></div><div class="video-actions"><button id="refresh-video">Fetch newest</button><button id="expand-video" aria-expanded="false">Show comparisons</button></div></div>
             <div class="video-frame"><video id="training-video" controls muted playsinline></video><p id="video-empty">Fetch the newest rollout. If needed, one is rendered from the latest checkpoint after training finishes.</p></div>
             <p id="video-context">Newest run: checking task and surface…</p>
-            <p>Reward tells you whether PPO found a score. Video tells you what behavior earned it.</p>
+            <div id="review-gallery" class="review-gallery" aria-live="polite"></div>
+            <p>Compare motion directly. Reward only shortlists checkpoints; deterministic evaluation still controls promotion.</p>
           </div>
 
           <div class="check-card">
@@ -101,6 +102,6 @@
       <div><button value="cancel" class="secondary">Keep running</button><button value="confirm" class="danger-button">Stop training</button></div>
     </form>
   </dialog>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=20260830-v4-video-3" defer></script>
 </body>
 </html>

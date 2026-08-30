@@ -6,7 +6,7 @@ param(
     [ValidateRange(1, 100000)]
     [int]$MaxIterations = 500,
 
-    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")]
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard")]
     [string]$Terrain = "Flat",
 
     [string]$Checkpoint = "",
@@ -78,11 +78,16 @@ if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/r
 }
 $isV2Terrain = $Terrain -in @("V2Core", "V2Robust", "V2Goal", "V2Rough")
 $isV2Checkpoint = $Checkpoint -match '^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+)/'
-$currentTerrains = @("CurrentV3Core", "CurrentV3Reverse", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")
+$currentTerrains = @("CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")
 $isCurrentTerrain = $Terrain -in $currentTerrains
 $isCurrentCheckpoint = $Checkpoint -match '^/workspace/projects/training/logs/rl_games/(simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+)/'
-if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
-    throw "V1, V2, and CurrentV3 checkpoints are not interchangeable because their policy observations differ."
+$v4Terrains = @("CurrentBodyV4Hard")
+$isV4Terrain = $Terrain -in $v4Terrains
+if ($isV4Terrain -and $Checkpoint) {
+    throw "CurrentBodyV4Hard is the required random actor and optimizer start; checkpoints are forbidden."
+}
+if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and -not $isV4Terrain -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
+    throw "V1, V2, CurrentV3, and CurrentBodyV4 checkpoints are not interchangeable because their policy observations differ."
 }
 if ($Terrain -in @("V2Robust", "V2Goal") -and -not $Checkpoint) {
     throw "$Terrain is a continuation stage and requires a passing V2 checkpoint."
@@ -110,7 +115,7 @@ if ($ControlProfile) {
         throw "Control profile validation failed: $validationText"
     }
     $validated = $validationText | ConvertFrom-Json
-    if ($requestedTerrain -in $currentTerrains) {
+    if ($requestedTerrain -in ($currentTerrains + $v4Terrains)) {
         $Terrain = $requestedTerrain
         $NumEnvs = $requestedNumEnvs
         $MaxIterations = $requestedMaxIterations
@@ -128,7 +133,7 @@ if ($ControlProfile) {
     $videoLength = $validated.video_length
     $remoteControlProfile = "/workspace/projects/training/control_profiles/$($validated.profile_id)-$($profileHash.Substring(0, 12)).json"
 }
-if ($Terrain -in $currentTerrains) {
+if ($Terrain -in ($currentTerrains + $v4Terrains)) {
     if (-not $SimulationFit) {
         throw "$Terrain requires the provenance-bearing simulation-fit.json."
     }
@@ -141,10 +146,11 @@ if ($Terrain -in $currentTerrains) {
         throw "$Terrain fit does not contain complete current and critical feedback."
     }
     $simulationFitHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedSimulationFit).Hash.ToLowerInvariant()
-    $remoteSimulationFit = "/workspace/projects/training/fits/current-v3-$($simulationFitHash.Substring(0, 12)).json"
+    $fitFamily = if ($isV4Terrain) { "current-body-v4" } else { "current-v3" }
+    $remoteSimulationFit = "/workspace/projects/training/fits/$fitFamily-$($simulationFitHash.Substring(0, 12)).json"
 }
 elseif ($SimulationFit) {
-    throw "SimulationFit is accepted only for CurrentV3 stages."
+    throw "SimulationFit is accepted only for CurrentV3 and CurrentBodyV4 stages."
 }
 
 $identity = (& ssh @sshOptions $sshTarget "whoami").Trim()
@@ -200,6 +206,8 @@ $remoteDirectories = @(
     "$remoteTraining/simple_dog_task_v2/agents",
     "$remoteTraining/simple_dog_task_current",
     "$remoteTraining/simple_dog_task_current/agents",
+    "$remoteTraining/simple_dog_task_current_body_v4",
+    "$remoteTraining/simple_dog_task_current_body_v4/agents",
     "$remoteTraining/control_profiles",
     "$remoteTraining/fits"
 )
@@ -248,6 +256,11 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_current\simple_dog_current_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current/agents" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current/agents" }
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\simple_dog_current_body_v4_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\simple_dog_current_body_v4_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" }
 )
 foreach ($copy in $copies) {
     if (-not (Test-Path -LiteralPath $copy.Local -PathType Leaf)) {
@@ -294,12 +307,15 @@ if ($ControlProfile) {
             # the following smoke/training launch resolves CurrentV3 itself.
             "CurrentV3Core" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentV3Reverse" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3ForwardSpecialist" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentV3ReverseSpecialist" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Strafe" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Turn" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Goal" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Posture" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Rough" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
-            default { throw "Control profiles require a V2 or CurrentV3 training stage." }
+            "CurrentBodyV4Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            default { throw "Control profiles require a V2, CurrentV3, or CurrentBodyV4 training stage." }
         }
         & ssh @sshOptions $sshTarget "docker exec --workdir /workspace/projects/training isaac-lab-gb10 bash /workspace/projects/training/validate_control_profile_robot.sh '$remoteControlProfile' '$validationTask'"
         if ($LASTEXITCODE -ne 0) {
