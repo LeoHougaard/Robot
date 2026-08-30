@@ -6,6 +6,9 @@ param(
     [ValidateRange(1, 100000)]
     [int]$MaxIterations = 500,
 
+    [ValidateRange(0, 2147483647)]
+    [Nullable[int]]$Seed = $null,
+
     [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard")]
     [string]$Terrain = "Flat",
 
@@ -335,8 +338,9 @@ else {
 
 $checkpointArg = if ($Checkpoint) { $Checkpoint } else { "''" }
 $tuningArg = if ($TuningConfig) { $TuningConfig } else { "''" }
+$seedArg = if ($null -ne $Seed) { [string]$Seed } else { "''" }
 $runDirectory = (& ssh @sshOptions $sshTarget `
-    "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength' '$remoteSimulationFit'" |
+    "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength' '$remoteSimulationFit' $seedArg" |
     Select-Object -Last 1).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $runDirectory) {
     throw "The detached training process did not create a run directory."
@@ -346,6 +350,9 @@ Write-Host "Simple-dog training started."
 Write-Host "Environments: $NumEnvs"
 Write-Host "Iterations:   $MaxIterations"
 Write-Host "Terrain:      $Terrain"
+if ($null -ne $Seed) {
+    Write-Host "Seed:         $Seed"
+}
 if ($Checkpoint) {
     Write-Host "Checkpoint:   $Checkpoint"
 }

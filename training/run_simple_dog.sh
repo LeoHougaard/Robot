@@ -109,6 +109,13 @@ printf 'running\n' >"${run_dir}/status"
 printf '%s\n' "$TASK_NAME" >"${run_dir}/task"
 printf '%s\n' "$num_envs" >"${run_dir}/num_envs"
 printf '%s\n' "$max_iterations" >"${run_dir}/max_iterations"
+if [[ -n "${SIMPLE_DOG_SEED_OVERRIDE:-}" ]]; then
+  [[ "$SIMPLE_DOG_SEED_OVERRIDE" =~ ^[0-9]+$ ]] || {
+    printf 'SIMPLE_DOG_SEED_OVERRIDE must be a non-negative integer.\n' >&2
+    exit 2
+  }
+  printf '%s\n' "$SIMPLE_DOG_SEED_OVERRIDE" >"${run_dir}/seed"
+fi
 
 if [[ -n "${SIMPLE_DOG_CONTROL_PROFILE:-}" ]]; then
   [[ "$SIMPLE_DOG_CONTROL_PROFILE" == /workspace/projects/training/control_profiles/*.json ]] || {

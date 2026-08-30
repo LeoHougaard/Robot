@@ -247,6 +247,7 @@ start_training() {
   local video_interval="${9:-5000}"
   local video_length="${10:-400}"
   local simulation_fit="${11:-}"
+  local seed_override="${12:-}"
   local simulation_fit_sha=""
   local before latest
 
@@ -328,6 +329,8 @@ start_training() {
     { printf 'Invalid video interval.\n' >&2; exit 2; }
   [[ "$video_length" =~ ^[0-9]+$ ]] && ((video_length >= 50 && video_length <= 5000)) ||
     { printf 'Invalid video length.\n' >&2; exit 2; }
+  [[ -z "$seed_override" || "$seed_override" =~ ^[0-9]+$ ]] ||
+    { printf 'Invalid seed override.\n' >&2; exit 2; }
 
   if active; then
     printf 'Simple-dog training is already active.\n' >&2
@@ -352,6 +355,7 @@ start_training() {
     -e "SIMPLE_DOG_RECORD_VIDEO=${record_video}" \
     -e "SIMPLE_DOG_VIDEO_INTERVAL=${video_interval}" \
     -e "SIMPLE_DOG_VIDEO_LENGTH=${video_length}" \
+    -e "SIMPLE_DOG_SEED_OVERRIDE=${seed_override}" \
     "$CONTAINER" \
     /bin/bash /workspace/projects/training/run_simple_dog.sh train
 
@@ -429,7 +433,7 @@ case "${1:-}" in
     active
     ;;
   start)
-    start_training "${2:-512}" "${3:-500}" "${4:-}" "${5:-}" "${6:-flat}" "${7:-}" "${8:-}" "${9:-0}" "${10:-5000}" "${11:-400}" "${12:-}"
+    start_training "${2:-512}" "${3:-500}" "${4:-}" "${5:-}" "${6:-flat}" "${7:-}" "${8:-}" "${9:-0}" "${10:-5000}" "${11:-400}" "${12:-}" "${13:-}"
     ;;
   status)
     status_training
@@ -444,7 +448,7 @@ case "${1:-}" in
     render_checkpoint_video "${2:-}" "${3:-400}" "${4:-v2rough}" "${5:-}" "${6:-0}" "${7:-}"
     ;;
   *)
-    printf 'Usage: %s active|start [num-envs max-iterations checkpoint tuning-config terrain control-profile profile-sha record-video video-interval video-length simulation-fit]|status|latest-video|render-latest-video [video-length]|render-checkpoint-video checkpoint [video-length terrain control-profile sample-index simulation-fit]\n' "$0" >&2
+    printf 'Usage: %s active|start [num-envs max-iterations checkpoint tuning-config terrain control-profile profile-sha record-video video-interval video-length simulation-fit seed]|status|latest-video|render-latest-video [video-length]|render-checkpoint-video checkpoint [video-length terrain control-profile sample-index simulation-fit]\n' "$0" >&2
     exit 2
     ;;
 esac

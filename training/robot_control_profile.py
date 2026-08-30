@@ -80,7 +80,13 @@ def apply_agent_profile(
     if profile is None:
         return agent_cfg
     config = agent_cfg["params"]["config"]
-    agent_cfg["params"]["seed"] = profile["training"]["seed"]
+    seed_override = os.environ.get("SIMPLE_DOG_SEED_OVERRIDE", "")
+    if seed_override:
+        if not seed_override.isdecimal():
+            raise ValueError("SIMPLE_DOG_SEED_OVERRIDE must be a non-negative integer.")
+        agent_cfg["params"]["seed"] = int(seed_override)
+    else:
+        agent_cfg["params"]["seed"] = profile["training"]["seed"]
     policy_family = os.environ.get("SIMPLE_DOG_POLICY_FAMILY")
     if policy_family in ("current_v3", "current_body_v4"):
         # The selected profile owns robot geometry and hardware limits, but its
