@@ -97,6 +97,7 @@ class ControlCenter:
         self._last_rendered_sample_index: int | None = None
         self._last_presented_sample_index: int | None = None
         self._review_sample_cache: dict[int, dict[str, str]] = {}
+        self._review_render_queue: list[int] = []
         self._review_presentation_queue: list[int] = []
         for archive in CACHE_ROOT.glob("current-v4-review-sample-*.mp4"):
             match = re.fullmatch(r"current-v4-review-sample-([0-4])\.mp4", archive.name)
@@ -108,19 +109,26 @@ class ControlCenter:
                 }
 
     def _next_review_sample_index(self) -> int:
-        """Choose a random review sample without repeating the last view."""
+        """Render all five randomized robot samples before repeating one."""
 
         missing = [
             index for index in range(5) if index not in self._review_sample_cache
         ]
         if missing:
             return secrets.choice(missing)
-        choices = [
-            index
-            for index in range(5)
-            if index != self._last_rendered_sample_index
-        ]
-        return secrets.choice(choices)
+        if not self._review_render_queue:
+            remaining = list(range(5))
+            choices = [
+                index
+                for index in remaining
+                if index != self._last_rendered_sample_index
+            ] or remaining
+            while remaining:
+                index = secrets.choice(choices)
+                self._review_render_queue.append(index)
+                remaining.remove(index)
+                choices = remaining
+        return self._review_render_queue.pop(0)
 
     def _next_cached_review_sample_index(self) -> int:
         """Return every cached robot once per randomized presentation cycle."""
@@ -293,9 +301,9 @@ class ControlCenter:
             expected_experiment = (
                 experiment_match.group(1) if experiment_match else ""
             )
+            profile = load_profile(self.profile_path(self.profile_id))
+            requested_sample_index = self._next_review_sample_index()
             if status_fields.get("training") != "running":
-                profile = load_profile(self.profile_path(self.profile_id))
-                requested_sample_index = self._next_review_sample_index()
                 # Kit can retain unusable camera/runtime state after a
                 # completed headless recording. Each explicit stopped-state
                 # fetch gets a clean workload container before it renders. A
@@ -345,22 +353,23 @@ class ControlCenter:
                 else:
                     result = render_result
             else:
-                cached_indices = list(self._review_sample_cache)
-                if cached_indices:
-                    rendered_sample_index = self._next_cached_review_sample_index()
-                    cached = self._review_sample_cache[rendered_sample_index]
-                    shutil.copy2(cached["path"], destination)
-                    presented_cached_review = True
-                    self._last_presented_sample_index = rendered_sample_index
-                    result = {
-                        "ok": True,
-                        "exit_code": 0,
-                        "output": (
-                            f"Copied randomized completed review: {destination}\n"
-                            f"Source video: {cached['source']}"
-                        ),
-                    }
-                else:
+                # Render the newest retained checkpoint in a short-lived
+                # Isaac container. The trainer remains active in its original
+                # container, so the video belongs to the current run without
+                # interrupting scratch optimization.
+                render_result = self._run_script(
+                    "Render-SimpleDogTrainingVideo.ps1",
+                    [
+                        "-VideoLength",
+                        str(profile["training"]["video_length"]),
+                        "-ValidationSample",
+                        str(requested_sample_index),
+                    ],
+                    timeout=360,
+                )
+                if render_result["ok"]:
+                    rendered_sample_index = requested_sample_index
+                    self._last_rendered_sample_index = rendered_sample_index
                     video_arguments = ["-Destination", str(destination)]
                     if expected_experiment:
                         video_arguments.extend(
@@ -371,12 +380,24 @@ class ControlCenter:
                         video_arguments,
                         timeout=120,
                     )
-                    if not result["ok"] and expected_experiment:
-                        result = self._run_script(
-                            "Get-SimpleDogTrainingVideo.ps1",
-                            ["-Destination", str(destination)],
-                            timeout=120,
-                        )
+                elif self._review_sample_cache:
+                    rendered_sample_index = self._next_cached_review_sample_index()
+                    cached = self._review_sample_cache[rendered_sample_index]
+                    shutil.copy2(cached["path"], destination)
+                    presented_cached_review = True
+                    self._last_presented_sample_index = rendered_sample_index
+                    result = {
+                        "ok": True,
+                        "exit_code": 0,
+                        "output": (
+                            f"The current run has no renderable checkpoint yet.\n"
+                            f"Copied randomized completed review: {destination}\n"
+                            f"Source video: {cached['source']}\n"
+                            f"Live renderer: {render_result['output']}"
+                        ),
+                    }
+                else:
+                    result = render_result
             if result["ok"]:
                 result["video_url"] = "/api/video/latest"
                 source_match = re.search(

@@ -44,17 +44,21 @@ class ReviewManifestTests(unittest.TestCase):
 
 
 class ReviewSampleTests(unittest.TestCase):
-    def test_random_review_sample_does_not_immediately_repeat(self) -> None:
+    def test_render_cycle_uses_all_five_before_repeating(self) -> None:
         center = ControlCenter.__new__(ControlCenter)
         center._last_rendered_sample_index = None
         center._review_sample_cache = {index: {} for index in range(5)}
-        previous = None
-        for _ in range(100):
+        center._review_render_queue = []
+
+        first_cycle = []
+        for _ in range(5):
             sample = center._next_review_sample_index()
-            self.assertIn(sample, range(5))
-            self.assertNotEqual(previous, sample)
+            first_cycle.append(sample)
             center._last_rendered_sample_index = sample
-            previous = sample
+
+        self.assertEqual(set(range(5)), set(first_cycle))
+        next_sample = center._next_review_sample_index()
+        self.assertNotEqual(first_cycle[-1], next_sample)
 
     def test_cached_review_cycle_presents_all_five_before_repeating(self) -> None:
         center = ControlCenter.__new__(ControlCenter)

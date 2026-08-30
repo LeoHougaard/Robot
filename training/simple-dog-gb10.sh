@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 readonly CONTAINER="isaac-lab-gb10"
+readonly REVIEW_CONTAINER="isaac-lab-gb10-review"
 readonly ROOT="/home/leo/isaac-workspace/projects/training"
 readonly RUNS_ROOT="${ROOT}/runs/simple_dog"
 
@@ -27,6 +28,59 @@ clear_stale_hub_lock() {
       rm -f -- /tmp/hub-leo.lock /tmp/hub-isaac-sim.lock
     fi
   '
+}
+
+run_rollout_renderer() {
+  local checkpoint="$1"
+  local video_length="$2"
+  local terrain="$3"
+  local control_profile="$4"
+  local simulation_fit="$5"
+  local sample_index="$6"
+  local image container_user
+
+  if active; then
+    # Isaac Sim cannot be started twice in the training container. Use the
+    # same immutable image and mounted project in a short-lived container so
+    # checkpoint review does not pause or mutate the scratch training job.
+    if docker inspect "$REVIEW_CONTAINER" >/dev/null 2>&1; then
+      printf 'A checkpoint review is already running. Wait for it to finish.\n' >&2
+      return 3
+    fi
+    image="$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")"
+    container_user="$(docker inspect -f '{{.Config.User}}' "$CONTAINER")"
+    [[ -n "$image" ]] || {
+      printf 'Could not resolve the Isaac Lab image for checkpoint review.\n' >&2
+      return 1
+    }
+    [[ -n "$container_user" ]] || {
+      printf 'Could not resolve the Isaac Lab user for checkpoint review.\n' >&2
+      return 1
+    }
+    docker run --rm \
+      --name "$REVIEW_CONTAINER" \
+      --gpus all \
+      --shm-size 16g \
+      --volumes-from "$CONTAINER" \
+      --user "$container_user" \
+      --workdir /workspace/isaaclab \
+      --entrypoint /bin/bash \
+      -e "ACCEPT_EULA=Y" \
+      -e "SIMPLE_DOG_VALIDATION_SAMPLE=${sample_index}" \
+      -e "SIMPLE_DOG_REVIEW_NUM_ENVS=5" \
+      "$image" \
+      /workspace/projects/training/render_simple_dog_playback.sh \
+        "$checkpoint" "$video_length" "$terrain" "$control_profile" "$simulation_fit"
+  else
+    clear_stale_hub_lock
+    docker exec \
+      --workdir /workspace/isaaclab \
+      -e "SIMPLE_DOG_VALIDATION_SAMPLE=${sample_index}" \
+      -e "SIMPLE_DOG_REVIEW_NUM_ENVS=5" \
+      "$CONTAINER" \
+      /workspace/projects/training/render_simple_dog_playback.sh \
+        "$checkpoint" "$video_length" "$terrain" "$control_profile" "$simulation_fit"
+  fi
 }
 
 latest_run() {
@@ -63,10 +117,6 @@ render_latest_video() {
     printf 'Video length must be 100-3000 policy steps.\n' >&2
     return 2
   }
-  if active; then
-    printf 'Training is still running. A rollout can be rendered as soon as PPO releases Isaac Sim.\n' >&2
-    return 3
-  fi
   if [[ -z "$sample_index" ]]; then
     sample_index="$(( RANDOM % 5 ))"
   fi
@@ -74,7 +124,6 @@ render_latest_video() {
     printf 'Validation sample must be 0-4.\n' >&2
     return 2
   }
-  clear_stale_hub_lock
   mapfile -t candidates < <(
     find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r
   )
@@ -85,10 +134,10 @@ render_latest_video() {
     )"
     [[ "$experiment" == /workspace/projects/training/logs/rl_games/* ]] || continue
     output_root="${ROOT}/${experiment#/workspace/projects/training/}"
-    checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name '*.pth' ! -name 'last_*' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
-    if [[ -z "$checkpoint" ]]; then
-      checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name 'last_*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
-    fi
+    # "Fetch newest" means newest retained policy, including the periodic
+    # last_<experiment>_ep_<N> snapshots. A best-reward file can be older than
+    # the latest epoch and must not silently win merely because of its name.
+    checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name '*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
     if [[ -n "$checkpoint" ]]; then
       latest="$candidate"
       break
@@ -150,13 +199,9 @@ render_latest_video() {
       return 2
     }
   fi
-  docker exec \
-    --workdir /workspace/isaaclab \
-    -e "SIMPLE_DOG_VALIDATION_SAMPLE=${sample_index}" \
-    -e "SIMPLE_DOG_REVIEW_NUM_ENVS=5" \
-    "$CONTAINER" \
-    /workspace/projects/training/render_simple_dog_playback.sh \
-      "$container_checkpoint" "$video_length" "$terrain" "$control_profile" "$simulation_fit"
+  run_rollout_renderer \
+    "$container_checkpoint" "$video_length" "$terrain" \
+    "$control_profile" "$simulation_fit" "$sample_index"
 }
 
 render_checkpoint_video() {
@@ -167,10 +212,6 @@ render_checkpoint_video() {
   local sample_index="${5:-0}"
   local simulation_fit="${6:-}"
   local host_checkpoint experiment_root video
-  if active; then
-    printf 'Training is still running. Stop it at a retained checkpoint before rendering reviews.\n' >&2
-    return 3
-  fi
   [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
      "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
      "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
@@ -219,13 +260,9 @@ render_checkpoint_video() {
       return 2
     }
   fi
-  clear_stale_hub_lock
-  docker exec \
-    --workdir /workspace/isaaclab \
-    -e "SIMPLE_DOG_VALIDATION_SAMPLE=${sample_index}" \
-    "$CONTAINER" \
-    /workspace/projects/training/render_simple_dog_playback.sh \
-      "$checkpoint" "$video_length" "$terrain" "$control_profile" "$simulation_fit"
+  run_rollout_renderer \
+    "$checkpoint" "$video_length" "$terrain" \
+    "$control_profile" "$simulation_fit" "$sample_index"
   experiment_root="$(dirname "$(dirname "$host_checkpoint")")"
   video="$(find "$experiment_root/videos" -type f -name '*.mp4' -size +1024c -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
   [[ -n "$video" ]] || {
