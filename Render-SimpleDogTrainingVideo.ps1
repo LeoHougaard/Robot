@@ -21,6 +21,8 @@ $sshOptions = @(
     "-o", "IdentitiesOnly=yes",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
+    "-o", "ServerAliveInterval=5",
+    "-o", "ServerAliveCountMax=2",
     "-o", "StrictHostKeyChecking=yes",
     "-o", "HostKeyAlias=gx10-ddb2.local"
 )

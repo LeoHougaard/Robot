@@ -224,9 +224,12 @@ function renderVideoContext() {
     context.textContent = `Current clip: ${metadata.experiment} · step ${metadata.step}${terrainSample} · following robot env ${metadata.env_index} · camera ${metadata.view_index + 1}/5`;
     return;
   }
-  if (fields.training === "running" && metadata && video.getAttribute("src")) {
+  if (metadata && video.getAttribute("src")) {
     const terrainSample = Number.isInteger(metadata.terrain_sample_index) ? ` · terrain sample ${metadata.terrain_sample_index + 1}/5` : "";
-    context.textContent = `Latest verified clip: ${metadata.experiment} · step ${metadata.step}${terrainSample} · following robot env ${metadata.env_index} · camera ${metadata.view_index + 1}/5 · ${fields.surface || "unknown surface"}; live scratch training continues in ${activeExperiment || "the active run"}`;
+    const runNote = fields.training === "running"
+      ? `live scratch training continues in ${activeExperiment || "the active run"}`
+      : `the newest run has no renderable checkpoint yet`;
+    context.textContent = `Latest verified clip: ${metadata.experiment} · step ${metadata.step}${terrainSample} · following robot env ${metadata.env_index} · camera ${metadata.view_index + 1}/5 · ${fields.surface || "unknown surface"}; ${runNote}`;
     return;
   }
   video.pause();

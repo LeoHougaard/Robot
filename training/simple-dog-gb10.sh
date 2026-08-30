@@ -54,8 +54,11 @@ latest_video() {
 render_latest_video() {
   local video_length="${1:-400}"
   local sample_index="${2:-}"
-  local latest experiment output_root checkpoint container_checkpoint task terrain
+  local latest experiment output_root checkpoint container_checkpoint task terrain candidate
+  local -a candidates
   local profile_id profile_sha control_profile simulation_fit simulation_fit_sha
+  latest=""
+  checkpoint=""
   [[ "$video_length" =~ ^[0-9]+$ ]] && ((video_length >= 100 && video_length <= 3000)) || {
     printf 'Video length must be 100-3000 policy steps.\n' >&2
     return 2
@@ -72,22 +75,29 @@ render_latest_video() {
     return 2
   }
   clear_stale_hub_lock
-  latest="$(latest_run || true)"
-  [[ -n "$latest" ]] || { printf 'No training run is available to render.\n' >&2; return 2; }
-  experiment="$(
-    grep -E 'Exact experiment name requested from command line: /workspace/projects/' \
-      "$latest/console.log" 2>/dev/null | tail -1 | sed 's/.*: //' || true
-  )"
-  [[ "$experiment" == /workspace/projects/training/logs/rl_games/* ]] || {
-    printf 'The latest run has not created an RL-Games experiment yet.\n' >&2
+  mapfile -t candidates < <(
+    find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r
+  )
+  for candidate in "${candidates[@]}"; do
+    experiment="$(
+      grep -E 'Exact experiment name requested from command line: /workspace/projects/' \
+        "$candidate/console.log" 2>/dev/null | tail -1 | sed 's/.*: //' || true
+    )"
+    [[ "$experiment" == /workspace/projects/training/logs/rl_games/* ]] || continue
+    output_root="${ROOT}/${experiment#/workspace/projects/training/}"
+    checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name '*.pth' ! -name 'last_*' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
+    if [[ -z "$checkpoint" ]]; then
+      checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name 'last_*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
+    fi
+    if [[ -n "$checkpoint" ]]; then
+      latest="$candidate"
+      break
+    fi
+  done
+  [[ -n "$latest" ]] || {
+    printf 'No training run with a renderable checkpoint is available.\n' >&2
     return 2
   }
-  output_root="${ROOT}/${experiment#/workspace/projects/training/}"
-  checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name '*.pth' ! -name 'last_*' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
-  if [[ -z "$checkpoint" ]]; then
-    checkpoint="$(find "$output_root/nn" -maxdepth 1 -type f -name 'last_*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
-  fi
-  [[ -n "$checkpoint" ]] || { printf 'The latest run has no checkpoint to render.\n' >&2; return 2; }
   container_checkpoint="${experiment}/nn/$(basename "$checkpoint")"
   task="$(cat "$latest/task" 2>/dev/null || true)"
   case "$task" in

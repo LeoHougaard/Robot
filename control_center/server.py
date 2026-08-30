@@ -297,11 +297,25 @@ class ControlCenter:
                 requested_sample_index = self._next_review_sample_index()
                 # Kit can retain unusable camera/runtime state after a
                 # completed headless recording. Each explicit stopped-state
-                # fetch gets a clean workload container before it renders.
-                render_result = self._run_script("Stop-IsaacLab.ps1", timeout=120)
-                if render_result["ok"]:
-                    render_result = self._run_script("Start-IsaacLab.ps1", timeout=240)
-                if render_result["ok"]:
+                # fetch gets a clean workload container before it renders. A
+                # rare Kit startup can stall before frame one, so retry only
+                # that same requested sample after another clean restart.
+                render_result: dict[str, object] = {
+                    "ok": False,
+                    "exit_code": -1,
+                    "output": "The rollout renderer did not start.",
+                }
+                for _attempt in range(3):
+                    render_result = self._run_script(
+                        "Stop-IsaacLab.ps1", timeout=120
+                    )
+                    if not render_result["ok"]:
+                        continue
+                    render_result = self._run_script(
+                        "Start-IsaacLab.ps1", timeout=240
+                    )
+                    if not render_result["ok"]:
+                        continue
                     render_result = self._run_script(
                         "Render-SimpleDogTrainingVideo.ps1",
                         [
@@ -310,8 +324,10 @@ class ControlCenter:
                             "-ValidationSample",
                             str(requested_sample_index),
                         ],
-                        timeout=600,
+                        timeout=360,
                     )
+                    if render_result["ok"]:
+                        break
                 if render_result["ok"]:
                     sample_match = re.search(
                         r"Validation sample:\s*([1-5])/5",
