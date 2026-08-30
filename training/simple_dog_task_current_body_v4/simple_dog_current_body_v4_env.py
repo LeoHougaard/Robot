@@ -39,9 +39,6 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         self._episode_sums["body_motion_shortfall"] = torch.zeros(
             self.num_envs, device=self.device
         )
-        self._episode_sums["diagonal_multiplier"] = torch.zeros(
-            self.num_envs, device=self.device
-        )
         all_envs = torch.arange(
             self.num_envs, dtype=torch.long, device=self.device
         )
@@ -378,24 +375,7 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             * (1.0 - progress_gate)
             * self.cfg.body_motion_shortfall_penalty_scale
         )
-        current_air_time = self._contact_sensor.data.current_air_time.torch[
-            :, self._feet_sensor_ids
-        ]
-        current_contact_time = self._contact_sensor.data.current_contact_time.torch[
-            :, self._feet_sensor_ids
-        ]
-        diagonal_score = self._dense_diagonal_gait_reward(
-            current_air_time, current_contact_time
-        )
-        multiplier = (
-            self.cfg.diagonal_prior_weight
-            * moving_gate.float()
-            * progress_gate
-            * diagonal_score
-        )
-        reward = (
-            tracking * (1.0 + multiplier) + motion_shortfall
-        ) * self.step_dt
+        reward = (tracking + motion_shortfall) * self.step_dt
         settling = getattr(
             self,
             "_reset_hold_active_mask",
@@ -407,9 +387,6 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         )
         self._episode_sums["body_motion_shortfall"] += torch.where(
             settling, 0.0, motion_shortfall * self.step_dt
-        )
-        self._episode_sums["diagonal_multiplier"] += torch.where(
-            settling, 0.0, multiplier * self.step_dt
         )
         if self.cfg.print_play_metrics and not bool(settling[0].item()):
             self._play_step_count += 1
