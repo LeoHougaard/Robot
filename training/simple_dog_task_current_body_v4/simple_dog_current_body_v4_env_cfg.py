@@ -219,6 +219,13 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
     # +1/s tracking reward; it fades continuously to zero at full progress.
     body_motion_command_threshold = 0.10
     body_motion_shortfall_penalty_scale = -1.25
+    # Accumulate the commanded planar displacement in world space during each
+    # six-input hold.  Matching net displacement earns more than pose-only
+    # tracking; remaining near the command origin receives the same magnitude
+    # as a penalty, so local shuffling cannot solve a motion command.
+    net_displacement_command_threshold = 0.04
+    net_displacement_min_expected_m = 0.02
+    net_displacement_priority_scale = 1.50
     domain_randomization_enabled = True
     base_mass_scale = (0.70, 1.35)
     base_mass_delta_kg = (0.0, 0.35)

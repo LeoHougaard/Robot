@@ -27,6 +27,12 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         self._v4_command_modes = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
         )
+        self._command_anchor_xy = self._robot.data.root_pos_w.torch[
+            :, :2
+        ].clone()
+        self._command_expected_displacement_w = torch.zeros(
+            self.num_envs, 2, device=self.device
+        )
         self._current_model_weights = torch.zeros(
             self.num_envs, 4, device=self.device
         )
@@ -37,6 +43,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             self.num_envs, device=self.device
         )
         self._episode_sums["body_motion_shortfall"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self._episode_sums["net_displacement_priority"] = torch.zeros(
             self.num_envs, device=self.device
         )
         all_envs = torch.arange(
@@ -165,6 +174,11 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         )
         if immediate:
             self._commands[env_ids] = targets
+        if hasattr(self, "_command_anchor_xy"):
+            self._command_anchor_xy[env_ids] = self._robot.data.root_pos_w.torch[
+                env_ids, :2
+            ]
+            self._command_expected_displacement_w[env_ids] = 0.0
         if hasattr(self, "_posture_targets"):
             self._sample_posture_targets(env_ids, immediate=immediate)
 
@@ -375,18 +389,64 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             * (1.0 - progress_gate)
             * self.cfg.body_motion_shortfall_penalty_scale
         )
-        reward = (tracking + motion_shortfall) * self.step_dt
         settling = getattr(
             self,
             "_reset_hold_active_mask",
             torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
         )
+        active_step = (~settling).float().unsqueeze(1) * self.step_dt
+        all_envs = torch.arange(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        forward_w, lateral_w = self._planar_body_axes(all_envs)
+        commanded_velocity_w = (
+            forward_w[:, :2] * self._commands[:, 0:1]
+            + lateral_w[:, :2] * self._commands[:, 1:2]
+        )
+        self._command_expected_displacement_w += (
+            commanded_velocity_w * active_step
+        )
+        actual_displacement_w = (
+            self._robot.data.root_pos_w.torch[:, :2] - self._command_anchor_xy
+        )
+        expected_distance = torch.linalg.vector_norm(
+            self._command_expected_displacement_w, dim=1
+        )
+        displacement_error = torch.linalg.vector_norm(
+            actual_displacement_w - self._command_expected_displacement_w,
+            dim=1,
+        )
+        displacement_progress = torch.clamp(
+            (expected_distance - displacement_error)
+            / expected_distance.clamp_min(1.0e-6),
+            0.0,
+            1.0,
+        )
+        linear_command = (
+            torch.linalg.vector_norm(self._command_targets[:, :2], dim=1)
+            > self.cfg.net_displacement_command_threshold
+        )
+        distance_mature = (
+            expected_distance >= self.cfg.net_displacement_min_expected_m
+        )
+        net_displacement_priority = (
+            linear_command.float()
+            * distance_mature.float()
+            * (2.0 * displacement_progress - 1.0)
+            * self.cfg.net_displacement_priority_scale
+        )
+        reward = (
+            tracking + motion_shortfall + net_displacement_priority
+        ) * self.step_dt
         reward = torch.where(settling, 0.0, reward)
         self._episode_sums["body_tracking"] += torch.where(
             settling, 0.0, tracking * self.step_dt
         )
         self._episode_sums["body_motion_shortfall"] += torch.where(
             settling, 0.0, motion_shortfall * self.step_dt
+        )
+        self._episode_sums["net_displacement_priority"] += torch.where(
+            settling, 0.0, net_displacement_priority * self.step_dt
         )
         if self.cfg.print_play_metrics and not bool(settling[0].item()):
             self._play_step_count += 1
@@ -400,3 +460,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             )
         if hasattr(self, "_timing_history"):
             self._timing_history[env_ids] = 1.0
+        if hasattr(self, "_command_anchor_xy"):
+            reset_root_xy = self._robot.data.default_root_pose.torch[
+                env_ids, :2
+            ] + self._terrain.env_origins[env_ids, :2]
+            self._command_anchor_xy[env_ids] = reset_root_xy
+            self._command_expected_displacement_w[env_ids] = 0.0
