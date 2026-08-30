@@ -195,13 +195,19 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
     reset_hold_randomization_rad = math.radians(15.0)
 
     command_hold_s = (1.5, 4.0)
+    linear_command_hold_s = (2.5, 5.0)
     command_smoothing_time_s = 0.35
     posture_hold_s = command_hold_s
     posture_smoothing_time_s = 0.35
-    mixed_command_fraction = 0.70
-    posture_only_fraction = 0.10
-    isolated_motion_fraction = 0.10
-    neutral_fraction = 0.10
+    # Favor inputs that make the robot cover ground without changing the
+    # reward definition. Mixed commands always contain forward and lateral
+    # components; isolated commands select a linear axis 85% of the time.
+    mixed_command_fraction = 0.75
+    posture_only_fraction = 0.05
+    isolated_motion_fraction = 0.15
+    neutral_fraction = 0.05
+    isolated_linear_axis_fraction = 0.85
+    isolated_forward_share = 0.55
     command_forward_v4 = (-0.20, 0.24)
     command_lateral_v4 = (-0.16, 0.16)
     command_yaw_v4 = (-0.35, 0.35)
@@ -219,13 +225,6 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
     # +1/s tracking reward; it fades continuously to zero at full progress.
     body_motion_command_threshold = 0.10
     body_motion_shortfall_penalty_scale = -1.25
-    # Accumulate the commanded planar displacement in world space during each
-    # six-input hold.  Matching net displacement earns more than pose-only
-    # tracking; remaining near the command origin receives the same magnitude
-    # as a penalty, so local shuffling cannot solve a motion command.
-    net_displacement_command_threshold = 0.04
-    net_displacement_min_expected_m = 0.02
-    net_displacement_priority_scale = 1.50
     domain_randomization_enabled = True
     base_mass_scale = (0.70, 1.35)
     base_mass_delta_kg = (0.0, 0.35)
