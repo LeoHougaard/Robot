@@ -333,7 +333,7 @@ class ControlCenter:
                             "-ValidationSample",
                             str(requested_sample_index),
                         ],
-                        timeout=360,
+                        timeout=720,
                     )
                     if render_result["ok"]:
                         break
@@ -365,7 +365,7 @@ class ControlCenter:
                         "-ValidationSample",
                         str(requested_sample_index),
                     ],
-                    timeout=360,
+                    timeout=720,
                 )
                 if render_result["ok"]:
                     rendered_sample_index = requested_sample_index
