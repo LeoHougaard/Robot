@@ -17,6 +17,8 @@ COMMANDS = {
     "turn_left": (0.0, 0.0, 0.25),
     "turn_right": (0.0, 0.0, -0.25),
     "diagonal_left": (0.16, 0.12, 0.0),
+    "diagonal_right": (0.16, -0.12, 0.0),
+    "diagonal_reverse_left": (-0.14, 0.12, 0.0),
     "diagonal_reverse_right": (-0.14, -0.12, 0.0),
     "curve_left": (0.16, 0.08, 0.25),
     "curve_right": (0.16, -0.08, -0.25),
@@ -24,12 +26,12 @@ COMMANDS = {
 }
 
 
-def ideal_segment(name: str) -> dict:
-    forward, lateral, yaw = COMMANDS[name]
+def ideal_segment(name: str, *, step_dt: float | None = None) -> dict:
+    forward, lateral, yaw = COMMANDS.get(name, (0.14, 0.0, 0.0))
     stationary = name in {"stand", "stop"}
     steps = 100 if name in {"stand", "stop"} else 175
-    duration = steps * 0.02
-    return {
+    duration = steps * (0.02 if step_dt is None else step_dt)
+    segment = {
         "name": name,
         "steps": steps,
         "command_forward": forward,
@@ -43,6 +45,8 @@ def ideal_segment(name: str) -> dict:
         "mean_swing_foot_clearance": 0.0 if stationary else 0.025,
         "mean_action_rate": 0.10,
         "max_action_step": 0.20,
+        "mean_abs_hip_abduction": 0.08,
+        "max_abs_hip_abduction": 0.16,
         "mean_abs_vertical_speed": 0.03,
         "mean_tilt": 0.03,
         "forward_displacement": forward * duration,
@@ -52,12 +56,34 @@ def ideal_segment(name: str) -> dict:
         "swing_fraction_frflbrbl": [0.0, 0.0, 0.0, 0.0] if stationary else [0.45, 0.45, 0.45, 0.45],
         "landings_frflbrbl": [0, 0, 0, 0] if stationary else [4, 4, 4, 4],
         "resets": 0,
+        "mean_abs_height_error": 0.010,
+        "mean_abs_roll_error": 0.030,
+        "mean_abs_pitch_error": 0.030,
+        "mean_current_valid_fraction": 0.8 if name == "current_dropout_walk" else 1.0,
     }
+    if step_dt is not None:
+        segment["step_dt"] = step_dt
+    return segment
 
 
 class MobilityEvaluationTests(unittest.TestCase):
     def test_ideal_full_mobility_suite_passes(self):
         segments = {name: ideal_segment(name) for name in EXPECTED["goal"]}
+        self.assertTrue(evaluate("goal", segments)["passed"])
+
+    def test_rough_uses_full_mobility_suite_and_requires_gait_quality(self):
+        self.assertEqual(EXPECTED["rough"], EXPECTED["goal"])
+        segments = {name: ideal_segment(name) for name in EXPECTED["rough"]}
+        self.assertTrue(evaluate("rough", segments)["passed"])
+        segments["forward"]["mean_foot_slip"] = 0.31
+        result = evaluate("rough", segments)
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("mean foot slip" in failure for failure in result["failures"]))
+
+    def test_emitted_25_hz_step_duration_controls_heading_math(self):
+        segments = {
+            name: ideal_segment(name, step_dt=0.04) for name in EXPECTED["goal"]
+        }
         self.assertTrue(evaluate("goal", segments)["passed"])
 
     def test_wrong_direction_reverse_fails(self):
@@ -88,6 +114,33 @@ class MobilityEvaluationTests(unittest.TestCase):
         segments["stop"]["swing_fraction_frflbrbl"][0] = 0.95
         segments["stop"]["mean_swing_foot_clearance"] = 0.001
         self.assertTrue(evaluate("goal", segments)["passed"])
+
+    def test_moving_body_tilt_fails(self):
+        segments = {name: ideal_segment(name) for name in EXPECTED["goal"]}
+        segments["forward"]["mean_tilt"] = 0.16
+        result = evaluate("goal", segments)
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("mean body tilt" in failure for failure in result["failures"]))
+
+    def test_splayed_moving_stance_fails_gait_quality(self):
+        segments = {name: ideal_segment(name) for name in EXPECTED["goal"]}
+        segments["forward"]["mean_abs_hip_abduction"] = 0.23
+        segments["forward"]["max_abs_hip_abduction"] = 0.30
+        result = evaluate("goal", segments, require_gait_quality=True)
+        self.assertFalse(result["passed"])
+        self.assertTrue(
+            any("hip abduction" in failure for failure in result["failures"])
+        )
+
+    def test_current_suite_passes_and_gates_posture_and_dropout(self):
+        segments = {name: ideal_segment(name) for name in EXPECTED["current"]}
+        self.assertTrue(evaluate("current", segments, require_gait_quality=True)["passed"])
+        segments["crouch_walk"]["mean_abs_height_error"] = 0.040
+        segments["current_dropout_walk"]["mean_current_valid_fraction"] = 1.0
+        result = evaluate("current", segments, require_gait_quality=True)
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("height error" in failure for failure in result["failures"]))
+        self.assertTrue(any("current validity" in failure for failure in result["failures"]))
 
 
 if __name__ == "__main__":

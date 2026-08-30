@@ -144,6 +144,7 @@ class MainActivity : AppCompatActivity() {
         binding.startPolicyButton.setOnClickListener {
             runCatching {
                 robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value)
+                updatePostureRequest()
                 robotService?.startPolicy()
             }.onFailure { binding.runtimeStatus.text = it.message }
         }
@@ -161,6 +162,9 @@ class MainActivity : AppCompatActivity() {
                 .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
+        binding.heightSlider.addOnChangeListener { _, _, _ -> updatePostureRequest(); renderMotionLabels() }
+        binding.rollSlider.addOnChangeListener { _, _, _ -> updatePostureRequest(); renderMotionLabels() }
+        binding.pitchSlider.addOnChangeListener { _, _, _ -> updatePostureRequest(); renderMotionLabels() }
         binding.cameraSwitch.setOnCheckedChangeListener { _, enabled ->
             if (enabled) enableCamera() else disableCamera()
         }
@@ -334,12 +338,37 @@ class MainActivity : AppCompatActivity() {
         binding.yawSlider.valueFrom = service.yawMinimum
         binding.yawSlider.valueTo = service.yawMaximum
         binding.yawSlider.value = binding.yawSlider.value.coerceIn(service.yawMinimum, service.yawMaximum)
+        val postureEnabled = service.supportsPostureCommands
+        listOf(binding.heightSlider, binding.rollSlider, binding.pitchSlider).forEach {
+            it.isEnabled = postureEnabled
+        }
+        if (postureEnabled) {
+            binding.heightSlider.valueFrom = service.postureHeightMinimum
+            binding.heightSlider.valueTo = service.postureHeightMaximum
+            binding.rollSlider.valueFrom = service.postureRollMinimum
+            binding.rollSlider.valueTo = service.postureRollMaximum
+            binding.pitchSlider.valueFrom = service.posturePitchMinimum
+            binding.pitchSlider.valueTo = service.posturePitchMaximum
+        }
         renderMotionLabels()
+    }
+
+    private fun updatePostureRequest() {
+        val service = robotService ?: return
+        if (!service.supportsPostureCommands) return
+        service.updatePostureRequest(
+            binding.heightSlider.value,
+            binding.rollSlider.value,
+            binding.pitchSlider.value,
+        )
     }
 
     private fun renderMotionLabels() {
         binding.forwardRequestLabel.text = getString(R.string.forward_request, binding.forwardSlider.value)
         binding.yawRequestLabel.text = getString(R.string.yaw_request, binding.yawSlider.value)
+        binding.heightRequestLabel.text = getString(R.string.height_request, binding.heightSlider.value)
+        binding.rollRequestLabel.text = getString(R.string.roll_request, binding.rollSlider.value)
+        binding.pitchRequestLabel.text = getString(R.string.pitch_request, binding.pitchSlider.value)
     }
 
     private fun shareLastRun() {

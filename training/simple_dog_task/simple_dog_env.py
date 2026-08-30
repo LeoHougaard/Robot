@@ -8,7 +8,11 @@ rewards for the smaller two-joint-per-leg platform.
 from __future__ import annotations
 
 import gymnasium as gym
+import os
 import torch
+
+from terrain_curriculum import classify_terrain_progress
+from video_camera import CAMERA_OFFSETS, select_video_camera_sample
 import warp as wp
 
 import isaaclab.sim as sim_utils
@@ -25,6 +29,15 @@ class SimpleDogEnv(DirectRLEnv):
 
     def __init__(self, cfg: SimpleDogFlatEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+
+        self._follow_video_camera = render_mode == "rgb_array"
+        self._video_camera_interval = max(
+            1, int(os.environ.get("SIMPLE_DOG_VIDEO_INTERVAL", "5000"))
+        )
+        self._video_camera_sample_offset = int(
+            os.environ.get("SIMPLE_DOG_VALIDATION_SAMPLE", "0")
+        ) % len(CAMERA_OFFSETS)
+        self._video_camera_sample = None
 
         action_dim = gym.spaces.flatdim(self.single_action_space)
         if cfg.control_profile_active:
@@ -55,13 +68,21 @@ class SimpleDogEnv(DirectRLEnv):
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
         forward_axis = torch.tensor(cfg.forward_axis, device=self.device)
         forward_axis = forward_axis / torch.linalg.vector_norm(forward_axis)
-        lateral_axis = torch.tensor(
-            (-forward_axis[1], forward_axis[0], 0.0), device=self.device
-        )
+        up_axis = torch.tensor(cfg.up_axis, device=self.device)
+        up_axis = up_axis / torch.linalg.vector_norm(up_axis)
+        if torch.abs(torch.dot(forward_axis, up_axis)) > 1.0e-5:
+            raise ValueError("forward_axis and up_axis must be perpendicular")
+        lateral_axis = torch.linalg.cross(up_axis, forward_axis)
         self._physical_forward_axis_b = forward_axis.repeat(self.num_envs, 1)
         self._physical_lateral_axis_b = lateral_axis.repeat(self.num_envs, 1)
-        self._target_forward_axis_w = forward_axis.repeat(self.num_envs, 1)
-        self._target_lateral_axis_w = lateral_axis.repeat(self.num_envs, 1)
+        self._physical_up_axis_b = up_axis.repeat(self.num_envs, 1)
+        default_root_quat = self._robot.data.default_root_pose.torch[:, 3:7]
+        self._target_forward_axis_w = quat_apply(
+            default_root_quat, self._physical_forward_axis_b
+        )
+        self._target_lateral_axis_w = quat_apply(
+            default_root_quat, self._physical_lateral_axis_b
+        )
 
         foot_links = tuple(
             zip(("front_right", "front_left", "back_right", "back_left"), cfg.foot_links)
@@ -99,7 +120,7 @@ class SimpleDogEnv(DirectRLEnv):
                 "The configured base contact expression did not resolve to a "
                 f"robot body: {base_body_names}"
             )
-        if self.cfg.terrain_curriculum:
+        if self.cfg.suppress_base_contact_termination:
             base_sensor_id_set = set(self._base_sensor_ids)
             self._undesired_contact_sensor_ids = [
                 sensor_id
@@ -136,12 +157,86 @@ class SimpleDogEnv(DirectRLEnv):
         )
         self._body_lateral_speed_sum = torch.zeros(self.num_envs, device=self.device)
         self._heading_error_sum = torch.zeros(self.num_envs, device=self.device)
+        self._terrain_commanded_distance = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self._terrain_tracked_distance = torch.zeros(
+            self.num_envs, device=self.device
+        )
         self._foot_swing_steps = torch.zeros(
             self.num_envs, 4, dtype=torch.float, device=self.device
         )
         self._foot_landings = torch.zeros_like(self._foot_swing_steps)
         self._play_step_count = 0
         self._play_start_xy = None
+
+    def _update_video_camera(self) -> None:
+        """Follow a stratified robot and rotate viewpoint between video clips."""
+
+        if not getattr(self, "_follow_video_camera", False):
+            return
+        step = int(getattr(self, "common_step_counter", 0))
+        camera_step = step + (
+            self._video_camera_sample_offset * self._video_camera_interval
+        )
+        sample = select_video_camera_sample(
+            camera_step, self._video_camera_interval, self.num_envs
+        )
+        env_index = sample.env_index
+        root_position = self._robot.data.root_pos_w.torch[env_index]
+        root_quat = self._robot.data.root_quat_w.torch[env_index].unsqueeze(0)
+        forward = quat_apply(
+            root_quat, self._physical_forward_axis_b[env_index].unsqueeze(0)
+        )[0]
+        lateral = quat_apply(
+            root_quat, self._physical_lateral_axis_b[env_index].unsqueeze(0)
+        )[0]
+        forward[2] = 0.0
+        lateral[2] = 0.0
+        forward /= torch.linalg.vector_norm(forward).clamp_min(1.0e-6)
+        lateral /= torch.linalg.vector_norm(lateral).clamp_min(1.0e-6)
+        forward_offset, lateral_offset, height_offset = CAMERA_OFFSETS[
+            sample.view_index
+        ]
+        eye = (
+            root_position
+            + forward_offset * forward
+            + lateral_offset * lateral
+        ).clone()
+        eye[2] = root_position[2] + height_offset
+        lookat = (root_position + 0.12 * forward).clone()
+        lookat[2] = root_position[2] + 0.02
+        self.sim.set_camera_view(eye.tolist(), lookat.tolist())
+        if sample != self._video_camera_sample:
+            print(
+                "VIDEO_CAMERA_SAMPLE "
+                f"clip={sample.clip_index} step={step} env={env_index} "
+                f"view={sample.view_index}",
+                flush=True,
+            )
+            self._video_camera_sample = sample
+
+    def _accumulate_terrain_progress(
+        self, body_planar_velocity: torch.Tensor
+    ) -> None:
+        """Accumulate distance tracked along each step's active command."""
+        if not self.cfg.terrain_curriculum:
+            return
+        requested_planar = self._commands[:, :2]
+        command_speed = torch.linalg.vector_norm(requested_planar, dim=1)
+        command_direction = requested_planar / command_speed.clamp_min(
+            self.cfg.gait_velocity_threshold
+        ).unsqueeze(1)
+        aligned_speed = torch.sum(
+            body_planar_velocity * command_direction, dim=1
+        )
+        # Cap credit at the requested speed. Overspeed is not evidence that the
+        # command was tracked, and reverse motion should cancel forward credit.
+        tracked_speed = torch.maximum(
+            torch.minimum(aligned_speed, command_speed), -command_speed
+        )
+        self._terrain_commanded_distance += command_speed * self.step_dt
+        self._terrain_tracked_distance += tracked_speed * self.step_dt
 
     def _apply_startup_domain_randomization(self) -> None:
         """Apply the profile's per-environment physical variants once."""
@@ -167,18 +262,24 @@ class SimpleDogEnv(DirectRLEnv):
             )
 
         mass_scale = log_uniform((self.num_envs, 1), self.cfg.base_mass_scale)
+        mass_delta = torch.empty(
+            (self.num_envs, 1), device=self.device
+        ).uniform_(*self.cfg.base_mass_delta_kg)
         default_mass = self._robot.data.body_mass.torch[
             env_ids[:, None], body_ids
         ].clone()
-        randomized_mass = default_mass * mass_scale
+        randomized_mass = default_mass * mass_scale + mass_delta
+        mass_ratio = randomized_mass / default_mass
         self._robot.set_masses_index(
             masses=randomized_mass, body_ids=body_ids, env_ids=env_ids
         )
+        self._startup_base_mass = randomized_mass
+        self._startup_base_mass_delta = mass_delta
         default_inertia = self._robot.data.body_inertia.torch[
             env_ids[:, None], body_ids
         ].clone()
         self._robot.set_inertias_index(
-            inertias=default_inertia * mass_scale.unsqueeze(-1),
+            inertias=default_inertia * mass_ratio.unsqueeze(-1),
             body_ids=body_ids,
             env_ids=env_ids,
         )
@@ -264,7 +365,15 @@ class SimpleDogEnv(DirectRLEnv):
         coms = self._robot.data.body_com_pose_b.torch[
             env_ids[:, None], body_ids
         ].clone()
-        coms[:, :, :3] += (
+        semantic_com_offset = (
+            self.cfg.base_com_offset_semantic[0]
+            * self._physical_forward_axis_b
+            + self.cfg.base_com_offset_semantic[1]
+            * self._physical_lateral_axis_b
+            + self.cfg.base_com_offset_semantic[2]
+            * self._physical_up_axis_b
+        ).unsqueeze(1)
+        random_com_offset = (
             2.0
             * torch.rand(
                 (self.num_envs, len(self._base_body_ids), 3),
@@ -272,8 +381,40 @@ class SimpleDogEnv(DirectRLEnv):
             )
             - 1.0
         ) * com_limit
+        self._startup_base_com_offset_b = (
+            semantic_com_offset + random_com_offset
+        )
+        axis_b = (
+            self._physical_forward_axis_b,
+            self._physical_lateral_axis_b,
+            self._physical_up_axis_b,
+        )
+        self._startup_base_com_offset_semantic = torch.stack(
+            tuple(
+                torch.sum(
+                    self._startup_base_com_offset_b
+                    * component.unsqueeze(1),
+                    dim=2,
+                )
+                for component in axis_b
+            ),
+            dim=2,
+        )
+        coms[:, :, :3] += self._startup_base_com_offset_b
         self._robot.set_coms_index(
             coms=coms, body_ids=body_ids, env_ids=env_ids
+        )
+        com_min = self._startup_base_com_offset_semantic.amin(dim=(0, 1))
+        com_max = self._startup_base_com_offset_semantic.amax(dim=(0, 1))
+        print(
+            "STARTUP_DOMAIN_RANDOMIZATION "
+            f"base_mass_kg=[{randomized_mass.min().item():.6f},"
+            f"{randomized_mass.max().item():.6f}] "
+            f"base_mass_delta_kg=[{mass_delta.min().item():.6f},"
+            f"{mass_delta.max().item():.6f}] "
+            "base_com_forward_lateral_up_m="
+            f"[{com_min.tolist()},{com_max.tolist()}]",
+            flush=True,
         )
 
         # PhysX limits unique materials, so sample a bounded reusable bucket
@@ -353,20 +494,29 @@ class SimpleDogEnv(DirectRLEnv):
         )
         return joint_position, joint_velocity
 
+    def _semantic_vector_b(self, vector_b: torch.Tensor) -> torch.Tensor:
+        """Express a root-frame vector in forward/lateral/up coordinates."""
+        return torch.stack(
+            (
+                torch.sum(vector_b * self._physical_forward_axis_b, dim=1),
+                torch.sum(vector_b * self._physical_lateral_axis_b, dim=1),
+                torch.sum(vector_b * self._physical_up_axis_b, dim=1),
+            ),
+            dim=1,
+        )
+
     def _get_physical_motion(self) -> tuple[torch.Tensor, ...]:
         """Return motion in the chassis' physical and fixed-world forward frames."""
-        root_lin_vel_b = self._robot.data.root_lin_vel_b.torch
+        root_lin_vel_b = self._semantic_vector_b(
+            self._robot.data.root_lin_vel_b.torch
+        )
         root_lin_vel_w = self._robot.data.root_lin_vel_w.torch
         physical_forward_w = quat_apply(
             self._robot.data.root_quat_w.torch, self._physical_forward_axis_b
         )
 
-        body_forward = torch.sum(
-            root_lin_vel_b * self._physical_forward_axis_b, dim=1
-        )
-        body_lateral = torch.sum(
-            root_lin_vel_b * self._physical_lateral_axis_b, dim=1
-        )
+        body_forward = root_lin_vel_b[:, 0]
+        body_lateral = root_lin_vel_b[:, 1]
         world_forward = torch.sum(
             root_lin_vel_w * self._target_forward_axis_w, dim=1
         )
@@ -397,16 +547,15 @@ class SimpleDogEnv(DirectRLEnv):
             heading_alignment,
             heading_lateral,
         ) = self._get_physical_motion()
-        root_lin_vel_b = self._robot.data.root_lin_vel_b.torch
-        physical_lin_vel_b = torch.stack(
-            (body_forward, body_lateral, root_lin_vel_b[:, 2]), dim=1
+        physical_lin_vel_b = self._semantic_vector_b(
+            self._robot.data.root_lin_vel_b.torch
         )
         heading_features = torch.stack((heading_alignment, heading_lateral), dim=1)
         joint_position, joint_velocity = self._get_policy_joint_state()
         observation_terms = [
             physical_lin_vel_b,
-            self._robot.data.root_ang_vel_b.torch,
-            self._robot.data.projected_gravity_b.torch,
+            self._semantic_vector_b(self._robot.data.root_ang_vel_b.torch),
+            self._semantic_vector_b(self._robot.data.projected_gravity_b.torch),
             self._commands,
             heading_features,
             joint_position,
@@ -431,6 +580,7 @@ class SimpleDogEnv(DirectRLEnv):
             )
         obs = torch.cat(observation_terms, dim=-1)
         self._previous_actions = self._actions.clone()
+        self._update_video_camera()
         return {"policy": obs}
 
     def _get_trot_reward(
@@ -488,9 +638,15 @@ class SimpleDogEnv(DirectRLEnv):
         return synchronized * opposed
 
     def _get_rewards(self) -> torch.Tensor:
-        root_lin_vel_b = self._robot.data.root_lin_vel_b.torch
-        root_ang_vel = self._robot.data.root_ang_vel_b.torch
-        projected_gravity = self._robot.data.projected_gravity_b.torch
+        root_lin_vel_b = self._semantic_vector_b(
+            self._robot.data.root_lin_vel_b.torch
+        )
+        root_ang_vel = self._semantic_vector_b(
+            self._robot.data.root_ang_vel_b.torch
+        )
+        projected_gravity = self._semantic_vector_b(
+            self._robot.data.projected_gravity_b.torch
+        )
         root_height = self._robot.data.root_pos_w.torch[:, 2] - self._terrain.env_origins[:, 2]
         (
             body_forward,
@@ -544,7 +700,7 @@ class SimpleDogEnv(DirectRLEnv):
         )
         terminate_on_base_contact = (
             torch.zeros_like(base_contact)
-            if self.cfg.terrain_curriculum
+            if self.cfg.suppress_base_contact_termination
             else base_contact
         )
         fell = terminate_on_base_contact | (root_height < self.cfg.termination_height) | (
@@ -680,6 +836,7 @@ class SimpleDogEnv(DirectRLEnv):
         self._world_forward_speed_sum += world_forward
         self._body_lateral_speed_sum += torch.abs(body_lateral)
         self._heading_error_sum += heading_error
+        self._accumulate_terrain_progress(body_planar_velocity)
         self._foot_swing_steps += (~feet_contact).float()
         self._foot_landings += first_contact.float()
         if self.cfg.print_play_metrics:
@@ -716,7 +873,9 @@ class SimpleDogEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         root_height = self._robot.data.root_pos_w.torch[:, 2] - self._terrain.env_origins[:, 2]
-        gravity_z = self._robot.data.projected_gravity_b.torch[:, 2]
+        gravity_z = self._semantic_vector_b(
+            self._robot.data.projected_gravity_b.torch
+        )[:, 2]
         contact_history = self._contact_sensor.data.net_forces_w_history.torch
         base_contact = torch.any(
             torch.max(
@@ -735,7 +894,7 @@ class SimpleDogEnv(DirectRLEnv):
         # use the existing height/orientation fall tests on generated terrain.
         terminate_on_base_contact = (
             torch.zeros_like(base_contact)
-            if self.cfg.terrain_curriculum
+            if self.cfg.suppress_base_contact_termination
             else base_contact
         )
         fell = terminate_on_base_contact | (root_height < self.cfg.termination_height) | (
@@ -763,9 +922,10 @@ class SimpleDogEnv(DirectRLEnv):
         )
         completed_foot_landings = self._foot_landings[env_ids]
 
-        # Match Isaac Lab's game-inspired rough-terrain curriculum: advance
-        # robots that traverse most of a tile and lower difficulty for robots
-        # that cover less than half of their commanded episode distance.
+        # Use cumulative command-aligned distance. Goal training changes
+        # direction and tapers its command near each target, so projecting net
+        # displacement onto only the final command prevented capable policies
+        # from advancing through the terrain rows.
         terrain_move_up = torch.zeros(
             len(env_ids), dtype=torch.bool, device=self.device
         )
@@ -774,35 +934,13 @@ class SimpleDogEnv(DirectRLEnv):
             self.cfg.terrain_curriculum
             and self._terrain.terrain_origins is not None
         ):
-            displacement_w = (
-                self._robot.data.root_pos_w.torch[env_ids, :2]
-                - self._terrain.env_origins[env_ids, :2]
-            )
-            desired_direction_w = (
-                self._commands[env_ids, 0:1]
-                * self._target_forward_axis_w[env_ids, :2]
-                + self._commands[env_ids, 1:2]
-                * self._target_lateral_axis_w[env_ids, :2]
-            )
-            desired_direction_w = desired_direction_w / torch.linalg.vector_norm(
-                desired_direction_w, dim=1, keepdim=True
-            ).clamp_min(self.cfg.gait_velocity_threshold)
-            command_progress = torch.sum(
-                displacement_w * desired_direction_w, dim=1
-            )
-            valid_episode = raw_completed_steps > 0.25 * self.max_episode_length
             terrain_size = self.cfg.terrain.terrain_generator.size[0]
-            terrain_move_up = valid_episode & (
-                command_progress > 0.40 * terrain_size
-            )
-            expected_distance = (
-                torch.linalg.vector_norm(self._commands[env_ids, :2], dim=1)
-                * self.cfg.episode_length_s
-            )
-            terrain_move_down = (
-                valid_episode
-                & (command_progress < 0.50 * expected_distance)
-                & ~terrain_move_up
+            terrain_move_up, terrain_move_down = classify_terrain_progress(
+                raw_completed_steps,
+                self.max_episode_length,
+                self._terrain_commanded_distance[env_ids],
+                self._terrain_tracked_distance[env_ids],
+                terrain_size,
             )
             self._terrain.update_env_origins(
                 env_ids, terrain_move_up, terrain_move_down
@@ -902,6 +1040,20 @@ class SimpleDogEnv(DirectRLEnv):
             log["Metrics/terrain_move_down_fraction"] = torch.mean(
                 terrain_move_down.float()
             ).item()
+            mean_commanded_distance = torch.mean(
+                self._terrain_commanded_distance[env_ids]
+            )
+            mean_tracked_distance = torch.mean(
+                self._terrain_tracked_distance[env_ids]
+            )
+            log["Metrics/terrain_commanded_distance"] = (
+                mean_commanded_distance.item()
+            )
+            log["Metrics/terrain_tracked_distance"] = mean_tracked_distance.item()
+            log["Metrics/terrain_tracking_fraction"] = (
+                mean_tracked_distance
+                / mean_commanded_distance.clamp_min(1.0e-6)
+            ).item()
         log["Episode_Termination/fell"] = torch.count_nonzero(self.reset_terminated[env_ids]).item()
         log["Episode_Termination/time_out"] = torch.count_nonzero(self.reset_time_outs[env_ids]).item()
         self.extras["log"] = log
@@ -911,5 +1063,7 @@ class SimpleDogEnv(DirectRLEnv):
         self._world_forward_speed_sum[env_ids] = 0.0
         self._body_lateral_speed_sum[env_ids] = 0.0
         self._heading_error_sum[env_ids] = 0.0
+        self._terrain_commanded_distance[env_ids] = 0.0
+        self._terrain_tracked_distance[env_ids] = 0.0
         self._foot_swing_steps[env_ids] = 0.0
         self._foot_landings[env_ids] = 0.0

@@ -85,6 +85,13 @@ render_latest_video() {
     Isaac-Locomotion-V2-Robust-*) terrain="v2robust" ;;
     Isaac-Locomotion-V2-Goal-*) terrain="v2goal" ;;
     Isaac-Locomotion-V2-Rough-*) terrain="v2rough" ;;
+    Isaac-Locomotion-CurrentV3-Core-*) terrain="currentv3core" ;;
+    Isaac-Locomotion-CurrentV3-Reverse-*) terrain="currentv3reverse" ;;
+    Isaac-Locomotion-CurrentV3-Strafe-*) terrain="currentv3strafe" ;;
+    Isaac-Locomotion-CurrentV3-Turn-*) terrain="currentv3turn" ;;
+    Isaac-Locomotion-CurrentV3-Goal-*) terrain="currentv3goal" ;;
+    Isaac-Locomotion-CurrentV3-Posture-*) terrain="currentv3posture" ;;
+    Isaac-Locomotion-CurrentV3-*) terrain="currentv3rough" ;;
     *) printf 'Unsupported task for rollout rendering: %s\n' "$task" >&2; return 2 ;;
   esac
   control_profile=""
@@ -112,6 +119,81 @@ render_latest_video() {
       "$container_checkpoint" "$video_length" "$terrain" "$control_profile"
 }
 
+render_checkpoint_video() {
+  local checkpoint="${1:-}"
+  local video_length="${2:-400}"
+  local terrain="${3:-v2rough}"
+  local control_profile="${4:-}"
+  local sample_index="${5:-0}"
+  local simulation_fit="${6:-}"
+  local host_checkpoint experiment_root video
+  if active; then
+    printf 'Training is still running. Stop it at a retained checkpoint before rendering reviews.\n' >&2
+    return 3
+  fi
+  [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
+    printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
+    return 2
+  }
+  [[ "$terrain" == flat || "$terrain" == rough || "$terrain" == v2core ||
+     "$terrain" == v2robust || "$terrain" == v2goal || "$terrain" == v2rough ||
+     "$terrain" == currentv3* ]] || {
+    printf 'Unsupported review terrain: %s\n' "$terrain" >&2
+    return 2
+  }
+  if [[ "$terrain" == currentv3* ]]; then
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
+      printf 'CurrentV3 review requires its simulation fit.\n' >&2
+      return 2
+    }
+    docker exec "$CONTAINER" test -f "$simulation_fit" || {
+      printf 'Simulation fit does not exist: %s\n' "$simulation_fit" >&2
+      return 2
+    }
+  elif [[ -n "$simulation_fit" ]]; then
+    printf 'A simulation fit may be supplied only for CurrentV3.\n' >&2
+    return 2
+  fi
+  [[ "$sample_index" =~ ^[0-4]$ ]] || {
+    printf 'Validation sample must be 0-4.\n' >&2
+    return 2
+  }
+  host_checkpoint="${ROOT}/${checkpoint#/workspace/projects/training/}"
+  [[ -f "$host_checkpoint" ]] || {
+    printf 'Checkpoint does not exist: %s\n' "$checkpoint" >&2
+    return 2
+  }
+  if [[ -n "$control_profile" ]]; then
+    [[ "$control_profile" == /workspace/projects/training/control_profiles/*.json ]] || {
+      printf 'Control profile must be below the training control_profiles directory.\n' >&2
+      return 2
+    }
+    docker exec "$CONTAINER" test -f "$control_profile" || {
+      printf 'Control profile does not exist: %s\n' "$control_profile" >&2
+      return 2
+    }
+  fi
+  clear_stale_hub_lock
+  docker exec \
+    --workdir /workspace/isaaclab \
+    -e "SIMPLE_DOG_VALIDATION_SAMPLE=${sample_index}" \
+    "$CONTAINER" \
+    /workspace/projects/training/render_simple_dog_playback.sh \
+      "$checkpoint" "$video_length" "$terrain" "$control_profile" "$simulation_fit"
+  experiment_root="$(dirname "$(dirname "$host_checkpoint")")"
+  video="$(find "$experiment_root/videos" -type f -name '*.mp4' -size +1024c -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)"
+  [[ -n "$video" ]] || {
+    printf 'Rendering completed but no rollout video was found.\n' >&2
+    return 1
+  }
+  printf 'Rendered video: %s\n' "$video"
+}
+
 start_training() {
   local num_envs="${1:-512}"
   local max_iterations="${2:-500}"
@@ -123,6 +205,8 @@ start_training() {
   local record_video="${8:-0}"
   local video_interval="${9:-5000}"
   local video_length="${10:-400}"
+  local simulation_fit="${11:-}"
+  local simulation_fit_sha=""
   local before latest
 
   [[ "$num_envs" =~ ^[0-9]+$ ]] && ((num_envs >= 128 && num_envs <= 16384)) ||
@@ -131,11 +215,14 @@ start_training() {
     { printf 'Invalid iteration count: %s\n' "$max_iterations" >&2; exit 2; }
   [[ "$terrain" == flat || "$terrain" == rough || "$terrain" == rough_noscan ||
      "$terrain" == v2core || "$terrain" == v2robust ||
-     "$terrain" == v2goal || "$terrain" == v2rough ]] ||
+     "$terrain" == v2goal || "$terrain" == v2rough ||
+     "$terrain" == currentv3* ]] ||
     { printf 'Invalid terrain: %s\n' "$terrain" >&2; exit 2; }
-  [[ "$terrain" != v2robust && "$terrain" != v2goal ]] ||
+  [[ "$terrain" != v2robust && "$terrain" != v2goal &&
+     ( "$terrain" != currentv3* || "$terrain" == currentv3core ||
+       "$terrain" == currentv3reverse ) ]] ||
     [[ -n "$checkpoint" ]] ||
-    { printf '%s requires a passing V2 checkpoint.\n' "$terrain" >&2; exit 2; }
+    { printf '%s is a continuation stage and requires a checkpoint.\n' "$terrain" >&2; exit 2; }
   [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)" == true ]] ||
     { printf '%s is not running.\n' "$CONTAINER" >&2; exit 1; }
   [[ -x "${ROOT}/run_simple_dog.sh" ]] ||
@@ -144,16 +231,24 @@ start_training() {
     [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
-       "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] ||
       { printf 'Checkpoint is outside the simple-dog log directory: %s\n' "$checkpoint" >&2; exit 2; }
-    if [[ "$terrain" == v2* ]]; then
+    if [[ "$terrain" == currentv3* ]]; then
+      [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
+         "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] ||
+        { printf 'CurrentV3 terrain requires a CurrentV3 checkpoint because policy observations differ.\n' >&2; exit 2; }
+    elif [[ "$terrain" == v2* ]]; then
       [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
          "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] ||
         { printf 'V2 terrain requires a V2 checkpoint because policy observations differ.\n' >&2; exit 2; }
     else
       [[ "$checkpoint" != /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth &&
-         "$checkpoint" != /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] ||
-        { printf 'A V2 checkpoint cannot be loaded into a V1 task.\n' >&2; exit 2; }
+         "$checkpoint" != /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth &&
+         "$checkpoint" != /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth &&
+         "$checkpoint" != /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] ||
+        { printf 'A V2 or CurrentV3 checkpoint cannot be loaded into a V1 task.\n' >&2; exit 2; }
     fi
     docker exec "$CONTAINER" test -f "$checkpoint" ||
       { printf 'Checkpoint does not exist: %s\n' "$checkpoint" >&2; exit 2; }
@@ -171,6 +266,18 @@ start_training() {
       { printf 'Invalid control profile SHA-256.\n' >&2; exit 2; }
     docker exec "$CONTAINER" test -f "$control_profile" ||
       { printf 'Control profile does not exist: %s\n' "$control_profile" >&2; exit 2; }
+  fi
+  if [[ "$terrain" == currentv3* ]]; then
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] ||
+      { printf 'CurrentV3 simulation fit is outside the training fits directory.\n' >&2; exit 2; }
+    docker exec "$CONTAINER" test -f "$simulation_fit" ||
+      { printf 'CurrentV3 simulation fit does not exist: %s\n' "$simulation_fit" >&2; exit 2; }
+    simulation_fit_sha="$(docker exec "$CONTAINER" sha256sum "$simulation_fit" | awk '{print $1}')"
+    [[ "$simulation_fit_sha" =~ ^[0-9a-f]{64}$ ]] ||
+      { printf 'Could not hash the CurrentV3 simulation fit.\n' >&2; exit 2; }
+  elif [[ -n "$simulation_fit" ]]; then
+    printf 'A simulation fit may be supplied only for CurrentV3.\n' >&2
+    exit 2
   fi
   [[ "$record_video" == 0 || "$record_video" == 1 ]] ||
     { printf 'Invalid record-video flag.\n' >&2; exit 2; }
@@ -197,6 +304,8 @@ start_training() {
     -e "SIMPLE_DOG_TERRAIN=${terrain}" \
     -e "SIMPLE_DOG_CONTROL_PROFILE=${control_profile}" \
     -e "SIMPLE_DOG_CONTROL_PROFILE_SHA=${profile_sha}" \
+    -e "SIMPLE_DOG_SIMULATION_FIT=${simulation_fit}" \
+    -e "SIMPLE_DOG_SIMULATION_FIT_SHA=${simulation_fit_sha}" \
     -e "SIMPLE_DOG_RECORD_VIDEO=${record_video}" \
     -e "SIMPLE_DOG_VIDEO_INTERVAL=${video_interval}" \
     -e "SIMPLE_DOG_VIDEO_LENGTH=${video_length}" \
@@ -273,7 +382,7 @@ case "${1:-}" in
     active
     ;;
   start)
-    start_training "${2:-512}" "${3:-500}" "${4:-}" "${5:-}" "${6:-flat}" "${7:-}" "${8:-}" "${9:-0}" "${10:-5000}" "${11:-400}"
+    start_training "${2:-512}" "${3:-500}" "${4:-}" "${5:-}" "${6:-flat}" "${7:-}" "${8:-}" "${9:-0}" "${10:-5000}" "${11:-400}" "${12:-}"
     ;;
   status)
     status_training
@@ -284,8 +393,11 @@ case "${1:-}" in
   render-latest-video)
     render_latest_video "${2:-400}"
     ;;
+  render-checkpoint-video)
+    render_checkpoint_video "${2:-}" "${3:-400}" "${4:-v2rough}" "${5:-}" "${6:-0}" "${7:-}"
+    ;;
   *)
-    printf 'Usage: %s active|start [num-envs max-iterations checkpoint tuning-config terrain control-profile profile-sha record-video video-interval video-length]|status|latest-video|render-latest-video [video-length]\n' "$0" >&2
+    printf 'Usage: %s active|start [num-envs max-iterations checkpoint tuning-config terrain control-profile profile-sha record-video video-interval video-length simulation-fit]|status|latest-video|render-latest-video [video-length]|render-checkpoint-video checkpoint [video-length terrain control-profile sample-index simulation-fit]\n' "$0" >&2
     exit 2
     ;;
 esac

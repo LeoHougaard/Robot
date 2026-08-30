@@ -41,12 +41,16 @@ def export(weights_path: Path, metadata_path: Path, output_path: Path) -> None:
         raise SystemExit("Portable weights do not match policy metadata.")
 
     arrays = {name: value.astype(np.float32) for name, value in np.load(weights_path).items()}
+    observation_size = metadata.get("observation_size")
+    if not isinstance(observation_size, int) or observation_size <= 0:
+        raise SystemExit("Policy metadata has no valid observation size.")
+    hidden_sizes = [int(arrays[f"b{index}"].shape[0]) for index in range(3)]
     expected_shapes = {
-        "obs_mean": (180,), "obs_var": (180,),
-        "w0": (128, 180), "b0": (128,),
-        "w1": (128, 128), "b1": (128,),
-        "w2": (128, 128), "b2": (128,),
-        "wout": (12, 128), "bout": (12,),
+        "obs_mean": (observation_size,), "obs_var": (observation_size,),
+        "w0": (hidden_sizes[0], observation_size), "b0": (hidden_sizes[0],),
+        "w1": (hidden_sizes[1], hidden_sizes[0]), "b1": (hidden_sizes[1],),
+        "w2": (hidden_sizes[2], hidden_sizes[1]), "b2": (hidden_sizes[2],),
+        "wout": (12, hidden_sizes[2]), "bout": (12,),
     }
     actual_shapes = {name: value.shape for name, value in arrays.items()}
     if actual_shapes != expected_shapes:
@@ -106,7 +110,7 @@ def export(weights_path: Path, metadata_path: Path, output_path: Path) -> None:
     graph = helper.make_graph(
         nodes,
         f"{profile_id}-deterministic-actor",
-        [helper.make_tensor_value_info("observation", TensorProto.FLOAT, [1, 180])],
+        [helper.make_tensor_value_info("observation", TensorProto.FLOAT, [1, observation_size])],
         [helper.make_tensor_value_info("action", TensorProto.FLOAT, [1, 12])],
         initializer=initializers,
     )
@@ -124,7 +128,7 @@ def export(weights_path: Path, metadata_path: Path, output_path: Path) -> None:
     generator = np.random.default_rng(42)
     fixtures = []
     for _ in range(8):
-        observation = generator.normal(size=180).astype(np.float32)
+        observation = generator.normal(size=observation_size).astype(np.float32)
         expected = numpy_actor(observation, arrays)
         actual = session.run(["action"], {"observation": observation.reshape(1, -1)})[0][0]
         if not np.allclose(actual, expected, rtol=1.0e-5, atol=2.0e-6):

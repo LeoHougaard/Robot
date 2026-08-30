@@ -1,11 +1,14 @@
 """Register the local dog task, then hand off to Isaac Lab's RL-Games player."""
 
 import faulthandler
+import os
 import runpy
 import signal
 
 import simple_dog_task  # noqa: F401
 import simple_dog_task_v2  # noqa: F401
+if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_v3":
+    import simple_dog_task_current  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 import isaaclab_tasks.utils as isaac_task_utils

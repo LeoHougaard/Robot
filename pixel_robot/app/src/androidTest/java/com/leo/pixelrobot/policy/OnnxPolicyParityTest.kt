@@ -24,6 +24,7 @@ class OnnxPolicyParityTest {
             contract.profileId,
             contract.profileSha256,
             contract.weightsSha256,
+            contract.observationSize,
         ).use { policy ->
             val cases = reference.getJSONArray("cases")
             for (caseIndex in 0 until cases.length()) {

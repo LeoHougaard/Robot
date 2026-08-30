@@ -17,6 +17,20 @@ class PolicyContract private constructor(value: JSONObject) {
     val controlFrameSeconds: Float = 1f / controlHz
     val controlFramePeriodNanoseconds: Long = 1_000_000_000L / controlHz
     val commandSmoothingSeconds: Float = value.optDouble("command_smoothing_time_s", 0.4).toFloat()
+    val observationSize: Int = value.getInt("observation_size")
+    val observationHistory: Int = value.getInt("observation_history")
+    val observationBuilder: String = value.optString("observation_builder", "v2_180")
+    val currentBiasMilliamps: FloatArray
+    val currentScaleMilliamps: FloatArray
+    val currentClipNormalized: FloatArray
+    val currentStepMilliamps: Float
+    val postureHeightMinimum: Float
+    val postureHeightMaximum: Float
+    val postureRollMinimum: Float
+    val postureRollMaximum: Float
+    val posturePitchMinimum: Float
+    val posturePitchMaximum: Float
+    val postureSmoothingSeconds: Float
     val forwardMinimum: Float
     val forwardMaximum: Float
     val lateralMinimum: Float
@@ -41,10 +55,54 @@ class PolicyContract private constructor(value: JSONObject) {
         require(controlHz in 10..100 && 1000 % controlHz == 0) {
             "policy control rate must divide 1000 Hz and be within 10..100 Hz"
         }
-        require(value.getInt("observation_size") == 180)
-        require(value.getInt("observation_history") == 4)
+        require(observationHistory == 4)
+        require(observationBuilder in setOf("v2_180", "current_v3_279"))
+        require(
+            (observationBuilder == "v2_180" && observationSize == 180) ||
+                (observationBuilder == "current_v3_279" && observationSize == 279)
+        ) { "observation builder and size do not match" }
         require(value.getInt("action_size") == ACTION_COUNT)
         require(commandSmoothingSeconds in controlFrameSeconds..2f)
+
+        if (observationBuilder == "current_v3_279") {
+            val current = value.getJSONObject("current_observation_contract")
+            require(current.getString("units") == "mA")
+            require(current.optBoolean("absolute", false))
+            require(current.getString("missing_behavior") == "hold_last_finite_and_validity_zero")
+            currentBiasMilliamps = current.getJSONArray("normalization_bias_ma").floats(ACTION_COUNT)
+            currentScaleMilliamps = current.getJSONArray("normalization_scale_ma").floats(ACTION_COUNT)
+            currentClipNormalized = current.getJSONArray("clip_normalized").floats(ACTION_COUNT)
+            currentStepMilliamps = current.getDouble("current_step_ma").toFloat()
+            require(currentBiasMilliamps.all { it >= 0f })
+            require(currentScaleMilliamps.all { it > 0f })
+            require(currentClipNormalized.all { it > 0f })
+            require(currentStepMilliamps > 0f)
+            val posture = value.getJSONObject("posture_command_contract")
+            val height = posture.getJSONArray("height_offset_m").pair()
+            val roll = posture.getJSONArray("roll_rad").pair()
+            val pitch = posture.getJSONArray("pitch_rad").pair()
+            require(posture.getString("layout") == "append_after_history")
+            postureHeightMinimum = height[0]
+            postureHeightMaximum = height[1]
+            postureRollMinimum = roll[0]
+            postureRollMaximum = roll[1]
+            posturePitchMinimum = pitch[0]
+            posturePitchMaximum = pitch[1]
+            postureSmoothingSeconds = posture.optDouble("smoothing_time_s", 0.5).toFloat()
+            require(postureSmoothingSeconds in controlFrameSeconds..2f)
+        } else {
+            currentBiasMilliamps = FloatArray(ACTION_COUNT)
+            currentScaleMilliamps = FloatArray(ACTION_COUNT) { 1f }
+            currentClipNormalized = FloatArray(ACTION_COUNT) { 1f }
+            currentStepMilliamps = 6.5f
+            postureHeightMinimum = 0f
+            postureHeightMaximum = 0f
+            postureRollMinimum = 0f
+            postureRollMaximum = 0f
+            posturePitchMinimum = 0f
+            posturePitchMaximum = 0f
+            postureSmoothingSeconds = 0.5f
+        }
 
         val limits = value.getJSONObject("validated_command_limits")
         val forward = limits.getJSONArray("forward_m_s").pair()
@@ -102,6 +160,12 @@ class PolicyContract private constructor(value: JSONObject) {
         require(forward.isFinite() && forward in forwardMinimum..forwardMaximum)
         require(lateral.isFinite() && lateral in lateralMinimum..lateralMaximum)
         require(yawRate.isFinite() && yawRate in yawMinimum..yawMaximum)
+    }
+
+    fun requirePosture(heightOffset: Float, roll: Float, pitch: Float) {
+        require(heightOffset.isFinite() && heightOffset in postureHeightMinimum..postureHeightMaximum)
+        require(roll.isFinite() && roll in postureRollMinimum..postureRollMaximum)
+        require(pitch.isFinite() && pitch in posturePitchMinimum..posturePitchMaximum)
     }
 
     fun applyAction(

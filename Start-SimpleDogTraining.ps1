@@ -6,7 +6,7 @@ param(
     [ValidateRange(1, 100000)]
     [int]$MaxIterations = 500,
 
-    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough")]
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")]
     [string]$Terrain = "Flat",
 
     [string]$Checkpoint = "",
@@ -16,6 +16,9 @@ param(
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
     [string]$ControlProfile = "",
 
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
+    [string]$SimulationFit = "",
+
     # Internal recovery path for reward-only continuations after this exact
     # robot/profile articulation has already passed the Isaac preflight.
     [switch]$ReuseValidatedRobot
@@ -23,18 +26,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$sshHost = $null
-foreach ($attempt in 1..3) {
-    try {
-        $sshHost = [System.Net.Dns]::GetHostAddresses("gx10-ddb2.local") |
-            Where-Object AddressFamily -eq InterNetwork |
-            Select-Object -First 1 -ExpandProperty IPAddressToString
+$sshHost = if ($env:ROBOT_GB10_HOST) { $env:ROBOT_GB10_HOST.Trim() } else { $null }
+if ($sshHost -and $sshHost -notmatch '^[A-Za-z0-9.-]+$') {
+    throw "ROBOT_GB10_HOST must be a hostname or IPv4 address."
+}
+if (-not $sshHost) {
+    foreach ($attempt in 1..3) {
+        try {
+            $sshHost = [System.Net.Dns]::GetHostAddresses("gx10-ddb2.local") |
+                Where-Object AddressFamily -eq InterNetwork |
+                Select-Object -First 1 -ExpandProperty IPAddressToString
+        }
+        catch {
+            $sshHost = $null
+        }
+        if ($sshHost) { break }
+        Start-Sleep -Seconds 1
     }
-    catch {
-        $sshHost = $null
-    }
-    if ($sshHost) { break }
-    Start-Sleep -Seconds 1
 }
 if (-not $sshHost) {
     throw "Could not resolve gx10-ddb2.local to an IPv4 address."
@@ -45,6 +53,8 @@ $localTraining = Join-Path $PSScriptRoot "training"
 $remoteTraining = "/home/leo/isaac-workspace/projects/training"
 $profileHash = ""
 $remoteControlProfile = ""
+$remoteSimulationFit = ""
+$simulationFitHash = ""
 $recordVideo = "0"
 $videoInterval = 5000
 $videoLength = 400
@@ -63,20 +73,30 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $localTraining -PathType Container)) {
     throw "Local simple-dog training package was not found: $localTraining"
 }
-if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$') {
+if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$') {
     throw "Checkpoint must be a .pth file below a supported simple-dog training log directory."
 }
 $isV2Terrain = $Terrain -in @("V2Core", "V2Robust", "V2Goal", "V2Rough")
 $isV2Checkpoint = $Checkpoint -match '^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+)/'
-if ($Checkpoint -and $isV2Terrain -ne $isV2Checkpoint) {
-    throw "V1 and V2 checkpoints are not interchangeable because their policy observations differ."
+$currentTerrains = @("CurrentV3Core", "CurrentV3Reverse", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")
+$isCurrentTerrain = $Terrain -in $currentTerrains
+$isCurrentCheckpoint = $Checkpoint -match '^/workspace/projects/training/logs/rl_games/(simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+)/'
+if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
+    throw "V1, V2, and CurrentV3 checkpoints are not interchangeable because their policy observations differ."
 }
 if ($Terrain -in @("V2Robust", "V2Goal") -and -not $Checkpoint) {
     throw "$Terrain is a continuation stage and requires a passing V2 checkpoint."
 }
+if ($isCurrentTerrain -and $Terrain -notin @("CurrentV3Core", "CurrentV3Reverse") -and -not $Checkpoint) {
+    throw "$Terrain is a continuation stage and requires a CurrentV3 checkpoint."
+}
 if ($TuningConfig -and $TuningConfig -notmatch '^/workspace/projects/autoresearch/[A-Za-z0-9_./-]+\.json$') {
     throw "TuningConfig must be a JSON file below /workspace/projects/autoresearch."
 }
+$requestedTerrain = $Terrain
+$requestedNumEnvs = $NumEnvs
+$requestedMaxIterations = $MaxIterations
+$requestedCheckpoint = $Checkpoint
 if ($ControlProfile) {
     $resolvedControlProfile = (Resolve-Path -LiteralPath $ControlProfile).Path
     Push-Location $PSScriptRoot
@@ -90,15 +110,41 @@ if ($ControlProfile) {
         throw "Control profile validation failed: $validationText"
     }
     $validated = $validationText | ConvertFrom-Json
-    $Terrain = $validated.stage
-    $NumEnvs = $validated.num_envs
-    $MaxIterations = $validated.max_iterations
-    $Checkpoint = $validated.checkpoint
+    if ($requestedTerrain -in $currentTerrains) {
+        $Terrain = $requestedTerrain
+        $NumEnvs = $requestedNumEnvs
+        $MaxIterations = $requestedMaxIterations
+        $Checkpoint = $requestedCheckpoint
+    }
+    else {
+        $Terrain = $validated.stage
+        $NumEnvs = $validated.num_envs
+        $MaxIterations = $validated.max_iterations
+        $Checkpoint = $validated.checkpoint
+    }
     $profileHash = $validated.hash
     $recordVideo = if ($validated.record_video) { "1" } else { "0" }
     $videoInterval = $validated.video_interval
     $videoLength = $validated.video_length
     $remoteControlProfile = "/workspace/projects/training/control_profiles/$($validated.profile_id)-$($profileHash.Substring(0, 12)).json"
+}
+if ($Terrain -in $currentTerrains) {
+    if (-not $SimulationFit) {
+        throw "$Terrain requires the provenance-bearing simulation-fit.json."
+    }
+    $resolvedSimulationFit = (Resolve-Path -LiteralPath $SimulationFit).Path
+    $fit = Get-Content -Raw -LiteralPath $resolvedSimulationFit | ConvertFrom-Json
+    if ($fit.report_schema_version -ne 2 -or $fit.runs.Count -ne 1 -or $fit.runs[0].frame_count -ne 2189) {
+        throw "$Terrain requires the schema-2 fit for the 2,189-frame capture."
+    }
+    if ($fit.runs[0].data_quality.current_complete_frames -ne 2189 -or $fit.runs[0].data_quality.incomplete_feedback_frames -ne 0) {
+        throw "$Terrain fit does not contain complete current and critical feedback."
+    }
+    $simulationFitHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedSimulationFit).Hash.ToLowerInvariant()
+    $remoteSimulationFit = "/workspace/projects/training/fits/current-v3-$($simulationFitHash.Substring(0, 12)).json"
+}
+elseif ($SimulationFit) {
+    throw "SimulationFit is accepted only for CurrentV3 stages."
 }
 
 $identity = (& ssh @sshOptions $sshTarget "whoami").Trim()
@@ -125,6 +171,25 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not start the Isaac Lab container."
 }
 
+# A completed Isaac run may leave a zero-byte per-user Hub lock even though
+# no Hub process remains. SimulationApp then stalls before scene creation.
+# Remove only those exact transient locks, and only after proving that no Hub
+# process is alive in the unprivileged training container.
+$clearStaleHubLock = @'
+docker exec --user 0 isaac-lab-gb10 sh -c '
+  if ! pgrep -x omni.hub >/dev/null 2>&1 &&
+     ! pgrep -x omni-hub >/dev/null 2>&1 &&
+     ! pgrep -x hub >/dev/null 2>&1 &&
+     ! pgrep -x hub-daemon >/dev/null 2>&1; then
+    rm -f -- /tmp/hub-leo.lock /tmp/hub-isaac-sim.lock
+  fi
+'
+'@
+& ssh @sshOptions $sshTarget $clearStaleHubLock
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not check the stale Isaac Hub lock before training."
+}
+
 $remoteDirectories = @(
     $remoteTraining,
     "$remoteTraining/assets",
@@ -133,7 +198,10 @@ $remoteDirectories = @(
     "$remoteTraining/simple_dog_task/agents",
     "$remoteTraining/simple_dog_task_v2",
     "$remoteTraining/simple_dog_task_v2/agents",
-    "$remoteTraining/control_profiles"
+    "$remoteTraining/simple_dog_task_current",
+    "$remoteTraining/simple_dog_task_current/agents",
+    "$remoteTraining/control_profiles",
+    "$remoteTraining/fits"
 )
 & ssh @sshOptions $sshTarget ("install -d -m 0755 " + ($remoteDirectories -join " "))
 if ($LASTEXITCODE -ne 0) {
@@ -151,6 +219,9 @@ $copies = @(
     @{ Local = Join-Path $localTraining "inspect_simple_dog_run.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "prepare_rough_continuation_checkpoint.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "simple_dog_tuning.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "current_policy_fit.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "terrain_curriculum.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "video_camera.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "robot_control_profile.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.sh"; Remote = $remoteTraining },
@@ -171,7 +242,12 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_v2\simple_dog_v2_env.py"; Remote = "$remoteTraining/simple_dog_task_v2" },
     @{ Local = Join-Path $localTraining "simple_dog_task_v2\simple_dog_v2_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_v2" },
     @{ Local = Join-Path $localTraining "simple_dog_task_v2\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_v2/agents" },
-    @{ Local = Join-Path $localTraining "simple_dog_task_v2\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_v2/agents" }
+    @{ Local = Join-Path $localTraining "simple_dog_task_v2\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_v2/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current\simple_dog_current_env.py"; Remote = "$remoteTraining/simple_dog_task_current" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current\simple_dog_current_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current/agents" }
 )
 foreach ($copy in $copies) {
     if (-not (Test-Path -LiteralPath $copy.Local -PathType Leaf)) {
@@ -186,6 +262,13 @@ if ($ControlProfile) {
     & scp @sshOptions $resolvedControlProfile "${sshTarget}:/home/leo/isaac-workspace/projects/training/control_profiles/$($validated.profile_id)-$($profileHash.Substring(0, 12)).json"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not deploy the validated control profile."
+    }
+}
+if ($SimulationFit) {
+    $remoteFitHostPath = "/home/leo/isaac-workspace/projects/training/fits/$(Split-Path -Leaf $remoteSimulationFit)"
+    & scp @sshOptions $resolvedSimulationFit "${sshTarget}:$remoteFitHostPath"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not deploy the validated CurrentV3 simulation fit."
     }
 }
 
@@ -206,7 +289,17 @@ if ($ControlProfile) {
             "V2Robust" { "Isaac-Locomotion-V2-Robust-Simple-Dog-Direct-v0" }
             "V2Goal" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "V2Rough" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
-            default { throw "Control profiles require a V2 training stage." }
+            # Articulation validation is policy-observation agnostic. Use the
+            # registered V2 Rough harness for the identical 12-DOF profile;
+            # the following smoke/training launch resolves CurrentV3 itself.
+            "CurrentV3Core" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentV3Reverse" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3Strafe" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3Turn" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3Goal" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3Posture" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3Rough" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            default { throw "Control profiles require a V2 or CurrentV3 training stage." }
         }
         & ssh @sshOptions $sshTarget "docker exec --workdir /workspace/projects/training isaac-lab-gb10 bash /workspace/projects/training/validate_control_profile_robot.sh '$remoteControlProfile' '$validationTask'"
         if ($LASTEXITCODE -ne 0) {
@@ -227,7 +320,7 @@ else {
 $checkpointArg = if ($Checkpoint) { $Checkpoint } else { "''" }
 $tuningArg = if ($TuningConfig) { $TuningConfig } else { "''" }
 $runDirectory = (& ssh @sshOptions $sshTarget `
-    "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength'" |
+    "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength' '$remoteSimulationFit'" |
     Select-Object -Last 1).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $runDirectory) {
     throw "The detached training process did not create a run directory."
@@ -246,6 +339,10 @@ if ($TuningConfig) {
 if ($ControlProfile) {
     Write-Host "Profile:       $($validated.profile_id)"
     Write-Host "Profile SHA:   $($profileHash.Substring(0, 12))"
+}
+if ($SimulationFit) {
+    Write-Host "Fit:           $remoteSimulationFit"
+    Write-Host "Fit SHA:       $($simulationFitHash.Substring(0, 12))"
 }
 Write-Host "Run data:     $runDirectory"
 Write-Host "Status:       .\Get-SimpleDogTrainingStatus.ps1"

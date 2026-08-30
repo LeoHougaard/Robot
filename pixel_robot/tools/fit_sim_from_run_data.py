@@ -13,7 +13,7 @@ from typing import Any, Iterable
 from run_data_source import open_run_text, verify_training_capture
 
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 MIN_VALID_SAMPLE_INTERVAL_MS = 5
 MAX_VALID_SAMPLE_INTERVAL_MS = 100
 DEFAULT_MAX_LAG_FRAMES = 20
@@ -47,6 +47,37 @@ def _stats(values: Iterable[float], *, include_abs_p95: bool = False) -> dict[st
         result["p95_abs"] = _percentile([abs(value) for value in samples], 0.95)
         result["max_abs"] = max((abs(value) for value in samples), default=None)
     return result
+
+
+def _median_absolute_difference(values: Iterable[float]) -> float | None:
+    samples = list(values)
+    if not samples:
+        return None
+    center = statistics.median(samples)
+    return statistics.median(abs(value - center) for value in samples)
+
+
+def _session_context_report(start_record: dict[str, Any]) -> dict[str, Any]:
+    data = start_record.get("data", {})
+    context = data.get("context", {}) if isinstance(data, dict) else {}
+    calibration = context.get("calibration", {}) if isinstance(context, dict) else {}
+    imu = calibration.get("imu", {}) if isinstance(calibration, dict) else {}
+    link = context.get("robot_link", {}) if isinstance(context, dict) else {}
+    voltage = link.get("servo_battery_voltage") if isinstance(link, dict) else None
+    return {
+        "control_hz": calibration.get("control_hz") if isinstance(calibration, dict) else None,
+        "servo_battery_voltage_v": (
+            float(voltage) if isinstance(voltage, (int, float)) else None
+        ),
+        "voltage_effect_identifiable": False,
+        "gyro_bias_sensor_dps": (
+            [float(value) for value in imu.get("gyro_bias_dps", [])]
+            if isinstance(imu, dict)
+            and isinstance(imu.get("gyro_bias_dps"), list)
+            and all(isinstance(value, (int, float)) for value in imu["gyro_bias_dps"])
+            else []
+        ),
+    }
 
 
 def _parse_records(lines: Iterable[str]) -> list[dict[str, Any]]:
@@ -148,6 +179,9 @@ def _servo_report(
     lag_squared_errors = {
         servo_id: {lag: [] for lag in range(max_lag_frames + 1)} for servo_id in servo_ids
     }
+    lag_errors = {
+        servo_id: {lag: [] for lag in range(max_lag_frames + 1)} for servo_id in servo_ids
+    }
     has_sequence_matched_targets = any(
         isinstance(frame.get("input_applied_servo_target_deg"), dict) for frame in frames
     )
@@ -174,7 +208,9 @@ def _servo_report(
                 target = targets.get(servo_id)
                 angle = measured.get(servo_id)
                 if isinstance(target, (int, float)) and angle is not None:
-                    lag_squared_errors[servo_id][lag].append((angle - float(target)) ** 2)
+                    error = float(target) - angle
+                    lag_errors[servo_id][lag].append(error)
+                    lag_squared_errors[servo_id][lag].append(error ** 2)
 
     if has_sequence_matched_targets:
         for frame in frames:
@@ -231,6 +267,36 @@ def _servo_report(
             rmse_by_lag.append(math.sqrt(statistics.fmean(squared)) if squared else None)
         valid_lags = [lag for lag, rmse in enumerate(rmse_by_lag) if rmse is not None]
         best_lag = min(valid_lags, key=lambda lag: (rmse_by_lag[lag], lag)) if valid_lags else None
+        absolute_current_ma = [abs(value) * 6.5 for value in current_raw[servo_id]]
+        current_differences_ma = [
+            later - earlier
+            for earlier, later in zip(absolute_current_ma, absolute_current_ma[1:])
+        ]
+        current_bias_ma = _percentile(absolute_current_ma, 0.20)
+        current_working_max_ma = _percentile(absolute_current_ma, 0.95)
+        current_scale_ma = (
+            max(6.5, current_working_max_ma - current_bias_ma)
+            if current_bias_ma is not None and current_working_max_ma is not None
+            else None
+        )
+        current_clip_ma = max(absolute_current_ma) if absolute_current_ma else None
+        current_clip_fraction = (
+            sum(value >= current_clip_ma - 1.0e-9 for value in absolute_current_ma)
+            / len(absolute_current_ma)
+            if absolute_current_ma and current_clip_ma is not None
+            else None
+        )
+        dropout_fraction = (
+            1.0 - len(current_raw[servo_id]) / current_expected[servo_id]
+            if current_expected[servo_id]
+            else None
+        )
+        dropout_upper_95 = (
+            3.0 / current_expected[servo_id] if current_expected[servo_id] else None
+        )
+        aligned_errors = (
+            lag_errors[servo_id][best_lag] if best_lag is not None else []
+        )
         report[servo_id] = {
             "semantic": semantics.get(servo_id, "unknown"),
             "current": {
@@ -240,7 +306,24 @@ def _servo_report(
                     else None
                 ),
                 "raw": _stats(current_raw[servo_id], include_abs_p95=True),
-                "abs_ma": _stats(abs(value) * 6.5 for value in current_raw[servo_id]),
+                "abs_ma": _stats(absolute_current_ma),
+                "simulation_fit": {
+                    "normalization_bias_ma": current_bias_ma,
+                    "normalization_scale_ma": current_scale_ma,
+                    "working_p95_ma": current_working_max_ma,
+                    "observed_clip_ma": current_clip_ma,
+                    "observed_clip_fraction": current_clip_fraction,
+                    # Consecutive differences include real load changes. Treat
+                    # this robust value as an upper bound on white read noise.
+                    "difference_mad_ma": _median_absolute_difference(
+                        current_differences_ma
+                    ),
+                    "dropout_fraction": dropout_fraction,
+                    # The rule of three avoids interpreting zero observed
+                    # dropouts as proof of a perfect future transport.
+                    "dropout_probability_upper_95": dropout_upper_95,
+                    "missing_value_behavior": "hold_last_finite_and_validity_zero",
+                },
             },
             "matched_feedback_frames": len(servo_errors),
             "error_deg": {
@@ -260,6 +343,10 @@ def _servo_report(
                     else None
                 ),
                 "best_rmse_deg": rmse_by_lag[best_lag] if best_lag is not None else None,
+                "aligned_bias_deg": (
+                    statistics.fmean(aligned_errors) if aligned_errors else None
+                ),
+                "aligned_residual_mad_deg": _median_absolute_difference(aligned_errors),
                 "rmse_deg_by_lag": rmse_by_lag,
             },
         }
@@ -379,6 +466,33 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
         and all(isinstance(value, (int, float)) for value in state["gyro_dps"])
     ]
     gyro_peak = [max((abs(vector[axis]) for vector in gyro_vectors), default=None) for axis in range(3)]
+    gyro_by_axis = [
+        _stats(vector[axis] for vector in gyro_vectors) for axis in range(3)
+    ]
+    accel_vectors = [
+        [float(value) for value in state["accel_mg"]]
+        for state in states
+        if isinstance(state.get("accel_mg"), list)
+        and len(state["accel_mg"]) == 3
+        and all(isinstance(value, (int, float)) for value in state["accel_mg"])
+    ]
+    accel_by_axis = [
+        _stats(vector[axis] for vector in accel_vectors) for axis in range(3)
+    ]
+    gyro_body_vectors = [
+        [float(value) for value in frame["gyro_body_rad_s"]]
+        for frame in frames
+        if isinstance(frame.get("gyro_body_rad_s"), list)
+        and len(frame["gyro_body_rad_s"]) == 3
+        and all(isinstance(value, (int, float)) for value in frame["gyro_body_rad_s"])
+    ]
+    gravity_vectors = [
+        [float(value) for value in frame["projected_gravity_body"]]
+        for frame in frames
+        if isinstance(frame.get("projected_gravity_body"), list)
+        and len(frame["projected_gravity_body"]) == 3
+        and all(isinstance(value, (int, float)) for value in frame["projected_gravity_body"])
+    ]
 
     sequences = [frame.get("command_sequence") for frame in frames]
     integer_sequences = [value for value in sequences if isinstance(value, int)]
@@ -456,6 +570,7 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
             "incomplete_current_frames": incomplete_current,
             "rejected_firmware_sample_intervals": rejected_sample_intervals,
         },
+        "physical_context": _session_context_report(records[0]),
         "timing": {
             "observed_hz": (
                 1000.0 / statistics.fmean(host_intervals_ms) if host_intervals_ms else None
@@ -503,6 +618,20 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
             "roll_deg": _stats(roll, include_abs_p95=True),
             "accel_norm_mg": _stats(accel_norm),
             "gyro_abs_peak_dps_xyz": gyro_peak,
+            "gyro_sensor_dps_xyz": gyro_by_axis,
+            "acceleration_sensor_mg_xyz": accel_by_axis,
+            "gyro_body_rad_s_xyz": [
+                _stats(vector[axis] for vector in gyro_body_vectors)
+                for axis in range(3)
+            ],
+            "projected_gravity_body_xyz": [
+                _stats(vector[axis] for vector in gravity_vectors)
+                for axis in range(3)
+            ],
+            "noise_identifiability": (
+                "moving closed-loop data bounds sensor-plus-motion variation; "
+                "it does not isolate stationary sensor noise"
+            ),
         },
         "action_saturation": _action_report(frames, action_limits),
         "servos": _servo_report(frames, semantics, median_interval_ms, max_lag_frames),

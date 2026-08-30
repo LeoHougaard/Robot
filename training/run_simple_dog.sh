@@ -5,9 +5,11 @@ readonly TRAINING_ROOT="/workspace/projects/training"
 readonly RUNS_ROOT="${TRAINING_ROOT}/runs/simple_dog"
 
 terrain="${SIMPLE_DOG_TERRAIN:-flat}"
-if [[ "$terrain" == v2robust || "$terrain" == v2goal ]] &&
+if [[ "$terrain" == v2robust || "$terrain" == v2goal ||
+      ( "$terrain" == currentv3* && "$terrain" != currentv3core &&
+        "$terrain" != currentv3reverse ) ]] &&
    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
-  printf '%s requires a passing V2 checkpoint.\n' "$terrain" >&2
+  printf '%s is a continuation stage and requires a checkpoint.\n' "$terrain" >&2
   exit 2
 fi
 case "$terrain" in
@@ -31,6 +33,34 @@ case "$terrain" in
     ;;
   v2rough)
     readonly TASK_NAME="Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0"
+    ;;
+  currentv3core)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Core-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3reverse)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Reverse-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3strafe)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Strafe-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3turn)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Turn-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3goal)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Goal-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3posture)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Posture-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3rough)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Rough-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
     ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
@@ -84,6 +114,20 @@ with open(os.environ["SIMPLE_DOG_CONTROL_PROFILE"], encoding="utf-8") as handle:
 PY
 fi
 
+if [[ "$terrain" == currentv3* ]]; then
+  [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
+    printf 'CurrentV3 simulation fit is outside the training fits directory: %s\n' \
+      "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2
+    exit 2
+  }
+  [[ -f "$SIMPLE_DOG_SIMULATION_FIT" ]] || {
+    printf 'CurrentV3 simulation fit does not exist: %s\n' "$SIMPLE_DOG_SIMULATION_FIT" >&2
+    exit 2
+  }
+  cp "$SIMPLE_DOG_SIMULATION_FIT" "${run_dir}/simulation-fit.json"
+  printf '%s\n' "${SIMPLE_DOG_SIMULATION_FIT_SHA:-unknown}" >"${run_dir}/simulation_fit_sha"
+fi
+
 on_signal() {
   printf 'interrupted\n' >"${run_dir}/status"
   exit 130
@@ -94,11 +138,19 @@ if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
   [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
-     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] || {
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
     printf 'Checkpoint is outside the simple-dog log directory: %s\n' "$SIMPLE_DOG_CHECKPOINT" >&2
     exit 2
   }
-  if [[ "$terrain" == v2* ]]; then
+  if [[ "$terrain" == currentv3* ]]; then
+    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
+       "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
+      printf 'CurrentV3 terrain requires a CurrentV3 checkpoint because observations differ.\n' >&2
+      exit 2
+    }
+  elif [[ "$terrain" == v2* ]]; then
     [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
        "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] || {
       printf 'V2 terrain requires a V2 checkpoint because policy observations differ.\n' >&2
@@ -106,8 +158,10 @@ if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
     }
   else
     [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth &&
-       "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ]] || {
-      printf 'A V2 checkpoint cannot be loaded into a V1 task.\n' >&2
+       "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth &&
+       "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth &&
+       "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
+      printf 'A V2 or CurrentV3 checkpoint cannot be loaded into a V1 task.\n' >&2
       exit 2
     }
   fi

@@ -9,6 +9,7 @@ from isaaclab.utils.configclass import configclass
 from simple_dog_task.simple_dog_env_cfg import (
     CONTROL_PROFILE,
     JOINT_COUNT,
+    ROUGH_TERRAIN_USES_CURRICULUM,
     SIMPLE_DOG_ROUGH_TERRAINS_CFG,
     SIMPLE_DOG_ROUGH_VALIDATION_TERRAIN_CFG,
     SimpleDogFlatEnvCfg,
@@ -32,6 +33,39 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
     # per-frame servo target contract shared with the physical controller.
     action_delta_limit = profile_value(
         CONTROL_PROFILE, "environment.action_delta_limit", 0.34
+    )
+    action_limit_by_joint = tuple(
+        profile_value(
+            CONTROL_PROFILE,
+            "environment.action_limit_by_joint",
+            (1.0,) * JOINT_COUNT,
+        )
+    )
+    action_filter_alpha = profile_value(
+        CONTROL_PROFILE, "environment.action_filter_alpha", 1.0
+    )
+    # Physical-run identification measures the effective target-to-feedback
+    # response after the controller's own action filter. Keep this separate
+    # from action_filter_alpha so policy output smoothing and actuator/linkage
+    # response remain independently reproducible.
+    actuator_response_alpha_by_joint = tuple(
+        profile_value(
+            CONTROL_PROFILE,
+            "actuators.response_alpha_by_joint",
+            (1.0,) * JOINT_COUNT,
+        )
+    )
+    actuator_response_scale = (
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.actuator_response_scale_min",
+            1.0,
+        ),
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.actuator_response_scale_max",
+            1.0,
+        ),
     )
     # When all commanded axes are inside these deadbands, use the profile's
     # calibrated four-foot stance instead of allowing an actor to exploit a
@@ -98,6 +132,15 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
         profile_value(CONTROL_PROFILE, "commands.turn_yaw_min", 0.30),
         profile_value(CONTROL_PROFILE, "commands.turn_yaw_max", 0.60),
     )
+    # Optional categorical modes used by CurrentV3 continuation. They default
+    # to zero so the established V2 command distribution is unchanged.
+    reverse_command_fraction = 0.0
+    lateral_command_fraction = 0.0
+    diagonal_command_fraction = 0.0
+    reverse_command_speed = (0.08, 0.18)
+    lateral_command_speed = (0.08, 0.16)
+    diagonal_forward_speed = (0.10, 0.18)
+    diagonal_lateral_speed = (0.08, 0.14)
     command_hold_s = (
         profile_value(CONTROL_PROFILE, "commands.hold_min_s", 2.0),
         profile_value(CONTROL_PROFILE, "commands.hold_max_s", 4.0),
@@ -208,6 +251,9 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
     reference_trot_reward_scale = profile_value(
         CONTROL_PROFILE, "rewards.reference_trot", 0.0
     )
+    clocked_trot_reward_scale = profile_value(
+        CONTROL_PROFILE, "rewards.clocked_trot", 0.0
+    )
     reference_trot_period_s = profile_value(
         CONTROL_PROFILE, "rewards.reference_trot_period_s", 0.32
     )
@@ -225,6 +271,12 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
     )
     air_time_variance_penalty_scale = profile_value(
         CONTROL_PROFILE, "rewards.air_time_variance_penalty", 0.0
+    )
+    minimum_swing_duty_fraction = profile_value(
+        CONTROL_PROFILE, "rewards.minimum_swing_duty_fraction", 0.0
+    )
+    swing_duty_floor_penalty_scale = profile_value(
+        CONTROL_PROFILE, "rewards.swing_duty_floor_penalty", 0.0
     )
     diagonal_joint_symmetry_reward_scale = profile_value(
         CONTROL_PROFILE, "rewards.diagonal_joint_symmetry", 0.0
@@ -254,8 +306,30 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
     stability_penalty_scale = profile_value(
         CONTROL_PROFILE, "rewards.stability_penalty", -0.50
     )
+    vertical_motion_penalty_scale = profile_value(
+        CONTROL_PROFILE, "rewards.vertical_motion_penalty", 0.0
+    )
     action_rate_penalty_scale = profile_value(
         CONTROL_PROFILE, "rewards.action_rate_penalty", -0.02
+    )
+    hip_abduction_penalty_scale = profile_value(
+        CONTROL_PROFILE, "rewards.hip_abduction_penalty", 0.0
+    )
+    hip_abduction_tolerance_rad = profile_value(
+        CONTROL_PROFILE, "rewards.hip_abduction_tolerance_rad", 0.08
+    )
+    foot_spread_penalty_scale = profile_value(
+        CONTROL_PROFILE, "rewards.foot_spread_penalty", 0.0
+    )
+    foot_spread_tolerance_m = profile_value(
+        CONTROL_PROFILE, "rewards.foot_spread_tolerance_m", 0.01
+    )
+    nominal_foot_lateral_m = tuple(
+        profile_value(
+            CONTROL_PROFILE,
+            "rewards.nominal_foot_lateral_m",
+            (0.0, 0.0, 0.0, 0.0),
+        )
     )
     foot_slip_penalty_scale_v2 = profile_value(
         CONTROL_PROFILE, "rewards.foot_slip_penalty", -0.25
@@ -320,7 +394,8 @@ class SimpleDogV2RoughEnvCfg(SimpleDogV2GoalEnvCfg):
         ),
         debug_vis=False,
     )
-    terrain_curriculum = True
+    terrain_curriculum = ROUGH_TERRAIN_USES_CURRICULUM
+    suppress_base_contact_termination = True
 
     # Rough V2 deliberately remains proprioceptive: the terrain is real, but
     # no simulator-only height samples are added to the profile-sized actor input
@@ -333,7 +408,15 @@ class SimpleDogV2RoughEnvCfg(SimpleDogV2GoalEnvCfg):
 class SimpleDogV2PlayEnvCfg(SimpleDogV2CoreEnvCfg):
     """Deterministic straight-line acceptance task for a V2 checkpoint."""
 
-    episode_length_s = 60.0
+    # The evaluation screen is expressed in policy steps.  Leave a five-second
+    # margin beyond all 900 Core/Robust steps at the profile's real control
+    # rate so a 25 Hz deployment contract cannot time out halfway through.
+    episode_length_s = max(
+        60.0,
+        5.0
+        + 900.0
+        / profile_value(CONTROL_PROFILE, "environment.control_hz", 50),
+    )
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=1,
         env_spacing=1.5,
@@ -341,11 +424,11 @@ class SimpleDogV2PlayEnvCfg(SimpleDogV2CoreEnvCfg):
     )
     viewer: ViewerCfg = ViewerCfg(
         # Isaac Lab 3.0 records these as absolute world coordinates in
-        # headless mode. Frame the complete Goal path (spawn through the final
-        # stop) instead of relying on asset-root following, which the recorder
-        # does not apply.
-        eye=(2.90, 1.80, 1.20),
-        lookat=(0.70, -0.70, 0.14),
+        # headless mode. Frame the validation tile rather than only the first
+        # few seconds so the shared viewer remains useful throughout the full
+        # multi-command rollout.
+        eye=(2.20, 2.20, 1.25),
+        lookat=(0.0, 0.0, 0.14),
         origin_type="world",
     )
     command_forward = (0.25, 0.25)
@@ -367,8 +450,20 @@ class SimpleDogV2CoreEvalEnvCfg(SimpleDogV2PlayEnvCfg):
 
     evaluation_segments = (
         ("straight", 200, min(0.30, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.30)), 0.0, 0.0),
-        ("left_curve", 200, min(0.28, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.28)), 0.0, 0.30),
-        ("right_curve", 200, min(0.28, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.28)), 0.0, -0.30),
+        (
+            "left_curve",
+            200,
+            min(0.28, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.28)),
+            0.0,
+            min(0.30, profile_value(CONTROL_PROFILE, "commands.yaw_max", 0.30)),
+        ),
+        (
+            "right_curve",
+            200,
+            min(0.28, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.28)),
+            0.0,
+            max(-0.30, profile_value(CONTROL_PROFILE, "commands.yaw_min", -0.30)),
+        ),
         ("fast", 150, min(0.40, profile_value(CONTROL_PROFILE, "commands.forward_max", 0.40)), 0.0, 0.0),
         ("slow", 150, max(0.10, profile_value(CONTROL_PROFILE, "commands.forward_min", 0.10)), 0.0, 0.0),
     )
@@ -396,6 +491,24 @@ class SimpleDogV2RobustEvalEnvCfg(SimpleDogV2CoreEvalEnvCfg):
 class SimpleDogV2GoalEvalEnvCfg(SimpleDogV2PlayEnvCfg):
     """Full planar-mobility promotion suite on held-out rough ground."""
 
+    # Goal/Rough use 2,300 policy steps.  At the measured 25 Hz hardware rate
+    # that is 92 seconds, longer than the legacy 60-second episode.  Size the
+    # timeout from the control contract so the deterministic gate completes
+    # without an artificial reset.
+    episode_length_s = max(
+        60.0,
+        5.0
+        + 2300.0
+        / profile_value(CONTROL_PROFILE, "environment.control_hz", 50),
+    )
+
+    # Match training and the exported Pixel controller.  Core/Robust playback
+    # keeps its legacy near-instant command changes, while Goal explicitly
+    # verifies the deployable smoothing contract across direction reversals.
+    command_smoothing_time_s = profile_value(
+        CONTROL_PROFILE, "commands.smoothing_s", 0.40
+    )
+
     # Goal acceptance must exercise the same kind of mildly uneven surface as
     # training. The former inherited plane made directional metrics useful but
     # produced a misleading flat rollout in the shared viewer.
@@ -420,6 +533,7 @@ class SimpleDogV2GoalEvalEnvCfg(SimpleDogV2PlayEnvCfg):
         ),
         debug_vis=False,
     )
+    suppress_base_contact_termination = True
 
     evaluation_segments = (
         ("stand", 100, 0.0, 0.0, 0.0),
@@ -430,11 +544,24 @@ class SimpleDogV2GoalEvalEnvCfg(SimpleDogV2PlayEnvCfg):
         ("turn_left", 175, 0.0, 0.0, 0.25),
         ("turn_right", 175, 0.0, 0.0, -0.25),
         ("diagonal_left", 175, 0.16, 0.12, 0.0),
+        ("diagonal_right", 175, 0.16, -0.12, 0.0),
+        ("diagonal_reverse_left", 175, -0.14, 0.12, 0.0),
         ("diagonal_reverse_right", 175, -0.14, -0.12, 0.0),
         ("curve_left", 175, 0.16, 0.08, 0.25),
         ("curve_right", 175, 0.16, -0.08, -0.25),
         ("stop", 100, 0.0, 0.0, 0.0),
     )
+
+
+@configclass
+class SimpleDogV2RoughEvalEnvCfg(SimpleDogV2GoalEvalEnvCfg):
+    """Full mobility and four-foot gait gate on held-out rough or stepped ground."""
+
+    # SimpleDogV2GoalEvalEnvCfg already builds the profile-selected held-out
+    # validation terrain and disables curriculum/noise/pushes. This distinct
+    # task identity prevents a flat/Goal result from being mistaken for the
+    # final rough-terrain promotion gate.
+    pass
 
 
 @configclass
@@ -485,5 +612,5 @@ class SimpleDogV2RoughPlayEnvCfg(SimpleDogV2RoughEnvCfg):
     randomize_reset_yaw = False
     push_probability = 0.0
     observation_noise_enabled = False
-    terrain_curriculum = True
+    terrain_curriculum = ROUGH_TERRAIN_USES_CURRICULUM
     print_play_metrics = True

@@ -112,3 +112,15 @@ gym.register(
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )
+
+gym.register(
+    id="Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-Eval-v0",
+    entry_point=f"{__name__}.simple_dog_v2_env:SimpleDogV2Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.simple_dog_v2_env_cfg:SimpleDogV2RoughEvalEnvCfg"
+        ),
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
+    },
+)

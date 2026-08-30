@@ -214,4 +214,50 @@ class PolicyMathTest {
         assertEquals(0.04f, contract.controlFrameSeconds, 1.0e-6f)
         assertEquals(40_000_000L, contract.controlFramePeriodNanoseconds)
     }
+
+    @Test
+    fun currentV3ObservationHoldsMissingCurrentAndClearsValidity() {
+        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+            .put("schema_version", 3)
+            .put("observation_size", 279)
+            .put("observation_builder", "current_v3_279")
+            .put(
+                "current_observation_contract",
+                JSONObject()
+                    .put("units", "mA")
+                    .put("absolute", true)
+                    .put("normalization_bias_ma", JSONArray(List(12) { 10.0 }))
+                    .put("normalization_scale_ma", JSONArray(List(12) { 20.0 }))
+                    .put("clip_normalized", JSONArray(List(12) { 10.0 }))
+                    .put("current_step_ma", 6.5)
+                    .put("missing_behavior", "hold_last_finite_and_validity_zero"),
+            )
+            .put(
+                "posture_command_contract",
+                JSONObject()
+                    .put("height_offset_m", JSONArray(listOf(-0.035, 0.015)))
+                    .put("roll_rad", JSONArray(listOf(-0.12, 0.12)))
+                    .put("pitch_rad", JSONArray(listOf(-0.12, 0.12)))
+                    .put("smoothing_time_s", 0.5)
+                    .put("layout", "append_after_history"),
+            )
+        val builder = PolicyObservationBuilder(PolicyContract.parse(metadata.toString()))
+        val first = builder.frame(FloatArray(45), Array(12) { 20 })
+        assertEquals(69, first.size)
+        assertEquals(6f, first[45], 1.0e-6f)
+        assertEquals(1f, first[57], 1.0e-6f)
+        val missing = builder.frame(FloatArray(45), arrayOfNulls(12))
+        assertEquals(6f, missing[45], 1.0e-6f)
+        assertEquals(0f, missing[57], 1.0e-6f)
+        val observation = builder.observation(
+            Array(4) { missing },
+            floatArrayOf(-0.01f, 0.02f, -0.03f),
+        )
+        assertEquals(279, observation.size)
+        assertArrayEquals(
+            floatArrayOf(-0.01f, 0.02f, -0.03f),
+            observation.takeLast(3).toFloatArray(),
+            1.0e-6f,
+        )
+    }
 }

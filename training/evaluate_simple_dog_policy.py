@@ -8,15 +8,31 @@ import math
 from pathlib import Path
 
 
+MOBILITY_SEGMENTS = (
+    "stand", "forward", "reverse", "strafe_left", "strafe_right",
+    "turn_left", "turn_right", "diagonal_left",
+    "diagonal_right", "diagonal_reverse_left",
+    "diagonal_reverse_right", "curve_left", "curve_right", "stop",
+)
+
 EXPECTED = {
     "core": ("straight", "left_curve", "right_curve", "fast", "slow"),
     "robust": ("straight", "left_curve", "right_curve", "fast", "slow"),
-    "goal": (
-        "stand", "forward", "reverse", "strafe_left", "strafe_right",
-        "turn_left", "turn_right", "diagonal_left",
-        "diagonal_reverse_right", "curve_left", "curve_right", "stop",
+    "goal": MOBILITY_SEGMENTS,
+    "rough": MOBILITY_SEGMENTS,
+    "current": MOBILITY_SEGMENTS + (
+        "crouch_walk", "tall_walk", "roll_left_walk", "roll_right_walk",
+        "pitch_up_walk", "pitch_down_walk", "current_dropout_walk",
     ),
 }
+EXPECTED["currentflat"] = EXPECTED["current"]
+EXPECTED["currentstress"] = EXPECTED["current"]
+CURRENT_STAGES = {"current", "currentflat", "currentstress"}
+
+
+def step_duration(record: dict) -> float:
+    """Return segment duration using emitted timing, or the legacy 50 Hz rate."""
+    return int(record["steps"]) * float(record.get("step_dt", 0.02))
 
 
 def parse_value(value: str):
@@ -43,7 +59,10 @@ def read_segments(path: Path) -> dict[str, dict]:
                 record[key] = parse_value(value)
         name = record.get("name")
         if isinstance(name, str):
-            segments[name] = record
+            # A long-lived RL-Games player may begin a second episode before
+            # the outer timeout stops it. Promotion is the first matched suite,
+            # so later duplicates must not overwrite its immutable evidence.
+            segments.setdefault(name, record)
     return segments
 
 
@@ -95,7 +114,7 @@ def check_planar_motion(name: str, record: dict, failures: list[str]) -> None:
             name,
             f"yaw-rate tracking is {mean_yaw:.3f} for {command_yaw:.3f} rad/s",
         )
-    expected_heading = command_yaw * int(record["steps"]) * 0.02
+    expected_heading = command_yaw * step_duration(record)
     heading_error = math.remainder(
         float(record["heading_delta"]) - expected_heading, 2.0 * math.pi
     )
@@ -106,7 +125,7 @@ def check_planar_motion(name: str, record: dict, failures: list[str]) -> None:
             f"heading error is {heading_error:.3f} rad",
         )
     if abs(command_yaw) < 0.05:
-        duration = int(record["steps"]) * 0.02
+        duration = step_duration(record)
         displacement = (
             float(record["forward_displacement"]),
             float(record["lateral_displacement"]),
@@ -194,7 +213,7 @@ def check_turn(name: str, record: dict, failures: list[str]) -> None:
             name,
             f"yaw-rate tracking is {mean_yaw:.3f} for {command_yaw:.3f} rad/s",
         )
-    expected_heading = command_yaw * int(record["steps"]) * 0.02
+    expected_heading = command_yaw * step_duration(record)
     heading_error = math.remainder(
         float(record["heading_delta"]) - expected_heading, 2.0 * math.pi
     )
@@ -235,6 +254,18 @@ def check_gait_quality(
         add_failure(
             failures, name,
             f"maximum normalized action step is {record['max_action_step']:.3f}",
+        )
+    mean_hip_abduction = float(record.get("mean_abs_hip_abduction", 0.0))
+    if mean_hip_abduction > 0.14:
+        add_failure(
+            failures, name,
+            f"mean hip abduction is {mean_hip_abduction:.3f} rad",
+        )
+    max_hip_abduction = float(record.get("max_abs_hip_abduction", 0.0))
+    if max_hip_abduction > 0.24:
+        add_failure(
+            failures, name,
+            f"maximum hip abduction is {max_hip_abduction:.3f} rad",
         )
     if float(record["mean_abs_vertical_speed"]) > vertical_speed_limit:
         add_failure(
@@ -286,7 +317,17 @@ def evaluate(
             check_turn(name, record, failures)
         else:
             check_stationary(name, record, failures)
-        if require_gait_quality and (command_speed > 0.05 or abs(command_yaw) > 0.05):
+        if (
+            command_speed > 0.05 or abs(command_yaw) > 0.05
+        ) and float(record["mean_tilt"]) > 0.12:
+            add_failure(
+                failures,
+                name,
+                f"mean body tilt is {record['mean_tilt']:.3f} (limit 0.120)",
+            )
+        if (require_gait_quality or stage == "rough") and (
+            command_speed > 0.05 or abs(command_yaw) > 0.05
+        ):
             # Robust evaluation injects repeated planar velocity impulses and
             # begins from an 8-degree tilt. Permit the bounded recovery
             # transient while leaving the unperturbed Core/Goal gait limit at
@@ -297,6 +338,51 @@ def evaluate(
                 failures,
                 vertical_speed_limit=0.115 if stage == "robust" else 0.100,
             )
+        if stage in CURRENT_STAGES:
+            required_current_fields = (
+                "mean_abs_height_error", "mean_abs_roll_error",
+                "mean_abs_pitch_error", "mean_current_valid_fraction",
+            )
+            absent = [field for field in required_current_fields if field not in record]
+            if absent:
+                add_failure(
+                    failures, name,
+                    "missing CurrentV3 metrics: " + ", ".join(absent),
+                )
+                continue
+            if name in {"crouch_walk", "tall_walk"} and float(
+                record["mean_abs_height_error"]
+            ) > 0.025:
+                add_failure(
+                    failures, name,
+                    f"mean height error is {record['mean_abs_height_error']:.3f} m",
+                )
+            if name in {"roll_left_walk", "roll_right_walk"} and float(
+                record["mean_abs_roll_error"]
+            ) > 0.080:
+                add_failure(
+                    failures, name,
+                    f"mean roll error is {record['mean_abs_roll_error']:.3f} rad",
+                )
+            if name in {"pitch_up_walk", "pitch_down_walk"} and float(
+                record["mean_abs_pitch_error"]
+            ) > 0.080:
+                add_failure(
+                    failures, name,
+                    f"mean pitch error is {record['mean_abs_pitch_error']:.3f} rad",
+                )
+            valid_fraction = float(record["mean_current_valid_fraction"])
+            if name == "current_dropout_walk":
+                if not 0.75 <= valid_fraction <= 0.85:
+                    add_failure(
+                        failures, name,
+                        f"current validity is {valid_fraction:.3f}, expected 0.800±0.050",
+                    )
+            elif valid_fraction < 0.98:
+                add_failure(
+                    failures, name,
+                    f"unexpected current dropout left validity at {valid_fraction:.3f}",
+                )
     return {
         "stage": stage,
         "passed": not failures,

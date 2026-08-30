@@ -224,6 +224,13 @@ class RobotService : Service() {
     val forwardMaximum: Float get() = policyContract.forwardMaximum
     val yawMinimum: Float get() = policyContract.yawMinimum
     val yawMaximum: Float get() = policyContract.yawMaximum
+    val supportsPostureCommands: Boolean get() = policyContract.observationBuilder == "current_v3_279"
+    val postureHeightMinimum: Float get() = policyContract.postureHeightMinimum
+    val postureHeightMaximum: Float get() = policyContract.postureHeightMaximum
+    val postureRollMinimum: Float get() = policyContract.postureRollMinimum
+    val postureRollMaximum: Float get() = policyContract.postureRollMaximum
+    val posturePitchMinimum: Float get() = policyContract.posturePitchMinimum
+    val posturePitchMaximum: Float get() = policyContract.posturePitchMaximum
     fun recordingStatus(): RunRecordingStatus = runRecorder.status()
     fun latestRunFile(): File? = runRecorder.latestCompletedFile()
     fun latestTrainingCaptureFile(): File? = runRecorder.latestCompletedFile()?.let(trainingCaptureBundle::create)
@@ -242,6 +249,10 @@ class RobotService : Service() {
 
     fun updateMotionRequest(forward: Float, yawRate: Float) {
         policyController.updateRequest(forward, yawRate)
+    }
+
+    fun updatePostureRequest(heightOffset: Float, roll: Float, pitch: Float) {
+        policyController.updatePosture(heightOffset, roll, pitch)
     }
 
     fun startPolicy() {

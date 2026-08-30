@@ -23,7 +23,13 @@ import org.json.JSONObject
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicReference
 
-data class MotionRequest(val forward: Float = 0f, val yawRate: Float = 0f)
+data class MotionRequest(
+    val forward: Float = 0f,
+    val yawRate: Float = 0f,
+    val heightOffset: Float = 0f,
+    val roll: Float = 0f,
+    val pitch: Float = 0f,
+)
 
 data class PolicyRuntimeStatus(
     val active: Boolean = false,
@@ -55,7 +61,9 @@ class PolicyController(
         contract.profileId,
         contract.profileSha256,
         contract.weightsSha256,
+        contract.observationSize,
     )
+    private val observationBuilder = PolicyObservationBuilder(contract)
     private val messages = Channel<JSONObject>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val request = AtomicReference(MotionRequest())
     private val mutableStatus = MutableStateFlow(
@@ -66,11 +74,27 @@ class PolicyController(
 
     fun updateRequest(forward: Float, yawRate: Float) {
         contract.requireRequest(forward, 0f, yawRate)
-        request.set(MotionRequest(forward, yawRate))
+        request.updateAndGet { it.copy(forward = forward, yawRate = yawRate) }
         runCatching { recorder.recordEvent(
             "motion_request",
             JSONObject().put("forward_m_s", forward).put("yaw_rate_rad_s", yawRate),
         ) }
+    }
+
+    fun updatePosture(heightOffset: Float, roll: Float, pitch: Float) {
+        contract.requirePosture(heightOffset, roll, pitch)
+        request.updateAndGet {
+            it.copy(heightOffset = heightOffset, roll = roll, pitch = pitch)
+        }
+        runCatching {
+            recorder.recordEvent(
+                "posture_request",
+                JSONObject()
+                    .put("height_offset_m", heightOffset)
+                    .put("roll_rad", roll)
+                    .put("pitch_rad", pitch),
+            )
+        }
     }
 
     fun onRobotMessage(message: JSONObject) {
@@ -134,6 +158,9 @@ class PolicyController(
         var previousSampleMs: Long? = null
         var history: Array<FloatArray>? = null
         var command = floatArrayOf(request.get().forward, 0f, request.get().yawRate)
+        var postureCommand = floatArrayOf(
+            request.get().heightOffset, request.get().roll, request.get().pitch,
+        )
         var filteredAction = FloatArray(ACTION_COUNT)
         var appliedAction = FloatArray(ACTION_COUNT)
         val actionsBySequence = mutableMapOf(0L to appliedAction.copyOf())
@@ -203,18 +230,30 @@ class PolicyController(
                     contract.controlFrameSeconds / contract.commandSmoothingSeconds
                 ).coerceAtMost(1f)
                 command = FloatArray(3) { command[it] + alpha * (commandTarget[it] - command[it]) }
+                val postureTarget = floatArrayOf(target.heightOffset, target.roll, target.pitch)
+                val postureAlpha = (
+                    contract.controlFrameSeconds / contract.postureSmoothingSeconds
+                ).coerceAtMost(1f)
+                postureCommand = FloatArray(3) {
+                    postureCommand[it] + postureAlpha * (postureTarget[it] - postureCommand[it])
+                }
                 val stateSequence = state.getLong("seq")
                 val previousActionForObservation = requireNotNull(actionsBySequence[stateSequence]).copyOf()
                 val inputAppliedTargets = requireNotNull(targetsBySequence[stateSequence])
-                val frame = vectors.first + command + joints +
+                val baseFrame = vectors.first + command + joints +
                     FloatArray(ACTION_COUNT) { 0.05f * jointVelocity[it] } +
                     previousActionForObservation
-                if (history == null) history = Array(HISTORY_COUNT) { frame.copyOf() }
-                else {
-                    for (index in 0 until HISTORY_COUNT - 1) history[index] = history[index + 1]
-                    history[HISTORY_COUNT - 1] = frame
+                val frame = observationBuilder.frame(baseFrame, currentRawByPolicyJoint(state))
+                if (history == null) {
+                    history = Array(contract.observationHistory) { frame.copyOf() }
                 }
-                val observation = history.flatMap { it.asIterable() }.toFloatArray()
+                else {
+                    for (index in 0 until contract.observationHistory - 1) {
+                        history[index] = history[index + 1]
+                    }
+                    history[contract.observationHistory - 1] = frame
+                }
+                val observation = observationBuilder.observation(history, postureCommand)
                 val inferenceStarted = SystemClock.elapsedRealtimeNanos()
                 val requestedAction = policy.action(observation)
                 val inferenceMs = (SystemClock.elapsedRealtimeNanos() - inferenceStarted) / 1_000_000.0
@@ -534,6 +573,17 @@ class PolicyController(
         return (gyroBody + projectedGravity) to joints
     }
 
+    private fun currentRawByPolicyJoint(state: JSONObject): Array<Int?> {
+        val ids = state.getJSONArray("ids").intArray()
+        val currents = state.optJSONArray("current_raw")
+            ?: return arrayOfNulls(ACTION_COUNT)
+        if (currents.length() != ids.size) return arrayOfNulls(ACTION_COUNT)
+        val currentByServoId = ids.indices.associate { index ->
+            ids[index] to if (currents.isNull(index)) null else currents.getInt(index)
+        }
+        return Array(ACTION_COUNT) { index -> currentByServoId[calibration.servoIds[index]] }
+    }
+
     private fun safeDisarm(detail: String) {
         runCatching { recorder.recordEvent("disarm_requested", JSONObject().put("detail", detail)) }
         runCatching { send(RobotProtocol.command("stop")) }
@@ -582,7 +632,6 @@ class PolicyController(
 
     companion object {
         private const val ACTION_COUNT = 12
-        private const val HISTORY_COUNT = 4
         private const val FEEDBACK_TIMEOUT_MS = 80L
         private const val SERVO_TORQUE_LIMIT = 1000
         private const val TORQUE_ENABLE_ADDRESS = 0x28

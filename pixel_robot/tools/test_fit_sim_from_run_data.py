@@ -21,7 +21,7 @@ class FitSimFromRunDataTest(unittest.TestCase):
 
             report = fit_path(root, max_lag_frames=3)
 
-        self.assertEqual(report["report_schema_version"], 1)
+        self.assertEqual(report["report_schema_version"], 2)
         self.assertEqual(report["selection"]["candidate_file_count"], 3)
         self.assertEqual(report["selection"]["selected_complete_policy_run_count"], 1)
         self.assertEqual(len(report["selection"]["excluded"]), 2)
@@ -32,6 +32,10 @@ class FitSimFromRunDataTest(unittest.TestCase):
         self.assertEqual(run["data_quality"]["current_complete_frames"], 6)
         self.assertEqual(run["servos"]["1"]["current"]["coverage_fraction"], 1.0)
         self.assertAlmostEqual(run["servos"]["1"]["current"]["abs_ma"]["max"], 39.0)
+        current_fit = run["servos"]["1"]["current"]["simulation_fit"]
+        self.assertEqual(current_fit["observed_clip_ma"], 39.0)
+        self.assertEqual(current_fit["dropout_fraction"], 0.0)
+        self.assertAlmostEqual(current_fit["dropout_probability_upper_95"], 0.5)
         self.assertEqual(run["idle_servo_telemetry"]["1"]["sample_count"], 1)
         self.assertEqual(
             run["idle_servo_telemetry"]["1"]["measurements"]["load_raw"]["min"],
@@ -50,7 +54,7 @@ class FitSimFromRunDataTest(unittest.TestCase):
             self._write_run(path, complete_session=True, with_policy=True)
             report = fit_path(path, max_lag_frames=3)
             encoded = json.dumps(report, sort_keys=True, allow_nan=False)
-        self.assertEqual(json.loads(encoded)["report_schema_version"], 1)
+        self.assertEqual(json.loads(encoded)["report_schema_version"], 2)
 
     def test_rejects_negative_lag_search(self):
         with self.assertRaisesRegex(ValueError, "nonnegative"):

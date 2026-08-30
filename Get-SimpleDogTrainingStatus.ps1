@@ -3,14 +3,19 @@ param()
 
 $ErrorActionPreference = "Stop"
 
-$sshTarget = "leo@gx10-ddb2.local"
+$sshHost = if ($env:ROBOT_GB10_HOST) { $env:ROBOT_GB10_HOST.Trim() } else { "gx10-ddb2.local" }
+if ($sshHost -notmatch '^[A-Za-z0-9.-]+$') {
+    throw "ROBOT_GB10_HOST must be a hostname or IPv4 address."
+}
+$sshTarget = "leo@$sshHost"
 $keyPath = Join-Path $env:LOCALAPPDATA "NVIDIA Corporation\Sync\config\nvsync.key"
 $sshOptions = @(
     "-i", $keyPath,
     "-o", "IdentitiesOnly=yes",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
-    "-o", "StrictHostKeyChecking=yes"
+    "-o", "StrictHostKeyChecking=yes",
+    "-o", "HostKeyAlias=gx10-ddb2.local"
 )
 
 if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {

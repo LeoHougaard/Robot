@@ -4,6 +4,7 @@ import android.content.res.AssetManager
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import java.io.Closeable
 import java.nio.FloatBuffer
 import java.security.MessageDigest
@@ -14,6 +15,7 @@ class OnnxPolicy(
     expectedProfileId: String,
     expectedProfileSha256: String,
     expectedWeightsSha256: String,
+    private val observationSize: Int,
 ) : Closeable {
     private val environment = OrtEnvironment.getEnvironment("pixel-robot")
     private val options = OrtSession.SessionOptions().apply {
@@ -51,12 +53,16 @@ class OnnxPolicy(
         session = environment.createSession(model, options)
         require(session.inputNames == setOf(INPUT_NAME)) { "unexpected ONNX inputs: ${session.inputNames}" }
         require(session.outputNames == setOf(OUTPUT_NAME)) { "unexpected ONNX outputs: ${session.outputNames}" }
+        val inputShape = (session.inputInfo.getValue(INPUT_NAME).info as TensorInfo).shape
+        require(inputShape.contentEquals(longArrayOf(1, observationSize.toLong()))) {
+            "ONNX observation shape ${inputShape.contentToString()} does not match metadata"
+        }
     }
 
     @Synchronized
     fun action(observation: FloatArray): FloatArray {
-        require(observation.size == OBSERVATION_SIZE && observation.all(Float::isFinite))
-        OnnxTensor.createTensor(environment, FloatBuffer.wrap(observation), longArrayOf(1, OBSERVATION_SIZE.toLong())).use { input ->
+        require(observation.size == observationSize && observation.all(Float::isFinite))
+        OnnxTensor.createTensor(environment, FloatBuffer.wrap(observation), longArrayOf(1, observationSize.toLong())).use { input ->
             session.run(mapOf(INPUT_NAME to input)).use { result ->
                 val rows = result[0].value as Array<*>
                 val output = rows[0] as FloatArray
@@ -72,7 +78,6 @@ class OnnxPolicy(
     }
 
     companion object {
-        const val OBSERVATION_SIZE = 180
         const val ACTION_SIZE = 12
         private const val INPUT_NAME = "observation"
         private const val OUTPUT_NAME = "action"

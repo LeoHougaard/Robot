@@ -12,6 +12,8 @@ faulthandler.register(signal.SIGUSR1, all_threads=True)
 
 import simple_dog_task  # noqa: F401
 import simple_dog_task_v2  # noqa: F401
+if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_v3":
+    import simple_dog_task_current  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 

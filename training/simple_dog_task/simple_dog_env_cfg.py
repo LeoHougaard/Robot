@@ -6,6 +6,7 @@ geometry, and drive data.
 """
 
 import math
+import os
 
 from isaaclab_physx.physics import PhysxCfg
 
@@ -27,6 +28,9 @@ from robot_control_profile import load_control_profile, value as profile_value
 
 
 CONTROL_PROFILE = load_control_profile()
+VALIDATION_SAMPLE_INDEX = int(
+    os.environ.get("SIMPLE_DOG_VALIDATION_SAMPLE", "0")
+) % 5
 ASSET_SOURCE = profile_value(CONTROL_PROFILE, "robot.asset_source", "Workspace USD")
 DOG_USD = profile_value(
     CONTROL_PROFILE,
@@ -57,6 +61,13 @@ if CONTROL_PROFILE is not None:
         for joint in CONTROL_PROFILE["robot"]["joints"]
     }
 
+# Closed-linkage exports can contain unactuated articulation-tree joints whose
+# assembled coordinates are not zero.  They are not policy actions, but their
+# reset coordinates must be preserved or PhysX reconstructs a folded linkage.
+CALIBRATED_PASSIVE_JOINT_POS = dict(profile_value(
+    CONTROL_PROFILE, "robot.passive_joint_positions", {}
+))
+
 JOINT_COUNT = len(CALIBRATED_JOINT_POS)
 JOINT_NAMES = tuple(CALIBRATED_JOINT_POS)
 JOINT_DIRECTIONS = tuple(
@@ -66,6 +77,7 @@ JOINT_SEMANTICS = tuple(
     joint["semantic"] for joint in CONTROL_PROFILE["robot"]["joints"]
 ) if CONTROL_PROFILE is not None else ()
 SURFACE = profile_value(CONTROL_PROFILE, "environment.surface", "Mixed curriculum")
+ROUGH_TERRAIN_USES_CURRICULUM = SURFACE == "Mixed curriculum"
 
 
 def _start_rotation_quat():
@@ -78,12 +90,12 @@ def _start_rotation_quat():
     cr, sr = math.cos(roll / 2), math.sin(roll / 2)
     cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
     cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
-    return (
-        cr * cp * cy + sr * sp * sy,
-        sr * cp * cy - cr * sp * sy,
-        cr * sp * cy + sr * cp * sy,
-        cr * cp * sy - sr * sp * cy,
-    )
+    w = cr * cp * cy + sr * sp * sy
+    x = sr * cp * cy - cr * sp * sy
+    y = cr * sp * cy + sr * cp * sy
+    z = cr * cp * sy - sr * sp * cy
+    # Isaac Lab 3 stores runtime quaternions in xyzw order.
+    return (x, y, z, w)
 
 
 def _rough_sub_terrains():
@@ -109,12 +121,41 @@ def _rough_sub_terrains():
         platform_width=1.0,
         border_width=0.20,
     )
+    step_height_range = (
+        profile_value(CONTROL_PROFILE, "terrain.step_height_min", 0.004),
+        profile_value(CONTROL_PROFILE, "terrain.step_height_max", 0.018),
+    )
+    upward_steps = terrain_gen.MeshPyramidStairsTerrainCfg(
+        proportion=0.5,
+        step_height_range=step_height_range,
+        step_width=profile_value(CONTROL_PROFILE, "terrain.step_width", 0.16),
+        platform_width=profile_value(
+            CONTROL_PROFILE, "terrain.step_platform_width", 0.80
+        ),
+        border_width=0.20,
+        holes=False,
+    )
+    downward_steps = terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+        proportion=0.5,
+        step_height_range=step_height_range,
+        step_width=profile_value(CONTROL_PROFILE, "terrain.step_width", 0.16),
+        platform_width=profile_value(
+            CONTROL_PROFILE, "terrain.step_platform_width", 0.80
+        ),
+        border_width=0.20,
+        holes=False,
+    )
     if SURFACE == "Flat":
         return {"flat": flat}
     if SURFACE == "Random rough":
         return {"random_rough": random_rough}
     if SURFACE == "Slopes":
         return {"pyramid_slope": upward, "inverted_pyramid_slope": downward}
+    if SURFACE == "Steps":
+        return {
+            "pyramid_steps": upward_steps,
+            "inverted_pyramid_steps": downward_steps,
+        }
     flat.proportion = 0.20
     random_rough.proportion = 0.40
     upward.proportion = 0.20
@@ -137,6 +178,33 @@ def _validation_sub_terrain():
                 slope_range=(0.0, profile_value(CONTROL_PROFILE, "terrain.slope_max", 0.18)),
                 platform_width=1.0,
                 border_width=0.20,
+            )
+        }
+    if SURFACE == "Steps":
+        stair_type = (
+            terrain_gen.MeshPyramidStairsTerrainCfg
+            if VALIDATION_SAMPLE_INDEX % 2 == 0
+            else terrain_gen.MeshInvertedPyramidStairsTerrainCfg
+        )
+        return {
+            "steps": stair_type(
+                proportion=1.0,
+                step_height_range=(
+                    profile_value(
+                        CONTROL_PROFILE, "terrain.step_height_min", 0.004
+                    ),
+                    profile_value(
+                        CONTROL_PROFILE, "terrain.step_height_max", 0.018
+                    ),
+                ),
+                step_width=profile_value(
+                    CONTROL_PROFILE, "terrain.step_width", 0.16
+                ),
+                platform_width=profile_value(
+                    CONTROL_PROFILE, "terrain.step_platform_width", 0.80
+                ),
+                border_width=0.20,
+                holes=False,
             )
         }
     return {
@@ -207,7 +275,7 @@ SIMPLE_DOG_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=tuple(profile_value(CONTROL_PROFILE, "robot.start_position", (0.0, 0.0, 0.24))),
         rot=_start_rotation_quat(),
-        joint_pos=CALIBRATED_JOINT_POS,
+        joint_pos=CALIBRATED_JOINT_POS | CALIBRATED_PASSIVE_JOINT_POS,
         joint_vel={".*": 0.0},
     ),
     actuators=_actuator_configs(),
@@ -222,7 +290,10 @@ SIMPLE_DOG_CFG = ArticulationCfg(
 # scaling height and spacing to this dog's 0.16 m standing height.
 SIMPLE_DOG_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     seed=42,
-    curriculum=True,
+    # Random rough and slope-only runs sample their complete mild difficulty
+    # distribution from the start. Only the explicitly named mixed surface
+    # advances environments through terrain levels.
+    curriculum=ROUGH_TERRAIN_USES_CURRICULUM,
     size=(
         profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
         profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
@@ -247,7 +318,7 @@ SIMPLE_DOG_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
 # deterministic validation tile centered at the world origin so the recorded
 # robot remains in frame.  Training still uses the full 6x8 curriculum above.
 SIMPLE_DOG_ROUGH_VALIDATION_TERRAIN_CFG = TerrainGeneratorCfg(
-    seed=31415,
+    seed=31415 + 7919 * VALIDATION_SAMPLE_INDEX,
     curriculum=False,
     size=(
         profile_value(CONTROL_PROFILE, "terrain.tile_size", 4.0),
@@ -259,7 +330,10 @@ SIMPLE_DOG_ROUGH_VALIDATION_TERRAIN_CFG = TerrainGeneratorCfg(
     horizontal_scale=0.05,
     vertical_scale=0.0025,
     slope_threshold=0.75,
-    difficulty_range=(0.65, 0.65),
+    difficulty_range=(
+        (0.25, 0.45, 0.65, 0.80, 0.95)[VALIDATION_SAMPLE_INDEX],
+        (0.25, 0.45, 0.65, 0.80, 0.95)[VALIDATION_SAMPLE_INDEX],
+    ),
     use_cache=False,
     sub_terrains=_validation_sub_terrain(),
 )
@@ -356,12 +430,27 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
     forward_axis = tuple(
         profile_value(CONTROL_PROFILE, "robot.forward_axis", (0.0, -1.0, 0.0))
     )
+    up_axis = tuple(
+        profile_value(CONTROL_PROFILE, "robot.up_axis", (0.0, 0.0, 1.0))
+    )
     domain_randomization_enabled = profile_value(
         CONTROL_PROFILE, "domain_randomization.enabled", False
     )
     base_mass_scale = (
         profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_min", 1.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_mass_scale_max", 1.0),
+    )
+    base_mass_delta_kg = (
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_mass_delta_min_kg",
+            0.0,
+        ),
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_mass_delta_max_kg",
+            0.0,
+        ),
     )
     link_mass_scale = (
         profile_value(CONTROL_PROFILE, "domain_randomization.link_mass_scale_min", 1.0),
@@ -383,6 +472,23 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_x", 0.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_y", 0.0),
         profile_value(CONTROL_PROFILE, "domain_randomization.base_com_z", 0.0),
+    )
+    base_com_offset_semantic = (
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_com_forward_offset",
+            0.0,
+        ),
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_com_lateral_offset",
+            0.0,
+        ),
+        profile_value(
+            CONTROL_PROFILE,
+            "domain_randomization.base_com_up_offset",
+            0.0,
+        ),
     )
     robot_static_friction_range = (
         profile_value(CONTROL_PROFILE, "domain_randomization.robot_static_friction_min", 1.0),
@@ -448,6 +554,11 @@ class SimpleDogFlatEnvCfg(DirectRLEnvCfg):
     )
     termination_projected_gravity_z = -0.55
     terrain_curriculum = False
+    # Some imported-articulation/generated-mesh combinations report a false
+    # chassis contact while the body is visibly clear of the terrain.  Rough
+    # configurations opt out of that sensor-only fall signal and retain the
+    # independent height and orientation termination checks.
+    suppress_base_contact_termination = False
     print_play_metrics = False
 
 
@@ -475,7 +586,8 @@ class SimpleDogRoughEnvCfg(SimpleDogFlatEnvCfg):
         ),
         debug_vis=False,
     )
-    terrain_curriculum = True
+    terrain_curriculum = ROUGH_TERRAIN_USES_CURRICULUM
+    suppress_base_contact_termination = True
     # A zero command makes remaining upright a locally attractive solution on
     # difficult terrain.  Rough locomotion is trained only on actual traversal
     # commands; standing remains covered by the preserved flat controller.
@@ -561,7 +673,7 @@ class SimpleDogRoughPlayEnvCfg(SimpleDogRoughEnvCfg):
     command_lateral = (0.0, 0.0)
     command_yaw = (0.0, 0.0)
     standing_command_fraction = 0.0
-    terrain_curriculum = True
+    terrain_curriculum = ROUGH_TERRAIN_USES_CURRICULUM
     print_play_metrics = True
 
 
@@ -606,5 +718,5 @@ class SimpleDogRoughValidationEnvCfg(SimpleDogRoughEnvCfg):
     command_lateral = (0.0, 0.0)
     command_yaw = (0.0, 0.0)
     standing_command_fraction = 0.0
-    terrain_curriculum = True
+    terrain_curriculum = ROUGH_TERRAIN_USES_CURRICULUM
     print_play_metrics = True

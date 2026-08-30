@@ -7,10 +7,13 @@ stage="${2:-core}"
 control_profile="${3:-}"
 record_video="${4:-1}"
 require_gait_quality="${5:-0}"
+simulation_fit="${6:-}"
 
 [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ]] || {
-  printf 'Checkpoint must be a V2 checkpoint below the simple-dog log directory.\n' >&2
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ]] || {
+  printf 'Checkpoint must be a V2 or CurrentV3 checkpoint below the simple-dog log directory.\n' >&2
   exit 2
 }
 [[ -f "$checkpoint" ]] || { printf 'Checkpoint does not exist: %s\n' "$checkpoint" >&2; exit 2; }
@@ -27,19 +30,71 @@ case "$stage" in
     task="Isaac-Locomotion-V2-Core-Simple-Dog-Direct-Eval-v0"
     video_length=900
     expected_segments=5
+    screen_timeout=150s
     ;;
   robust)
     task="Isaac-Locomotion-V2-Robust-Simple-Dog-Direct-Eval-v0"
     video_length=900
     expected_segments=5
+    screen_timeout=150s
     ;;
   goal)
     task="Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-Eval-v0"
-    video_length=1950
-    expected_segments=12
+    video_length=2300
+    expected_segments=14
+    screen_timeout=240s
     ;;
-  *) printf 'Stage must be core, robust, or goal.\n' >&2; exit 2 ;;
+  rough)
+    task="Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-Eval-v0"
+    video_length=2300
+    expected_segments=14
+    screen_timeout=240s
+    ;;
+  current)
+    task="Isaac-Locomotion-CurrentV3-Simple-Dog-Direct-Eval-v0"
+    video_length=3550
+    expected_segments=21
+    screen_timeout=360s
+    [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ]] || {
+      printf 'Current evaluation requires a CurrentV3 checkpoint.\n' >&2
+      exit 2
+    }
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'Current evaluation requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    ;;
+  currentflat|currentstress)
+    if [[ "$stage" == currentflat ]]; then
+      task="Isaac-Locomotion-CurrentV3-Flat-Simple-Dog-Direct-Eval-v0"
+    else
+      task="Isaac-Locomotion-CurrentV3-Stress-Simple-Dog-Direct-Eval-v0"
+    fi
+    video_length=3550
+    expected_segments=21
+    screen_timeout=360s
+    [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ]] || {
+      printf 'CurrentV3 evaluation requires a CurrentV3 checkpoint.\n' >&2
+      exit 2
+    }
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'CurrentV3 evaluation requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    ;;
+  *) printf 'Stage must be core, robust, goal, rough, currentflat, current, or currentstress.\n' >&2; exit 2 ;;
 esac
+
+if [[ "$stage" != current && "$stage" != currentflat && "$stage" != currentstress && -n "$simulation_fit" ]]; then
+  printf 'A simulation fit may be supplied only for CurrentV3 evaluation.\n' >&2
+  exit 2
+fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 checkpoint_dir="$(dirname "$(dirname "$checkpoint")")"
@@ -87,24 +142,25 @@ else
   # GB10 Kit startup can spend close to a minute loading plugins after a
   # preceding Isaac process exits. Keep the rollout bounded, but leave enough
   # room for startup plus the complete deterministic command screen.
-  timeout -k 10s 120s /workspace/isaaclab/isaaclab.sh "${play_args[@]}" \
+  timeout -k 10s "$screen_timeout" /workspace/isaaclab/isaaclab.sh "${play_args[@]}" \
     >"$output_dir/console.log" 2>&1
   play_exit=$?
   set -e
   segment_count="$(grep -c '^EVAL_SEGMENT ' "$output_dir/console.log" || true)"
-  if [[ "$segment_count" != "$expected_segments" ]]; then
-    printf 'Screen ended with %s/%s evaluation segments (player exit %s).\n' \
+  if (( segment_count < expected_segments )); then
+    printf 'Screen ended with %s/%s required evaluation segments (player exit %s).\n' \
       "$segment_count" "$expected_segments" "$play_exit" >&2
     exit 1
   fi
 fi
 
-quality_args=()
-if [[ "$require_gait_quality" == "1" ]]; then
-  quality_args+=(--require-gait-quality)
-elif [[ "$require_gait_quality" != "0" ]]; then
+if [[ "$require_gait_quality" != "0" && "$require_gait_quality" != "1" ]]; then
   printf 'require_gait_quality must be 0 or 1.\n' >&2
   exit 2
+fi
+quality_args=()
+if [[ "$stage" == "rough" || "$stage" == current* || "$require_gait_quality" == "1" ]]; then
+  quality_args+=(--require-gait-quality)
 fi
 /workspace/isaaclab/isaaclab.sh -p "${ROOT}/evaluate_simple_dog_policy.py" \
   "$output_dir/console.log" --stage "$stage" --output "$output_dir/result.json" \
