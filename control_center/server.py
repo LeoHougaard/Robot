@@ -281,6 +281,7 @@ class ControlCenter:
             CACHE_ROOT.mkdir(parents=True, exist_ok=True)
             destination = CACHE_ROOT / "latest-training.mp4"
             rendered_sample_index: int | None = None
+            presented_cached_review = False
             status = self.status(force=True)
             status_fields = status.get("fields", {})
             if not isinstance(status_fields, dict):
@@ -349,6 +350,7 @@ class ControlCenter:
                     rendered_sample_index = self._next_cached_review_sample_index()
                     cached = self._review_sample_cache[rendered_sample_index]
                     shutil.copy2(cached["path"], destination)
+                    presented_cached_review = True
                     self._last_presented_sample_index = rendered_sample_index
                     result = {
                         "ok": True,
@@ -421,16 +423,17 @@ class ControlCenter:
                     ),
                 }
                 if rendered_sample_index is not None:
-                    archive = CACHE_ROOT / (
-                        f"current-v4-review-sample-{rendered_sample_index}.mp4"
-                    )
-                    if archive.resolve() != destination.resolve():
-                        shutil.copy2(destination, archive)
-                    self._review_sample_cache[rendered_sample_index] = {
-                        "path": str(archive),
-                        "source": source,
-                    }
-                    self._review_presentation_queue.clear()
+                    if not presented_cached_review:
+                        archive = CACHE_ROOT / (
+                            f"current-v4-review-sample-{rendered_sample_index}.mp4"
+                        )
+                        if archive.resolve() != destination.resolve():
+                            shutil.copy2(destination, archive)
+                        self._review_sample_cache[rendered_sample_index] = {
+                            "path": str(archive),
+                            "source": source,
+                        }
+                        self._review_presentation_queue.clear()
                     self._last_presented_sample_index = rendered_sample_index
                 result["video_metadata"] = self.video_metadata
         else:
