@@ -214,6 +214,11 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
 
     body_tracking_error_scales = (0.20, 0.15, 0.35, 0.030, 0.12, 0.12)
     body_tracking_kernel_scale = 1.0
+    # A command that is ignored must be worse than merely missing positive
+    # tracking credit.  At zero progress this term outweighs the maximum
+    # +1/s tracking reward; it fades continuously to zero at full progress.
+    body_motion_command_threshold = 0.10
+    body_motion_shortfall_penalty_scale = -1.25
     diagonal_prior_weight = 0.05
 
     domain_randomization_enabled = True

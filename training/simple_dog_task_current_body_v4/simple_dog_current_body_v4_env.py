@@ -36,6 +36,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         self._episode_sums["body_tracking"] = torch.zeros(
             self.num_envs, device=self.device
         )
+        self._episode_sums["body_motion_shortfall"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
         self._episode_sums["diagonal_multiplier"] = torch.zeros(
             self.num_envs, device=self.device
         )
@@ -364,11 +367,16 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         motion_error = torch.linalg.vector_norm(
             requested_motion - actual_motion, dim=1
         )
-        moving_gate = zero_error > 0.25
+        moving_gate = zero_error > self.cfg.body_motion_command_threshold
         progress_gate = torch.clamp(
             (zero_error - motion_error) / zero_error.clamp_min(1.0e-6),
             0.0,
             1.0,
+        )
+        motion_shortfall = (
+            moving_gate.float()
+            * (1.0 - progress_gate)
+            * self.cfg.body_motion_shortfall_penalty_scale
         )
         current_air_time = self._contact_sensor.data.current_air_time.torch[
             :, self._feet_sensor_ids
@@ -385,7 +393,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             * progress_gate
             * diagonal_score
         )
-        reward = tracking * (1.0 + multiplier) * self.step_dt
+        reward = (
+            tracking * (1.0 + multiplier) + motion_shortfall
+        ) * self.step_dt
         settling = getattr(
             self,
             "_reset_hold_active_mask",
@@ -394,6 +404,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         reward = torch.where(settling, 0.0, reward)
         self._episode_sums["body_tracking"] += torch.where(
             settling, 0.0, tracking * self.step_dt
+        )
+        self._episode_sums["body_motion_shortfall"] += torch.where(
+            settling, 0.0, motion_shortfall * self.step_dt
         )
         self._episode_sums["diagonal_multiplier"] += torch.where(
             settling, 0.0, multiplier * self.step_dt
