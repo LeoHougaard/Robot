@@ -13,9 +13,9 @@ class V4DifficultyRampTests(unittest.TestCase):
         self.assertAlmostEqual(difficulty_fraction(20_000, 9_600, 0.15), 1.0)
 
     def test_terrain_reaches_the_hardest_row_at_the_fixed_step(self):
-        self.assertEqual(scheduled_terrain_level(0, 9_600, 6), 0)
-        self.assertEqual(scheduled_terrain_level(4_800, 9_600, 6), 3)
-        self.assertEqual(scheduled_terrain_level(9_600, 9_600, 6), 5)
+        self.assertEqual(scheduled_terrain_level(0, 9_600, 12, 0.15), 1)
+        self.assertEqual(scheduled_terrain_level(4_800, 9_600, 12, 0.15), 6)
+        self.assertEqual(scheduled_terrain_level(9_600, 9_600, 12, 0.15), 11)
 
     def test_ramp_does_not_enter_the_reward_function(self):
         source_path = Path(__file__).parent / "simple_dog_task_current_body_v4" / "simple_dog_current_body_v4_env.py"

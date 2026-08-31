@@ -90,8 +90,19 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             int(getattr(self, "common_step_counter", 0)),
             self.cfg.difficulty_ramp_full_step,
             terrain_rows,
+            self.cfg.difficulty_ramp_floor,
         )
-        self._terrain.terrain_levels[env_ids] = level
+        band_rows = min(
+            self.cfg.difficulty_ramp_terrain_band_rows, terrain_rows
+        )
+        upper_level = max(level, band_rows - 1)
+        lower_level = max(0, upper_level - band_rows + 1)
+        self._terrain.terrain_levels[env_ids] = torch.randint(
+            lower_level,
+            upper_level + 1,
+            (len(env_ids),),
+            device=self.device,
+        )
         self._terrain.env_origins[env_ids] = self._terrain.terrain_origins[
             self._terrain.terrain_levels[env_ids],
             self._terrain.terrain_types[env_ids],

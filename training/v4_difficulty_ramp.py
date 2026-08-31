@@ -15,7 +15,7 @@ def difficulty_fraction(step: int, full_difficulty_step: int, floor: float) -> f
 
 
 def scheduled_terrain_level(
-    step: int, full_difficulty_step: int, terrain_rows: int
+    step: int, full_difficulty_step: int, terrain_rows: int, floor: float
 ) -> int:
     """Select a deterministic terrain row and reach the last row on schedule."""
 
@@ -23,5 +23,5 @@ def scheduled_terrain_level(
         raise ValueError("full_difficulty_step must be positive")
     if terrain_rows <= 0:
         raise ValueError("terrain_rows must be positive")
-    progress = min(max(int(step), 0) / full_difficulty_step, 1.0)
-    return min(int(progress * terrain_rows), terrain_rows - 1)
+    difficulty = difficulty_fraction(step, full_difficulty_step, floor)
+    return min(int(difficulty * terrain_rows), terrain_rows - 1)

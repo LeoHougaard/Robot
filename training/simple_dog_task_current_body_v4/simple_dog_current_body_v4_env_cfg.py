@@ -79,7 +79,7 @@ V4_TERRAINS = TerrainGeneratorCfg(
     curriculum=True,
     size=(4.0, 4.0),
     border_width=2.0,
-    num_rows=6,
+    num_rows=12,
     num_cols=8,
     horizontal_scale=0.05,
     vertical_scale=0.0025,
@@ -173,7 +173,7 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=V4_TERRAINS,
-        max_init_terrain_level=0,
+        max_init_terrain_level=3,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -190,6 +190,7 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
     # disturbance scale at epoch 300, independent of reward or progress.
     difficulty_ramp_floor = 0.15
     difficulty_ramp_full_step = 32 * 300
+    difficulty_ramp_terrain_band_rows = 4
     suppress_base_contact_termination = True
     pose_goal_training = False
     # Start fully clear of uneven mesh features and let physics settle the
