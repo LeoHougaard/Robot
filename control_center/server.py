@@ -316,6 +316,7 @@ class ControlCenter:
         elif action == "refresh_video":
             CACHE_ROOT.mkdir(parents=True, exist_ok=True)
             destination = CACHE_ROOT / "latest-training.mp4"
+            render_started_at = int(time.time())
             rendered_sample_index: int | None = None
             rendered_checkpoint_epoch: int | None = None
             status = self.status(force=True)
@@ -379,7 +380,12 @@ class ControlCenter:
                         self._last_rendered_sample_index = rendered_sample_index
                     result = self._run_script(
                         "Get-SimpleDogTrainingVideo.ps1",
-                        ["-Destination", str(destination)],
+                        [
+                            "-Destination",
+                            str(destination),
+                            "-NotOlderThanUnixTime",
+                            str(render_started_at),
+                        ],
                         timeout=120,
                     )
                 else:
@@ -407,6 +413,9 @@ class ControlCenter:
                         video_arguments.extend(
                             ["-ExpectedExperiment", expected_experiment]
                         )
+                    video_arguments.extend(
+                        ["-NotOlderThanUnixTime", str(render_started_at)]
+                    )
                     result = self._run_script(
                         "Get-SimpleDogTrainingVideo.ps1",
                         video_arguments,

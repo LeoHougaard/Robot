@@ -3,7 +3,10 @@ param(
     [Parameter(Mandatory)]
     [string]$Destination,
 
-    [string]$ExpectedExperiment = ""
+    [string]$ExpectedExperiment = "",
+
+    [ValidateRange(0, [long]::MaxValue)]
+    [long]$NotOlderThanUnixTime = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,6 +48,16 @@ if ($ExpectedExperiment) {
     }
     if ($remoteVideo -notmatch "/$([regex]::Escape($ExpectedExperiment))/") {
         throw "The active run has not completed its first rollout video yet."
+    }
+}
+if ($NotOlderThanUnixTime -gt 0) {
+    $remoteMtimeText = ((& ssh -n @sshOptions $sshTarget "stat -c %Y -- '$remoteVideo'") -join "").Trim()
+    if ($LASTEXITCODE -ne 0 -or $remoteMtimeText -notmatch '^\d+$') {
+        throw "Could not inspect the newest training video's modification time."
+    }
+    $remoteMtime = [long]$remoteMtimeText
+    if ($remoteMtime -lt $NotOlderThanUnixTime) {
+        throw "The active run did not produce a new rollout video for this fetch."
     }
 }
 $destinationPath = [System.IO.Path]::GetFullPath($Destination)
