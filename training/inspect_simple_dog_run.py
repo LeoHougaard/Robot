@@ -62,6 +62,8 @@ def main() -> None:
         "Episode/Episode_Reward/undesired_contact",
         "Episode/Episode_Reward/locomotion",
         "Episode/Episode_Reward/velocity_shortfall",
+        "Episode/Episode_Reward/body_tracking",
+        "Episode/Episode_Reward/body_motion_shortfall",
         "Episode/Episode_Reward/diagonal_gait",
         "Episode/Episode_Reward/complete_gait_cycle",
         "Episode/Episode_Reward/reference_trot",
