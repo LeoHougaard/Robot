@@ -230,10 +230,6 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
     def _sample_command_targets(
         self, env_ids: torch.Tensor, *, immediate: bool
     ) -> None:
-        if hasattr(self, "_gait_landing_counts"):
-            self._gait_landing_counts[env_ids] = 0.0
-            self._steps_since_complete_gait_cycle[env_ids] = 0.0
-            self._foot_swing_duty_ema[env_ids] = 0.5
         count = len(env_ids)
         targets = torch.zeros(count, 3, device=self.device)
         sample = torch.rand(count, device=self.device)

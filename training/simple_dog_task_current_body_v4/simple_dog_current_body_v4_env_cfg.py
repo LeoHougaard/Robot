@@ -231,6 +231,16 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
     # +1/s tracking reward; it fades continuously to zero at full progress.
     body_motion_command_threshold = 0.10
     body_motion_shortfall_penalty_scale = -1.25
+    # V4 learns foot coordination only from commanded body motion and
+    # stability.  Keep every inherited gait/pairing coefficient explicitly
+    # disabled so a future base-class change cannot reintroduce a prescribed
+    # opposite-leg pattern.
+    gait_reward_scale = 0.0
+    diagonal_gait_reward_scale = 0.0
+    complete_gait_cycle_reward_scale = 0.0
+    reference_trot_reward_scale = 0.0
+    clocked_trot_reward_scale = 0.0
+    diagonal_joint_symmetry_reward_scale = 0.0
     domain_randomization_enabled = True
     base_mass_scale = (0.70, 1.35)
     base_mass_delta_kg = (0.0, 0.35)

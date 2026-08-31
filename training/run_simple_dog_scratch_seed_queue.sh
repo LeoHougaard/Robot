@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly ROOT="/home/leo/isaac-workspace/projects/training"
 readonly RUNS_ROOT="${ROOT}/runs/simple_dog"
 readonly HELPER="${ROOT}/simple-dog-gb10.sh"
+readonly CONTAINER="isaac-lab-gb10"
 
 initial_run_id="${1:-}"
 profile_id="${2:-}"
@@ -89,6 +90,27 @@ wait_for_exact_run() {
   printf '%s\n' "$run_id" >>"${queue_dir}/completed_run_ids"
 }
 
+restart_idle_container() {
+  if "$HELPER" active; then
+    printf 'Refusing to restart %s while training is active.\n' "$CONTAINER" >&2
+    return 1
+  fi
+  # A completed Isaac process can leave Kit runtime state that survives inside
+  # the reusable container even after Python exits.  A narrow container
+  # restart clears that state while preserving the mounted project, completed
+  # logs, and checkpoints before the next independent seed starts.
+  docker stop "$CONTAINER" >/dev/null
+  docker start "$CONTAINER" >/dev/null
+  for _ in $(seq 1 30); do
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)" == true ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  printf '%s did not become ready after its clean restart.\n' "$CONTAINER" >&2
+  return 1
+}
+
 wait_for_exact_run "$initial_run_id"
 
 initial_run_dir="${RUNS_ROOT}/${initial_run_id}"
@@ -105,6 +127,7 @@ max_iterations="$(cat "${initial_run_dir}/max_iterations")"
 
 for seed in "${seeds[@]}"; do
   printf '%s\n' "$seed" >"${queue_dir}/launching_seed"
+  restart_idle_container
   run_dir="$($HELPER start \
     "$num_envs" "$max_iterations" '' '' currentbodyv4hard \
     "$CONTROL_PROFILE" "$profile_sha" \
