@@ -6,7 +6,6 @@ import math
 
 import torch
 
-from simple_dog_task_v2.simple_dog_v2_env import SimpleDogV2Env
 from simple_dog_task_current.simple_dog_current_env import SimpleDogCurrentV3Env
 from v4_difficulty_ramp import difficulty_fraction, scheduled_terrain_level
 from .simple_dog_current_body_v4_env_cfg import (
@@ -100,23 +99,51 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         self._update_ramped_actuator_response()
+        super()._pre_physics_step(actions)
+
+    def _apply_random_pushes(self) -> None:
         difficulty = self._difficulty_fraction()
-        original = (
-            self.cfg.push_probability,
-            self.cfg.push_linear_velocity,
-            self.cfg.push_yaw_velocity,
+        probability = self.cfg.push_probability * difficulty
+        if probability <= 0.0:
+            return
+
+        self._push_steps_remaining -= 1
+        due = torch.nonzero(
+            self._push_steps_remaining <= 0, as_tuple=False
+        ).squeeze(-1)
+        if not len(due):
+            return
+        self._push_steps_remaining[due] = self._random_step_counts(
+            len(due), self.cfg.push_interval_s
         )
-        self.cfg.push_probability = original[0] * difficulty
-        self.cfg.push_linear_velocity = original[1] * difficulty
-        self.cfg.push_yaw_velocity = original[2] * difficulty
-        try:
-            super()._pre_physics_step(actions)
-        finally:
+        selected = due[
+            torch.rand(len(due), device=self.device) < probability
+        ]
+        if not len(selected):
+            return
+
+        root_velocity = torch.cat(
             (
-                self.cfg.push_probability,
-                self.cfg.push_linear_velocity,
-                self.cfg.push_yaw_velocity,
-            ) = original
+                self._robot.data.root_lin_vel_w.torch[selected],
+                self._robot.data.root_ang_vel_w.torch[selected],
+            ),
+            dim=1,
+        ).clone()
+        root_velocity[:, :2] += torch.empty(
+            len(selected), 2, device=self.device
+        ).uniform_(
+            -self.cfg.push_linear_velocity * difficulty,
+            self.cfg.push_linear_velocity * difficulty,
+        )
+        root_velocity[:, 5] += torch.empty(
+            len(selected), device=self.device
+        ).uniform_(
+            -self.cfg.push_yaw_velocity * difficulty,
+            self.cfg.push_yaw_velocity * difficulty,
+        )
+        self._robot.write_root_velocity_to_sim_index(
+            root_velocity=root_velocity, env_ids=selected
+        )
 
     def _apply_startup_domain_randomization(self) -> None:
         super()._apply_startup_domain_randomization()
@@ -386,22 +413,64 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
 
     def _get_observations(self) -> dict:
         difficulty = self._difficulty_fraction()
-        noise_fields = (
-            "gyro_noise",
-            "gravity_noise",
-            "joint_position_noise",
-            "joint_velocity_noise",
+        angular_velocity = self._semantic_vector_b(
+            self._robot.data.root_ang_vel_b.torch
+        ).clone()
+        projected_gravity = self._semantic_vector_b(
+            self._robot.data.projected_gravity_b.torch
+        ).clone()
+        joint_position, joint_velocity = self._get_policy_joint_state()
+        joint_position = joint_position.clone()
+        joint_velocity = joint_velocity.clone()
+
+        if self.cfg.observation_noise_enabled:
+            angular_velocity += torch.empty_like(angular_velocity).uniform_(
+                -self.cfg.gyro_noise * difficulty,
+                self.cfg.gyro_noise * difficulty,
+            )
+            projected_gravity += torch.empty_like(projected_gravity).uniform_(
+                -self.cfg.gravity_noise * difficulty,
+                self.cfg.gravity_noise * difficulty,
+            )
+            joint_position += torch.empty_like(joint_position).uniform_(
+                -self.cfg.joint_position_noise * difficulty,
+                self.cfg.joint_position_noise * difficulty,
+            )
+            joint_velocity += torch.empty_like(joint_velocity).uniform_(
+                -self.cfg.joint_velocity_noise * difficulty,
+                self.cfg.joint_velocity_noise * difficulty,
+            )
+
+        frame = torch.cat(
+            (
+                angular_velocity,
+                projected_gravity,
+                self._commands,
+                joint_position,
+                0.05 * joint_velocity,
+                self._actions,
+            ),
+            dim=1,
         )
-        original_noise = {
-            field: getattr(self.cfg, field) for field in noise_fields
-        }
-        for field, value in original_noise.items():
-            setattr(self.cfg, field, value * difficulty)
-        try:
-            SimpleDogV2Env._get_observations(self)
-        finally:
-            for field, value in original_noise.items():
-                setattr(self.cfg, field, value)
+        if frame.shape[1] != self.cfg.observation_frame_size:
+            raise RuntimeError(
+                "V4 observation frame mismatch: "
+                f"expected {self.cfg.observation_frame_size}, "
+                f"received {frame.shape[1]}"
+            )
+        self._observation_history = torch.roll(
+            self._observation_history, shifts=-1, dims=1
+        )
+        self._observation_history[:, -1] = frame
+        fresh_policy = ~self._history_ready
+        if torch.any(fresh_policy):
+            self._observation_history[fresh_policy] = frame[
+                fresh_policy
+            ].unsqueeze(1).expand(
+                -1, self.cfg.observation_history_length, -1
+            )
+            self._history_ready[fresh_policy] = True
+        self._update_video_camera()
         current, validity = self._simulate_current()
         current_frame = torch.cat((current, validity), dim=1)
         self._current_history = torch.roll(
