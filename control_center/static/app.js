@@ -312,7 +312,19 @@ async function refreshVideo(expand = false, quiet = false) {
   const button = document.querySelector("#refresh-video");
   if (button.disabled) return;
   button.disabled = true;
+  // A retained comparison must never remain on screen while "Fetch newest"
+  // is rendering the active run. Clear it immediately so the pending state
+  // cannot be mistaken for a successful fetch of an old policy.
+  state.videoMetadata = null;
+  state.selectedReview = null;
+  state.retainedPreviewFallback = false;
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  video.classList.remove("video-visible");
+  empty.classList.remove("panel-hidden");
   empty.textContent = "Fetching the newest rollout, or rendering it from the latest checkpoint…";
+  document.querySelector("#video-context").textContent = "Rendering the newest checkpoint from the active run…";
   try {
     const result = await api("/api/action", { method: "POST", body: JSON.stringify({action:"refresh_video"}) });
     if (!result.ok) throw new Error(result.output || "No video is available.");
@@ -352,14 +364,15 @@ async function init() {
     state.data = await api("/api/bootstrap"); state.profile = clone(state.data.profile); state.saved = clone(state.data.profile);
     state.videoMetadata = state.data.video_metadata || null;
     state.reviewVideos = state.data.review_videos || [];
+    if (state.videoMetadata) {
+      const video = document.querySelector("#training-video");
+      video.src = `/api/video/latest?token=${encodeURIComponent(token)}&t=${Date.now()}`;
+      video.classList.add("video-visible");
+      document.querySelector("#video-empty").classList.add("panel-hidden");
+      video.load();
+    }
     renderReviewGallery();
     populateProfiles(); render(); await refreshStatus(true);
-    if (
-      state.runtimeFields.training === "running" &&
-      state.profile &&
-      !state.profile.training.record_video &&
-      state.reviewVideos.length
-    ) showReview(state.reviewVideos[0].id, false);
     setInterval(() => refreshStatus(false), 10000);
     setInterval(() => {
       if (state.runtimeFields.training === "running" && state.profile.training.record_video && !state.busy) refreshVideo(false, true);

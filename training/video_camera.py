@@ -12,14 +12,15 @@ class VideoCameraSample:
     view_index: int
 
 
-# Body-frame offsets: forward, lateral, up.  Each clip gets a different
-# quartering view as well as a robot from a different part of the terrain.
+# Body-frame offsets: forward, lateral, up.  Keep the eye close enough that
+# the small linkage robot remains readable in the shared-browser preview while
+# retaining enough rough terrain to judge progress and foot contact.
 CAMERA_OFFSETS = (
-    (-0.42, 0.30, 0.24),
-    (-0.16, 0.46, 0.23),
-    (0.28, 0.38, 0.25),
-    (-0.42, -0.30, 0.24),
-    (-0.16, -0.46, 0.23),
+    (-0.24, 0.18, 0.16),
+    (-0.10, 0.28, 0.16),
+    (0.19, 0.23, 0.17),
+    (-0.24, -0.18, 0.16),
+    (-0.10, -0.28, 0.16),
 )
 
 

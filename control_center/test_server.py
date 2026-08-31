@@ -2,7 +2,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from control_center.server import ControlCenter, load_or_create_session_token, load_review_videos
+from control_center.server import (
+    ControlCenter,
+    load_or_create_session_token,
+    load_review_videos,
+    rendered_checkpoint_epoch_from_output,
+)
 
 
 class SessionTokenTests(unittest.TestCase):
@@ -44,6 +49,14 @@ class ReviewManifestTests(unittest.TestCase):
 
 
 class ReviewSampleTests(unittest.TestCase):
+    def test_renderer_epoch_is_not_confused_with_v5_name(self) -> None:
+        self.assertEqual(
+            75,
+            rendered_checkpoint_epoch_from_output(
+                "Validation sample: 5/5\nCheckpoint epoch: 75\n"
+            ),
+        )
+
     def test_render_cycle_uses_all_five_before_repeating(self) -> None:
         center = ControlCenter.__new__(ControlCenter)
         center._last_rendered_sample_index = None
@@ -85,9 +98,9 @@ class ReviewSampleTests(unittest.TestCase):
         center._last_rendered_sample_index = 0
         center._last_presented_sample_index = 0
 
-        center._activate_review_experiment("2026-08-31_17-20-53")
+        center._activate_review_experiment("2099-12-31_23-59-59")
 
-        self.assertEqual(center._review_cache_experiment, "2026-08-31_17-20-53")
+        self.assertEqual(center._review_cache_experiment, "2099-12-31_23-59-59")
         self.assertEqual(center._review_sample_cache, {})
         self.assertEqual(center._review_render_queue, [])
         self.assertEqual(center._review_presentation_queue, [])

@@ -91,7 +91,7 @@ fi
 
 experiment_dir="$(dirname "$(dirname "$checkpoint")")"
 output_dir="${experiment_dir}/visual_validation"
-checkpoint_epoch="$(basename "$checkpoint" | grep -oE '[0-9]+' | head -1 || true)"
+checkpoint_epoch="$(basename "$checkpoint" | sed -nE 's/.*_ep_([0-9]+)_.*/\1/p')"
 if [[ -n "${SIMPLE_DOG_VALIDATION_SAMPLE:-}" ]]; then
   sample_index="$SIMPLE_DOG_VALIDATION_SAMPLE"
 elif [[ -n "$checkpoint_epoch" ]]; then
@@ -108,6 +108,9 @@ mkdir -p "$output_dir"
 printf 'running\n' >"${output_dir}/status"
 printf '%s\n' "$sample_index" >"${output_dir}/sample_index"
 printf 'Validation sample: %s/5\n' "$((sample_index + 1))"
+if [[ -n "$checkpoint_epoch" ]]; then
+  printf 'Checkpoint epoch: %s\n' "$checkpoint_epoch"
+fi
 printf 'Review environments: %s\n' "$review_num_envs"
 
 on_exit() {

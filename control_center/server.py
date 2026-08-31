@@ -52,6 +52,13 @@ def load_or_create_session_token(path: Path = TOKEN_PATH) -> str:
     return token
 
 
+def rendered_checkpoint_epoch_from_output(output: object) -> int | None:
+    """Return the retained policy epoch reported by the rollout renderer."""
+
+    match = re.search(r"Checkpoint epoch:\s*(\d+)", str(output))
+    return int(match.group(1)) if match else None
+
+
 def load_review_videos(path: Path = REVIEW_INDEX_PATH) -> list[dict[str, object]]:
     """Return only manifest entries whose ids and local video files are safe."""
     if not path.is_file():
@@ -308,6 +315,7 @@ class ControlCenter:
             CACHE_ROOT.mkdir(parents=True, exist_ok=True)
             destination = CACHE_ROOT / "latest-training.mp4"
             rendered_sample_index: int | None = None
+            rendered_checkpoint_epoch: int | None = None
             presented_cached_review = False
             status = self.status(force=True)
             status_fields = status.get("fields", {})
@@ -358,6 +366,9 @@ class ControlCenter:
                     if render_result["ok"]:
                         break
                 if render_result["ok"]:
+                    rendered_checkpoint_epoch = rendered_checkpoint_epoch_from_output(
+                        render_result["output"]
+                    )
                     sample_match = re.search(
                         r"Validation sample:\s*([1-5])/5",
                         str(render_result["output"]),
@@ -388,6 +399,9 @@ class ControlCenter:
                     timeout=720,
                 )
                 if render_result["ok"]:
+                    rendered_checkpoint_epoch = rendered_checkpoint_epoch_from_output(
+                        render_result["output"]
+                    )
                     rendered_sample_index = requested_sample_index
                     self._last_rendered_sample_index = rendered_sample_index
                     video_arguments = ["-Destination", str(destination)]
@@ -435,7 +449,11 @@ class ControlCenter:
                     else "unknown"
                 )
                 step_match = re.search(r"(?:step|episode)-(\d+)", source)
-                step = int(step_match.group(1)) if step_match else 0
+                step = (
+                    rendered_checkpoint_epoch
+                    if rendered_checkpoint_epoch is not None
+                    else int(step_match.group(1)) if step_match else 0
+                )
                 profile = load_profile(self.profile_path(self.profile_id))
                 sample = select_video_camera_sample(
                     (
