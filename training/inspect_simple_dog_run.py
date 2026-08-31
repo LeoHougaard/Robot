@@ -120,7 +120,9 @@ def main() -> None:
         if not args.as_json:
             print(
                 f"{tag}: first={first.value:.6g} at {first.step}, "
-                f"last={last.value:.6g} at {last.step}, samples={len(values)}"
+                f"last={last.value:.6g} at {last.step}, "
+                f"tail_mean={records[tag]['tail_mean']:.6g}, "
+                f"samples={len(values)}"
             )
     if args.as_json:
         print(json.dumps(records, indent=2, sort_keys=True))
