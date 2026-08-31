@@ -361,6 +361,9 @@ async function selectProfile(profileId) {
 
 async function init() {
   try {
+    // Browsers may preserve a dynamically disabled button across reloads.
+    // A new page has no in-flight fetch of its own, so always reset it.
+    document.querySelector("#refresh-video").disabled = false;
     state.data = await api("/api/bootstrap"); state.profile = clone(state.data.profile); state.saved = clone(state.data.profile);
     state.videoMetadata = state.data.video_metadata || null;
     state.reviewVideos = state.data.review_videos || [];
