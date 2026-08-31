@@ -76,6 +76,22 @@ class ReviewSampleTests(unittest.TestCase):
         next_sample = center._next_cached_review_sample_index()
         self.assertNotEqual(first_cycle[-1], next_sample)
 
+    def test_review_cache_isolated_by_exact_experiment(self) -> None:
+        center = ControlCenter.__new__(ControlCenter)
+        center._review_cache_experiment = "2026-08-30_20-21-01"
+        center._review_sample_cache = {0: {"source": "old-v4"}}
+        center._review_render_queue = [1, 2]
+        center._review_presentation_queue = [0]
+        center._last_rendered_sample_index = 0
+        center._last_presented_sample_index = 0
+
+        center._activate_review_experiment("2026-08-31_17-20-53")
+
+        self.assertEqual(center._review_cache_experiment, "2026-08-31_17-20-53")
+        self.assertEqual(center._review_sample_cache, {})
+        self.assertEqual(center._review_render_queue, [])
+        self.assertEqual(center._review_presentation_queue, [])
+
 
 if __name__ == "__main__":
     unittest.main()

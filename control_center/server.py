@@ -96,16 +96,35 @@ class ControlCenter:
         self._status_cache: tuple[float, dict[str, object]] | None = None
         self._last_rendered_sample_index: int | None = None
         self._last_presented_sample_index: int | None = None
+        self._review_cache_experiment = ""
         self._review_sample_cache: dict[int, dict[str, str]] = {}
         self._review_render_queue: list[int] = []
         self._review_presentation_queue: list[int] = []
-        for archive in CACHE_ROOT.glob("current-v4-review-sample-*.mp4"):
-            match = re.fullmatch(r"current-v4-review-sample-([0-4])\.mp4", archive.name)
+
+    def _activate_review_experiment(self, experiment: str) -> None:
+        """Keep randomized review clips isolated to one exact experiment."""
+
+        if experiment == self._review_cache_experiment:
+            return
+        self._review_cache_experiment = experiment
+        self._review_sample_cache.clear()
+        self._review_render_queue.clear()
+        self._review_presentation_queue.clear()
+        self._last_rendered_sample_index = None
+        self._last_presented_sample_index = None
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", experiment):
+            return
+        pattern = f"current-review-{experiment}-sample-*.mp4"
+        for archive in CACHE_ROOT.glob(pattern):
+            match = re.fullmatch(
+                rf"current-review-{re.escape(experiment)}-sample-([0-4])\.mp4",
+                archive.name,
+            )
             if match and archive.is_file() and archive.stat().st_size > 0:
                 index = int(match.group(1))
                 self._review_sample_cache[index] = {
                     "path": str(archive),
-                    "source": f"cached-review://current-v4/sample-{index}",
+                    "source": f"cached-review://{experiment}/sample-{index}",
                 }
 
     def _next_review_sample_index(self) -> int:
@@ -301,6 +320,7 @@ class ControlCenter:
             expected_experiment = (
                 experiment_match.group(1) if experiment_match else ""
             )
+            self._activate_review_experiment(expected_experiment)
             profile = load_profile(self.profile_path(self.profile_id))
             requested_sample_index = self._next_review_sample_index()
             if status_fields.get("training") != "running":
@@ -444,9 +464,12 @@ class ControlCenter:
                     ),
                 }
                 if rendered_sample_index is not None:
+                    if source_experiment != "unknown":
+                        self._activate_review_experiment(source_experiment)
                     if not presented_cached_review:
                         archive = CACHE_ROOT / (
-                            f"current-v4-review-sample-{rendered_sample_index}.mp4"
+                            f"current-review-{source_experiment}-"
+                            f"sample-{rendered_sample_index}.mp4"
                         )
                         if archive.resolve() != destination.resolve():
                             shutil.copy2(destination, archive)
