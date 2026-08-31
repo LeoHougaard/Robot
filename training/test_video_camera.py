@@ -31,7 +31,7 @@ class VideoCameraTests(unittest.TestCase):
             math.sqrt(sum(component * component for component in offset))
             for offset in CAMERA_OFFSETS
         ]
-        self.assertTrue(all(0.30 <= distance <= 0.36 for distance in distances))
+        self.assertTrue(all(0.24 <= distance <= 0.28 for distance in distances))
 
     def test_rejects_invalid_ranges(self):
         with self.assertRaises(ValueError):

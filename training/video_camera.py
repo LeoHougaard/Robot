@@ -16,11 +16,11 @@ class VideoCameraSample:
 # the small linkage robot remains readable in the shared-browser preview while
 # retaining enough rough terrain to judge progress and foot contact.
 CAMERA_OFFSETS = (
-    (-0.24, 0.18, 0.16),
-    (-0.10, 0.28, 0.16),
-    (0.19, 0.23, 0.17),
-    (-0.24, -0.18, 0.16),
-    (-0.10, -0.28, 0.16),
+    (-0.18, 0.14, 0.13),
+    (-0.08, 0.21, 0.13),
+    (0.15, 0.17, 0.13),
+    (-0.18, -0.14, 0.13),
+    (-0.08, -0.21, 0.13),
 )
 
 

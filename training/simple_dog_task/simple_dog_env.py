@@ -204,7 +204,7 @@ class SimpleDogEnv(DirectRLEnv):
             + lateral_offset * lateral
         ).clone()
         eye[2] = root_position[2] + height_offset
-        lookat = (root_position + 0.06 * forward).clone()
+        lookat = (root_position + 0.04 * forward).clone()
         lookat[2] = root_position[2] + 0.02
         self.sim.set_camera_view(eye.tolist(), lookat.tolist())
         if sample != self._video_camera_sample:
