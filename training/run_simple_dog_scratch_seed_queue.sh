@@ -91,10 +91,22 @@ wait_for_exact_run() {
 
 wait_for_exact_run "$initial_run_id"
 
+initial_run_dir="${RUNS_ROOT}/${initial_run_id}"
+num_envs="$(cat "${initial_run_dir}/num_envs")"
+max_iterations="$(cat "${initial_run_dir}/max_iterations")"
+[[ "$num_envs" =~ ^[0-9]+$ ]] || {
+  printf 'Initial run environment count is invalid.\n' >&2
+  exit 2
+}
+[[ "$max_iterations" =~ ^[0-9]+$ ]] || {
+  printf 'Initial run iteration count is invalid.\n' >&2
+  exit 2
+}
+
 for seed in "${seeds[@]}"; do
   printf '%s\n' "$seed" >"${queue_dir}/launching_seed"
   run_dir="$($HELPER start \
-    128 1000 '' '' currentbodyv4hard \
+    "$num_envs" "$max_iterations" '' '' currentbodyv4hard \
     "$CONTROL_PROFILE" "$profile_sha" \
     0 4000 600 "$SIMULATION_FIT" "$seed")"
   run_id="$(basename "$run_dir")"

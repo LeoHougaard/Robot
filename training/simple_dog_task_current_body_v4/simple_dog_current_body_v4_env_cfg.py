@@ -76,7 +76,7 @@ def _v4_sub_terrains() -> dict:
 
 V4_TERRAINS = TerrainGeneratorCfg(
     seed=4404,
-    curriculum=False,
+    curriculum=True,
     size=(4.0, 4.0),
     border_width=2.0,
     num_rows=6,
@@ -84,7 +84,7 @@ V4_TERRAINS = TerrainGeneratorCfg(
     horizontal_scale=0.05,
     vertical_scale=0.0025,
     slope_threshold=0.75,
-    difficulty_range=(0.65, 1.0),
+    difficulty_range=(0.05, 1.0),
     use_cache=False,
     sub_terrains=_v4_sub_terrains(),
 )
@@ -173,7 +173,7 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=V4_TERRAINS,
-        max_init_terrain_level=None,
+        max_init_terrain_level=0,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -185,6 +185,11 @@ class SimpleDogCurrentBodyV4HardEnvCfg(SimpleDogCurrentV3RoughEnvCfg):
         debug_vis=False,
     )
     terrain_curriculum = False
+    # RL-Games collects 32 policy steps per epoch. Difficulty is nonzero at
+    # the first update and reaches the final terrain row and full stochastic
+    # disturbance scale at epoch 300, independent of reward or progress.
+    difficulty_ramp_floor = 0.15
+    difficulty_ramp_full_step = 32 * 300
     suppress_base_contact_termination = True
     pose_goal_training = False
     # Start fully clear of uneven mesh features and let physics settle the

@@ -8,6 +8,7 @@ import torch
 
 from simple_dog_task_v2.simple_dog_v2_env import SimpleDogV2Env
 from simple_dog_task_current.simple_dog_current_env import SimpleDogCurrentV3Env
+from v4_difficulty_ramp import difficulty_fraction, scheduled_terrain_level
 from .simple_dog_current_body_v4_env_cfg import (
     SimpleDogCurrentBodyV4HardEnvCfg,
 )
@@ -18,6 +19,16 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
 
     def __init__(self, cfg, render_mode=None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+        self._v4_full_actuator_response_alpha = (
+            self._actuator_response_alpha.clone()
+        )
+        self._v4_nominal_actuator_response_alpha = torch.tensor(
+            self.cfg.actuator_response_alpha_by_joint,
+            dtype=self._actuator_response_alpha.dtype,
+            device=self.device,
+        ).unsqueeze(0).expand_as(self._actuator_response_alpha)
+        self._v4_last_response_difficulty = -1.0
+        self._update_ramped_actuator_response()
         self._timing_history = torch.ones(
             self.num_envs,
             self.cfg.observation_history_length,
@@ -44,6 +55,68 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         )
         self._sample_command_targets(all_envs, immediate=True)
         self._sample_posture_targets(all_envs, immediate=True)
+
+    def _difficulty_fraction(self) -> float:
+        return difficulty_fraction(
+            int(getattr(self, "common_step_counter", 0)),
+            self.cfg.difficulty_ramp_full_step,
+            self.cfg.difficulty_ramp_floor,
+        )
+
+    def _update_ramped_actuator_response(self) -> None:
+        if not hasattr(self, "_v4_full_actuator_response_alpha"):
+            return
+        difficulty = self._difficulty_fraction()
+        if abs(difficulty - self._v4_last_response_difficulty) < 0.002:
+            return
+        self._actuator_response_alpha = (
+            self._v4_nominal_actuator_response_alpha
+            + difficulty
+            * (
+                self._v4_full_actuator_response_alpha
+                - self._v4_nominal_actuator_response_alpha
+            )
+        )
+        self._v4_last_response_difficulty = difficulty
+
+    def _place_resets_on_scheduled_terrain(self, env_ids: torch.Tensor) -> None:
+        if (
+            not hasattr(self, "_terrain")
+            or self._terrain.terrain_origins is None
+            or not hasattr(self._terrain, "terrain_levels")
+        ):
+            return
+        terrain_rows = int(self._terrain.terrain_origins.shape[0])
+        level = scheduled_terrain_level(
+            int(getattr(self, "common_step_counter", 0)),
+            self.cfg.difficulty_ramp_full_step,
+            terrain_rows,
+        )
+        self._terrain.terrain_levels[env_ids] = level
+        self._terrain.env_origins[env_ids] = self._terrain.terrain_origins[
+            self._terrain.terrain_levels[env_ids],
+            self._terrain.terrain_types[env_ids],
+        ]
+
+    def _pre_physics_step(self, actions: torch.Tensor):
+        self._update_ramped_actuator_response()
+        difficulty = self._difficulty_fraction()
+        original = (
+            self.cfg.push_probability,
+            self.cfg.push_linear_velocity,
+            self.cfg.push_yaw_velocity,
+        )
+        self.cfg.push_probability = original[0] * difficulty
+        self.cfg.push_linear_velocity = original[1] * difficulty
+        self.cfg.push_yaw_velocity = original[2] * difficulty
+        try:
+            super()._pre_physics_step(actions)
+        finally:
+            (
+                self.cfg.push_probability,
+                self.cfg.push_linear_velocity,
+                self.cfg.push_yaw_velocity,
+            ) = original
 
     def _apply_startup_domain_randomization(self) -> None:
         super()._apply_startup_domain_randomization()
@@ -74,7 +147,19 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         )
 
     def _sample_current_model(self, env_ids: torch.Tensor) -> None:
-        super()._sample_current_model(env_ids)
+        difficulty = self._difficulty_fraction()
+        original_dropout = self.cfg.current_dropout_probability_max
+        original_effort_scale = self.cfg.current_effort_scale_randomization
+        self.cfg.current_dropout_probability_max = original_dropout * difficulty
+        self.cfg.current_effort_scale_randomization = (
+            1.0 + difficulty * (original_effort_scale[0] - 1.0),
+            1.0 + difficulty * (original_effort_scale[1] - 1.0),
+        )
+        try:
+            super()._sample_current_model(env_ids)
+        finally:
+            self.cfg.current_dropout_probability_max = original_dropout
+            self.cfg.current_effort_scale_randomization = original_effort_scale
         if not hasattr(self, "_current_model_weights"):
             return
         ranges = (
@@ -300,7 +385,23 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         return held, validity.float()
 
     def _get_observations(self) -> dict:
-        SimpleDogV2Env._get_observations(self)
+        difficulty = self._difficulty_fraction()
+        noise_fields = (
+            "gyro_noise",
+            "gravity_noise",
+            "joint_position_noise",
+            "joint_velocity_noise",
+        )
+        original_noise = {
+            field: getattr(self.cfg, field) for field in noise_fields
+        }
+        for field, value in original_noise.items():
+            setattr(self.cfg, field, value * difficulty)
+        try:
+            SimpleDogV2Env._get_observations(self)
+        finally:
+            for field, value in original_noise.items():
+                setattr(self.cfg, field, value)
         current, validity = self._simulate_current()
         current_frame = torch.cat((current, validity), dim=1)
         self._current_history = torch.roll(
@@ -414,10 +515,24 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         return reward
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
-        super()._reset_idx(env_ids)
         if env_ids is None:
             env_ids = torch.arange(
                 self.num_envs, dtype=torch.long, device=self.device
             )
+        self._place_resets_on_scheduled_terrain(env_ids)
+        difficulty = self._difficulty_fraction()
+        original_tilt = (
+            self.cfg.reset_small_tilt_deg,
+            self.cfg.reset_large_tilt_deg,
+        )
+        self.cfg.reset_small_tilt_deg = original_tilt[0] * difficulty
+        self.cfg.reset_large_tilt_deg = original_tilt[1] * difficulty
+        try:
+            super()._reset_idx(env_ids)
+        finally:
+            (
+                self.cfg.reset_small_tilt_deg,
+                self.cfg.reset_large_tilt_deg,
+            ) = original_tilt
         if hasattr(self, "_timing_history"):
             self._timing_history[env_ids] = 1.0

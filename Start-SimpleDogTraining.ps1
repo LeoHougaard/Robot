@@ -233,6 +233,7 @@ $copies = @(
     @{ Local = Join-Path $localTraining "current_policy_fit.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "terrain_curriculum.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "video_camera.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "v4_difficulty_ramp.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "robot_control_profile.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.sh"; Remote = $remoteTraining },
