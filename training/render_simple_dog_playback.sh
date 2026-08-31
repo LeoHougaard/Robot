@@ -92,6 +92,27 @@ fi
 experiment_dir="$(dirname "$(dirname "$checkpoint")")"
 output_dir="${experiment_dir}/visual_validation"
 checkpoint_epoch="$(basename "$checkpoint" | sed -nE 's/.*_ep_([0-9]+)_.*/\1/p')"
+# RL-Games' best-reward checkpoint has no epoch in its filename even though
+# the checkpoint payload records the exact epoch. Fetch newest can select that
+# file between periodic snapshots, so recover the epoch from the payload rather
+# than mislabeling a current rollout as step 0.
+if [[ -z "$checkpoint_epoch" ]]; then
+  checkpoint_epoch="$(
+    /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 - "$checkpoint" <<'PY'
+import sys
+
+import torch
+
+try:
+    payload = torch.load(sys.argv[1], map_location="cpu", weights_only=False)
+    epoch = payload.get("epoch") if isinstance(payload, dict) else None
+    if isinstance(epoch, int) and epoch >= 0:
+        print(epoch)
+except Exception:
+    pass
+PY
+  )"
+fi
 if [[ -n "${SIMPLE_DOG_VALIDATION_SAMPLE:-}" ]]; then
   sample_index="$SIMPLE_DOG_VALIDATION_SAMPLE"
 elif [[ -n "$checkpoint_epoch" ]]; then
