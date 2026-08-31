@@ -152,6 +152,35 @@ class ControlCenter:
                 choices = remaining
         return self._review_render_queue.pop(0)
 
+    def _render_active_review(
+        self, profile: dict[str, object], requested_sample_index: int
+    ) -> dict[str, object]:
+        """Render one active-run review, retrying one clean startup failure."""
+
+        training = profile.get("training", {})
+        if not isinstance(training, dict):
+            raise ValueError("The profile training section is invalid.")
+        arguments = [
+            "-VideoLength",
+            str(training["video_length"]),
+            "-ValidationSample",
+            str(requested_sample_index),
+        ]
+        result: dict[str, object] = {
+            "ok": False,
+            "exit_code": -1,
+            "output": "The rollout renderer did not start.",
+        }
+        for _attempt in range(2):
+            result = self._run_script(
+                "Render-SimpleDogTrainingVideo.ps1", arguments, timeout=720
+            )
+            if result["ok"] or "checkpoint review is already running" in str(
+                result.get("output", "")
+            ).lower():
+                break
+        return result
+
     @staticmethod
     def profile_path(profile_id: str) -> Path:
         if not profile_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in profile_id):
@@ -361,16 +390,11 @@ class ControlCenter:
                 # Render the newest retained checkpoint in a short-lived
                 # Isaac container. The trainer remains active in its original
                 # container, so the video belongs to the current run without
-                # interrupting scratch optimization.
-                render_result = self._run_script(
-                    "Render-SimpleDogTrainingVideo.ps1",
-                    [
-                        "-VideoLength",
-                        str(profile["training"]["video_length"]),
-                        "-ValidationSample",
-                        str(requested_sample_index),
-                    ],
-                    timeout=720,
+                # interrupting scratch optimization. Isaac/Vulkan can rarely
+                # crash during startup before frame one; retry that same
+                # sample once in a fresh short-lived container.
+                render_result = self._render_active_review(
+                    profile, requested_sample_index
                 )
                 if render_result["ok"]:
                     rendered_checkpoint_epoch = rendered_checkpoint_epoch_from_output(

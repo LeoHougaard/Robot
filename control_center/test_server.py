@@ -86,6 +86,32 @@ class ReviewSampleTests(unittest.TestCase):
         self.assertEqual(center._review_sample_cache, {})
         self.assertEqual(center._review_render_queue, [])
 
+    def test_active_review_retries_same_sample_once(self) -> None:
+        center = ControlCenter.__new__(ControlCenter)
+        calls = []
+        results = iter(
+            [
+                {"ok": False, "exit_code": 1, "output": "startup crashed"},
+                {"ok": True, "exit_code": 0, "output": "complete"},
+            ]
+        )
+
+        def run_script(script, arguments, *, timeout):
+            calls.append((script, list(arguments), timeout))
+            return next(results)
+
+        center._run_script = run_script
+        result = center._render_active_review(
+            {"training": {"video_length": 600}}, 4
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(2, len(calls))
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual(
+            ["-VideoLength", "600", "-ValidationSample", "4"], calls[0][1]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
