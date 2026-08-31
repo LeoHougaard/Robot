@@ -129,7 +129,7 @@ for seed in "${seeds[@]}"; do
   printf '%s\n' "$seed" >"${queue_dir}/launching_seed"
   restart_idle_container
   run_dir="$($HELPER start \
-    "$num_envs" "$max_iterations" '' '' currentbodyv4hard \
+    "$num_envs" "$max_iterations" '' '' currentbodyv5hard \
     "$CONTROL_PROFILE" "$profile_sha" \
     0 4000 600 "$SIMULATION_FIT" "$seed")"
   run_id="$(basename "$run_dir")"

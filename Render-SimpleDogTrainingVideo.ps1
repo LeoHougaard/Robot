@@ -55,7 +55,12 @@ $copies = @(
     @{ Local = "training\simple_dog_task_current_body_v4\simple_dog_current_body_v4_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
     @{ Local = "training\simple_dog_task_current_body_v4\simple_dog_current_body_v4_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
     @{ Local = "training\simple_dog_task_current_body_v4\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" },
-    @{ Local = "training\simple_dog_task_current_body_v4\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" }
+    @{ Local = "training\simple_dog_task_current_body_v4\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v5\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5" },
+    @{ Local = "training\simple_dog_task_current_body_v5\simple_dog_current_body_v5_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5" },
+    @{ Local = "training\simple_dog_task_current_body_v5\simple_dog_current_body_v5_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5" },
+    @{ Local = "training\simple_dog_task_current_body_v5\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v5\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v5/agents" }
 )
 foreach ($copy in $copies) {
     $localPath = Join-Path $PSScriptRoot $copy.Local

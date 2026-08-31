@@ -99,6 +99,7 @@ latest_video() {
     \( -path '*/quadruped_v2_*/videos/*' \
        -o -path '*/quadruped_current_v3_*/videos/*' \
        -o -path '*/quadruped_current_body_v4_*/videos/*' \
+       -o -path '*/quadruped_current_body_v5_*/videos/*' \
        -o -path '*/simple_dog_current_v3_rough_direct/videos/*' \) \
     -printf '%T@ %p\n' 2>/dev/null | \
     sort -n | tail -1 | cut -d' ' -f2- || true)"
@@ -166,6 +167,7 @@ render_latest_video() {
     Isaac-Locomotion-CurrentV3-Posture-*) terrain="currentv3posture" ;;
     Isaac-Locomotion-CurrentV3-*) terrain="currentv3rough" ;;
     Isaac-Locomotion-CurrentBodyV4-*) terrain="currentbodyv4hard" ;;
+    Isaac-Locomotion-CurrentBodyV5-*) terrain="currentbodyv5hard" ;;
     *) printf 'Unsupported task for rollout rendering: %s\n' "$task" >&2; return 2 ;;
   esac
   control_profile=""
@@ -187,7 +189,7 @@ render_latest_video() {
       return 2
     }
   fi
-  if [[ "$terrain" == currentbodyv4hard ]]; then
+  if [[ "$terrain" == currentbodyv4hard || "$terrain" == currentbodyv5hard ]]; then
     simulation_fit_sha="$(cat "$latest/simulation_fit_sha" 2>/dev/null || true)"
     [[ "$simulation_fit_sha" =~ ^[a-f0-9]{64}$ ]] || {
       printf 'Invalid simulation-fit SHA in the latest V4 run.\n' >&2
@@ -218,17 +220,20 @@ render_checkpoint_video() {
      "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
      "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
      "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
-     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v4_*/*.pth ]] || {
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v4_*/*.pth ||
+     "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v5_*/*.pth ]] || {
     printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
     return 2
   }
   [[ "$terrain" == flat || "$terrain" == rough || "$terrain" == v2core ||
      "$terrain" == v2robust || "$terrain" == v2goal || "$terrain" == v2rough ||
-     "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]] || {
+     "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ||
+     "$terrain" == currentbodyv5hard ]] || {
     printf 'Unsupported review terrain: %s\n' "$terrain" >&2
     return 2
   }
-  if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]]; then
+  if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ||
+        "$terrain" == currentbodyv5hard ]]; then
     [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
       printf 'Current-aware review requires its simulation fit.\n' >&2
       return 2
@@ -295,7 +300,8 @@ start_training() {
   [[ "$terrain" == flat || "$terrain" == rough || "$terrain" == rough_noscan ||
      "$terrain" == v2core || "$terrain" == v2robust ||
      "$terrain" == v2goal || "$terrain" == v2rough ||
-     "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]] ||
+     "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ||
+     "$terrain" == currentbodyv5hard ]] ||
     { printf 'Invalid terrain: %s\n' "$terrain" >&2; exit 2; }
   [[ "$terrain" != v2robust && "$terrain" != v2goal &&
      ( "$terrain" != currentv3* || "$terrain" == currentv3core ||
@@ -307,8 +313,8 @@ start_training() {
   [[ -x "${ROOT}/run_simple_dog.sh" ]] ||
     { printf 'Training launcher is missing: %s\n' "${ROOT}/run_simple_dog.sh" >&2; exit 1; }
   if [[ -n "$checkpoint" ]]; then
-    [[ "$terrain" != currentbodyv4hard ]] ||
-      { printf 'CurrentBodyV4Hard must start from random actor and optimizer initialization.\n' >&2; exit 2; }
+    [[ "$terrain" != currentbodyv4hard && "$terrain" != currentbodyv5hard ]] ||
+      { printf '%s must start from random actor and optimizer initialization.\n' "$terrain" >&2; exit 2; }
     [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
@@ -348,7 +354,8 @@ start_training() {
     docker exec "$CONTAINER" test -f "$control_profile" ||
       { printf 'Control profile does not exist: %s\n' "$control_profile" >&2; exit 2; }
   fi
-  if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ]]; then
+  if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4hard ||
+        "$terrain" == currentbodyv5hard ]]; then
     [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] ||
       { printf 'Current-aware simulation fit is outside the training fits directory.\n' >&2; exit 2; }
     docker exec "$CONTAINER" test -f "$simulation_fit" ||
@@ -440,7 +447,8 @@ status_training() {
       sed -n 's/.*"surface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
         "$latest/control_profile.json" | head -1
     } || true)"
-    if [[ "$task" == Isaac-Locomotion-CurrentBodyV4-Hard-* ]]; then
+    if [[ "$task" == Isaac-Locomotion-CurrentBodyV4-Hard-* ||
+          "$task" == Isaac-Locomotion-CurrentBodyV5-Hard-* ]]; then
       surface="Full-hard varied"
     fi
     [[ -z "$surface" ]] || printf 'Surface:   %s\n' "$surface"
