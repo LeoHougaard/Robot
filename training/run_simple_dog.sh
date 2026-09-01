@@ -86,6 +86,22 @@ case "$terrain" in
       exit 2
     }
     ;;
+  currentbodyv6hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV6-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v6"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV6Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv7hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV7-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v7"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV7Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
     exit 2

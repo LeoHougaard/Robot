@@ -43,8 +43,24 @@ case "$terrain" in
     export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
     review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
     ;;
+  currentbodyv6hard)
+    task="Isaac-Locomotion-CurrentBodyV6-Simple-Dog-Direct-Play-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v6"
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
+      printf 'CurrentBodyV6 playback requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv7hard)
+    task="Isaac-Locomotion-CurrentBodyV7-Simple-Dog-Direct-Play-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v7"
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
+      printf 'CurrentBodyV7 playback requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    ;;
   *)
-    printf 'Terrain must be a supported V1, V2, CurrentV3, CurrentBodyV4, or CurrentBodyV5 stage.\n' >&2
+    printf 'Terrain must be a supported V1, V2, CurrentV3, or CurrentBody stage.\n' >&2
     exit 2
     ;;
 esac
@@ -56,12 +72,15 @@ esac
    "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v4_*/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v5_*/*.pth ]] || {
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v5_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v6_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v7_*/*.pth ]] || {
   printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
   exit 2
 }
 if [[ "$terrain" != currentv3* && "$terrain" != currentbodyv4hard &&
-      "$terrain" != currentbodyv5hard && -n "$simulation_fit" ]]; then
+      "$terrain" != currentbodyv5hard && "$terrain" != currentbodyv6hard &&
+      "$terrain" != currentbodyv7hard && -n "$simulation_fit" ]]; then
   printf 'A simulation fit may be supplied only for current-aware playback.\n' >&2
   exit 2
 fi

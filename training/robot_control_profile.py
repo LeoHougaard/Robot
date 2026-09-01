@@ -88,7 +88,10 @@ def apply_agent_profile(
     else:
         agent_cfg["params"]["seed"] = profile["training"]["seed"]
     policy_family = os.environ.get("SIMPLE_DOG_POLICY_FAMILY")
-    if policy_family in ("current_v3", "current_body_v4", "current_body_v5"):
+    if policy_family in (
+        "current_v3", "current_body_v4", "current_body_v5",
+        "current_body_v6", "current_body_v7",
+    ):
         # The selected profile owns robot geometry and hardware limits, but its
         # PPO block was tuned for the 180-input V2 family. Keep CurrentV3's
         # separately reviewed optimizer/network contract and namespace.
@@ -96,6 +99,8 @@ def apply_agent_profile(
             "current_v3": "quadruped_current_v3_",
             "current_body_v4": "quadruped_current_body_v4_",
             "current_body_v5": "quadruped_current_body_v5_",
+            "current_body_v6": "quadruped_current_body_v6_",
+            "current_body_v7": "quadruped_current_body_v7_",
         }[policy_family]
         config["name"] = prefix + profile["profile_id"].replace("-", "_")
         return agent_cfg
