@@ -4,7 +4,12 @@ param(
     [int]$VideoLength = 400,
 
     [ValidateRange(0, 4)]
-    [int]$ValidationSample = 0
+    [int]$ValidationSample = 0,
+
+    # Active training always deploys this exact source set before it launches.
+    # Reuse it for checkpoint reviews so a VPN round trip is not repeated for
+    # every source file. Standalone/stopped-run reviews keep the full deploy.
+    [switch]$ReuseDeployedSource
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,17 +38,6 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
 $identity = ((& ssh -n @sshOptions $sshTarget "whoami") -join "").Trim()
 if ($LASTEXITCODE -ne 0 -or $identity -ne "leo") {
     throw "Refusing to continue because the remote identity is not exactly leo."
-}
-
-$rolloutDirectories = @(
-    "$remoteTraining/simple_dog_task_current_body_v8",
-    "$remoteTraining/simple_dog_task_current_body_v8/agents",
-    "$remoteTraining/simple_dog_task_current_body_v9",
-    "$remoteTraining/simple_dog_task_current_body_v9/agents"
-)
-& ssh -n @sshOptions $sshTarget ("install -d -m 0755 " + ($rolloutDirectories -join " "))
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not prepare remote rollout directories."
 }
 
 $copies = @(
@@ -93,24 +87,36 @@ $copies = @(
     @{ Local = "training\simple_dog_task_current_body_v9\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" },
     @{ Local = "training\simple_dog_task_current_body_v9\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" }
 )
-foreach ($copy in $copies) {
-    $localPath = Join-Path $PSScriptRoot $copy.Local
-    if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
-        throw "Required rollout file is missing: $localPath"
+if (-not $ReuseDeployedSource) {
+    $rolloutDirectories = @(
+        "$remoteTraining/simple_dog_task_current_body_v8",
+        "$remoteTraining/simple_dog_task_current_body_v8/agents",
+        "$remoteTraining/simple_dog_task_current_body_v9",
+        "$remoteTraining/simple_dog_task_current_body_v9/agents"
+    )
+    & ssh -n @sshOptions $sshTarget ("install -d -m 0755 " + ($rolloutDirectories -join " "))
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not prepare remote rollout directories."
     }
-    $copied = $false
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
-        & scp @sshOptions $localPath "${sshTarget}:$($copy.Remote)/"
-        if ($LASTEXITCODE -eq 0) {
-            $copied = $true
-            break
+    foreach ($copy in $copies) {
+        $localPath = Join-Path $PSScriptRoot $copy.Local
+        if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
+            throw "Required rollout file is missing: $localPath"
         }
-        if ($attempt -lt 3) {
-            Start-Sleep -Seconds 2
+        $copied = $false
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & scp @sshOptions $localPath "${sshTarget}:$($copy.Remote)/"
+            if ($LASTEXITCODE -eq 0) {
+                $copied = $true
+                break
+            }
+            if ($attempt -lt 3) {
+                Start-Sleep -Seconds 2
+            }
         }
-    }
-    if (-not $copied) {
-        throw "Could not deploy rollout file: $localPath"
+        if (-not $copied) {
+            throw "Could not deploy rollout file: $localPath"
+        }
     }
 }
 & ssh -n @sshOptions $sshTarget "chmod 0755 '$remoteHelper' '$remoteTraining/render_simple_dog_playback.sh' && '$remoteHelper' render-latest-video '$VideoLength' '$ValidationSample'"

@@ -165,6 +165,7 @@ class ControlCenter:
             str(training["video_length"]),
             "-ValidationSample",
             str(requested_sample_index),
+            "-ReuseDeployedSource",
         ]
         result: dict[str, object] = {
             "ok": False,

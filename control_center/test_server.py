@@ -111,7 +111,14 @@ class ReviewSampleTests(unittest.TestCase):
         self.assertEqual(calls[0], calls[1])
         self.assertEqual(calls[1], calls[2])
         self.assertEqual(
-            ["-VideoLength", "600", "-ValidationSample", "4"], calls[0][1]
+            [
+                "-VideoLength",
+                "600",
+                "-ValidationSample",
+                "4",
+                "-ReuseDeployedSource",
+            ],
+            calls[0][1],
         )
 
 
