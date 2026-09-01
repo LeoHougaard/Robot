@@ -22,7 +22,7 @@ class SimpleDogCurrentBodyV11HardEnvCfg(SimpleDogCurrentBodyV10HardEnvCfg):
 
     policy_family = "current_body_v11"
     terrain = copy.deepcopy(_V11_TRAINING_TERRAIN)
-    difficulty_ramp_floor = 0.0
+    difficulty_ramp_floor = 0.01
     difficulty_ramp_full_step = 32 * 200
     difficulty_ramp_terrain_band_rows = 1
 

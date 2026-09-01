@@ -219,7 +219,7 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
         )
         self.assertIn("SimpleDogCurrentBodyV10Env", env_source)
         self.assertIn("max_init_terrain_level = 0", cfg_source)
-        self.assertIn("difficulty_ramp_floor = 0.0", cfg_source)
+        self.assertIn("difficulty_ramp_floor = 0.01", cfg_source)
         self.assertIn("difficulty_ramp_terrain_band_rows = 1", cfg_source)
         self.assertIn("difficulty_ramp_full_step = 32 * 200", cfg_source)
         self.assertNotIn("def _get_rewards", env_source)
