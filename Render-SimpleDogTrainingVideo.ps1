@@ -67,8 +67,18 @@ foreach ($copy in $copies) {
     if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
         throw "Required rollout file is missing: $localPath"
     }
-    & scp @sshOptions $localPath "${sshTarget}:$($copy.Remote)/"
-    if ($LASTEXITCODE -ne 0) {
+    $copied = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & scp @sshOptions $localPath "${sshTarget}:$($copy.Remote)/"
+        if ($LASTEXITCODE -eq 0) {
+            $copied = $true
+            break
+        }
+        if ($attempt -lt 3) {
+            Start-Sleep -Seconds 2
+        }
+    }
+    if (-not $copied) {
         throw "Could not deploy rollout file: $localPath"
     }
 }
