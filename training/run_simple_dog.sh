@@ -162,7 +162,8 @@ PY
 fi
 
 if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4* ||
-      "$terrain" == currentbodyv5* ]]; then
+      "$terrain" == currentbodyv5* || "$terrain" == currentbodyv6* ||
+      "$terrain" == currentbodyv7* ]]; then
   [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
     printf 'Current-aware simulation fit is outside the training fits directory: %s\n' \
       "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2

@@ -46,18 +46,22 @@ case "$terrain" in
   currentbodyv6hard)
     task="Isaac-Locomotion-CurrentBodyV6-Simple-Dog-Direct-Play-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_body_v6"
-    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
       printf 'CurrentBodyV6 playback requires its simulation fit below training/fits.\n' >&2
       exit 2
     }
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
     ;;
   currentbodyv7hard)
     task="Isaac-Locomotion-CurrentBodyV7-Simple-Dog-Direct-Play-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_body_v7"
-    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] || {
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
       printf 'CurrentBodyV7 playback requires its simulation fit below training/fits.\n' >&2
       exit 2
     }
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
     ;;
   *)
     printf 'Terrain must be a supported V1, V2, CurrentV3, or CurrentBody stage.\n' >&2

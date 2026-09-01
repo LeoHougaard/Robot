@@ -113,7 +113,7 @@ render_latest_video() {
   local sample_index="${2:-}"
   local latest experiment output_root checkpoint container_checkpoint task terrain candidate
   local -a candidates
-  local profile_id profile_sha control_profile simulation_fit simulation_fit_sha
+  local profile_id profile_sha control_profile simulation_fit simulation_fit_host simulation_fit_sha
   latest=""
   checkpoint=""
   [[ "$video_length" =~ ^[0-9]+$ ]] && ((video_length >= 100 && video_length <= 3000)) || {
@@ -197,10 +197,17 @@ render_latest_video() {
         "$terrain" == currentbodyv6hard || "$terrain" == currentbodyv7hard ]]; then
     simulation_fit_sha="$(cat "$latest/simulation_fit_sha" 2>/dev/null || true)"
     [[ "$simulation_fit_sha" =~ ^[a-f0-9]{64}$ ]] || {
-      printf 'Invalid simulation-fit SHA in the latest V4 run.\n' >&2
+      printf 'Invalid simulation-fit SHA in the latest current-body run.\n' >&2
       return 2
     }
-    simulation_fit="/workspace/projects/training/fits/current-body-v4-${simulation_fit_sha:0:12}.json"
+    simulation_fit_host="$(find "${ROOT}/fits" -maxdepth 1 -type f \
+      -name "current-body-*-${simulation_fit_sha:0:12}.json" -print -quit 2>/dev/null || true)"
+    [[ -n "$simulation_fit_host" ]] || {
+      printf 'The latest run simulation fit is not deployed for SHA %s.\n' \
+        "$simulation_fit_sha" >&2
+      return 2
+    }
+    simulation_fit="/workspace/projects/training/fits/$(basename "$simulation_fit_host")"
     docker exec "$CONTAINER" test -f "$simulation_fit" || {
       printf 'The latest run simulation fit is not deployed: %s\n' "$simulation_fit" >&2
       return 2

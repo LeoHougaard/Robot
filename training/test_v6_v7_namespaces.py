@@ -74,13 +74,31 @@ class CurrentBodyV6V7NamespaceTests(unittest.TestCase):
         playback = (ROOT / "render_simple_dog_playback.sh").read_text(
             encoding="utf-8"
         )
+        backend = (ROOT / "simple-dog-gb10.sh").read_text(encoding="utf-8")
         for version in (6, 7):
             terrain = f"currentbodyv{version}hard"
             family = f"current_body_v{version}"
             self.assertIn(terrain, launcher)
+            self.assertIn(f'"$terrain" == currentbodyv{version}*', launcher)
             self.assertIn(family, launcher)
             self.assertIn(terrain, playback)
             self.assertIn(family, playback)
+            playback_branch = playback.split(f"  {terrain})", 1)[1].split(
+                "    ;;", 1
+            )[0]
+            self.assertIn('-f "$simulation_fit"', playback_branch)
+            self.assertIn(
+                'export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"',
+                playback_branch,
+            )
+            self.assertIn("SIMPLE_DOG_REVIEW_NUM_ENVS:-5", playback_branch)
+
+        self.assertIn(
+            'current-body-*-${simulation_fit_sha:0:12}.json', backend
+        )
+        self.assertNotIn(
+            'current-body-v4-${simulation_fit_sha:0:12}.json', backend
+        )
 
 
 if __name__ == "__main__":
