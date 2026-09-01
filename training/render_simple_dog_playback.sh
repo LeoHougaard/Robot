@@ -155,7 +155,7 @@ checkpoint_epoch="$(basename "$checkpoint" | sed -nE 's/.*_ep_([0-9]+)_.*/\1/p')
 # than mislabeling a current rollout as step 0.
 if [[ -z "$checkpoint_epoch" ]]; then
   checkpoint_epoch="$(
-    /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 - "$checkpoint" <<'PY'
+    /isaac-sim/python.sh - "$checkpoint" <<'PY'
 import sys
 
 import torch

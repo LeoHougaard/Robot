@@ -122,6 +122,11 @@ class CurrentBodyV6V10NamespaceTests(unittest.TestCase):
         self.assertIn(
             'current-body-*-${simulation_fit_sha:0:12}.json', backend
         )
+        self.assertIn('/isaac-sim/python.sh - "$checkpoint"', playback)
+        self.assertNotIn(
+            '/workspace/isaaclab/_isaac_sim/kit/python/bin/python3 - "$checkpoint"',
+            playback,
+        )
         self.assertNotIn(
             'current-body-v4-${simulation_fit_sha:0:12}.json', backend
         )
