@@ -155,7 +155,7 @@ class ControlCenter:
     def _render_active_review(
         self, profile: dict[str, object], requested_sample_index: int
     ) -> dict[str, object]:
-        """Render one active-run review, retrying one clean startup failure."""
+        """Render one active-run review, retrying two clean startup failures."""
 
         training = profile.get("training", {})
         if not isinstance(training, dict):
@@ -171,7 +171,7 @@ class ControlCenter:
             "exit_code": -1,
             "output": "The rollout renderer did not start.",
         }
-        for _attempt in range(2):
+        for _attempt in range(3):
             result = self._run_script(
                 "Render-SimpleDogTrainingVideo.ps1", arguments, timeout=720
             )

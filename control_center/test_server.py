@@ -86,12 +86,13 @@ class ReviewSampleTests(unittest.TestCase):
         self.assertEqual(center._review_sample_cache, {})
         self.assertEqual(center._review_render_queue, [])
 
-    def test_active_review_retries_same_sample_once(self) -> None:
+    def test_active_review_retries_same_sample_twice(self) -> None:
         center = ControlCenter.__new__(ControlCenter)
         calls = []
         results = iter(
             [
                 {"ok": False, "exit_code": 1, "output": "startup crashed"},
+                {"ok": False, "exit_code": 1, "output": "vpn dropped"},
                 {"ok": True, "exit_code": 0, "output": "complete"},
             ]
         )
@@ -106,8 +107,9 @@ class ReviewSampleTests(unittest.TestCase):
         )
 
         self.assertTrue(result["ok"])
-        self.assertEqual(2, len(calls))
+        self.assertEqual(3, len(calls))
         self.assertEqual(calls[0], calls[1])
+        self.assertEqual(calls[1], calls[2])
         self.assertEqual(
             ["-VideoLength", "600", "-ValidationSample", "4"], calls[0][1]
         )
