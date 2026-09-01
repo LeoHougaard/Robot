@@ -1023,6 +1023,22 @@ class SimpleDogEnv(DirectRLEnv):
             completed_body_lateral_speed
         ).item()
         log["Metrics/mean_heading_error"] = torch.mean(completed_heading_error).item()
+        # Always publish command-aligned distance.  It is an evaluation and
+        # debugging signal even when terrain level curriculum is disabled.
+        # In particular, mixed forward/reverse/lateral commands can make a
+        # signed mean speed look stationary despite real walking.
+        mean_commanded_distance = torch.mean(
+            self._terrain_commanded_distance[env_ids]
+        )
+        mean_tracked_distance = torch.mean(
+            self._terrain_tracked_distance[env_ids]
+        )
+        log["Metrics/commanded_distance"] = mean_commanded_distance.item()
+        log["Metrics/tracked_distance"] = mean_tracked_distance.item()
+        log["Metrics/command_tracking_fraction"] = (
+            mean_tracked_distance
+            / mean_commanded_distance.clamp_min(1.0e-6)
+        ).item()
         for foot_index, foot_label in enumerate(self._foot_labels):
             log[f"Metrics/swing_fraction_{foot_label}"] = torch.mean(
                 completed_foot_swing_fraction[:, foot_index]
@@ -1040,12 +1056,6 @@ class SimpleDogEnv(DirectRLEnv):
             log["Metrics/terrain_move_down_fraction"] = torch.mean(
                 terrain_move_down.float()
             ).item()
-            mean_commanded_distance = torch.mean(
-                self._terrain_commanded_distance[env_ids]
-            )
-            mean_tracked_distance = torch.mean(
-                self._terrain_tracked_distance[env_ids]
-            )
             log["Metrics/terrain_commanded_distance"] = (
                 mean_commanded_distance.item()
             )

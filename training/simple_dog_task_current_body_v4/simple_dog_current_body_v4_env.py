@@ -595,6 +595,25 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         self._heading_error_sum += active * torch.abs(
             requested[:, 2] - angular_velocity
         )
+        # Signed world/body speed can average to zero when a capable policy is
+        # asked to move forward, reverse, and laterally in equal proportions.
+        # Accumulate command-aligned distance as reward-independent evidence
+        # of useful translation.  Exclude the intentionally stationary locked
+        # drop just as the velocity diagnostics above do.
+        requested_planar = requested[:, :2]
+        actual_planar = actual[:, :2]
+        commanded_speed = torch.linalg.vector_norm(requested_planar, dim=1)
+        command_direction = requested_planar / commanded_speed.clamp_min(
+            1.0e-6
+        ).unsqueeze(1)
+        aligned_speed = torch.sum(actual_planar * command_direction, dim=1)
+        tracked_speed = torch.maximum(
+            torch.minimum(aligned_speed, commanded_speed), -commanded_speed
+        )
+        self._terrain_commanded_distance += (
+            active * commanded_speed * self.step_dt
+        )
+        self._terrain_tracked_distance += active * tracked_speed * self.step_dt
         reward = (tracking + motion_shortfall) * self.step_dt
         reward = torch.where(settling, 0.0, reward)
         self._episode_sums["body_tracking"] += torch.where(

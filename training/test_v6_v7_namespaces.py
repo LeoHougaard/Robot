@@ -83,6 +83,16 @@ class CurrentBodyV6V7NamespaceTests(unittest.TestCase):
             source,
         )
         self.assertIn("self._heading_error_sum += active", source)
+        self.assertIn("self._terrain_commanded_distance +=", source)
+        self.assertIn("active * commanded_speed * self.step_dt", source)
+        self.assertIn("self._terrain_tracked_distance += active", source)
+
+        base_source = (
+            ROOT / "simple_dog_task" / "simple_dog_env.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('log["Metrics/commanded_distance"]', base_source)
+        self.assertIn('log["Metrics/tracked_distance"]', base_source)
+        self.assertIn('log["Metrics/command_tracking_fraction"]', base_source)
 
     def test_launch_and_playback_support_both_scratch_variants(self):
         launcher = (ROOT / "run_simple_dog.sh").read_text(encoding="utf-8")
