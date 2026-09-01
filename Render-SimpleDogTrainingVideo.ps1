@@ -85,14 +85,21 @@ $copies = @(
     @{ Local = "training\simple_dog_task_current_body_v9\simple_dog_current_body_v9_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
     @{ Local = "training\simple_dog_task_current_body_v9\simple_dog_current_body_v9_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
     @{ Local = "training\simple_dog_task_current_body_v9\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" },
-    @{ Local = "training\simple_dog_task_current_body_v9\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" }
+    @{ Local = "training\simple_dog_task_current_body_v9\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v10\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10" },
+    @{ Local = "training\simple_dog_task_current_body_v10\simple_dog_current_body_v10_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10" },
+    @{ Local = "training\simple_dog_task_current_body_v10\simple_dog_current_body_v10_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10" },
+    @{ Local = "training\simple_dog_task_current_body_v10\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v10\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v10/agents" }
 )
 if (-not $ReuseDeployedSource) {
     $rolloutDirectories = @(
         "$remoteTraining/simple_dog_task_current_body_v8",
         "$remoteTraining/simple_dog_task_current_body_v8/agents",
         "$remoteTraining/simple_dog_task_current_body_v9",
-        "$remoteTraining/simple_dog_task_current_body_v9/agents"
+        "$remoteTraining/simple_dog_task_current_body_v9/agents",
+        "$remoteTraining/simple_dog_task_current_body_v10",
+        "$remoteTraining/simple_dog_task_current_body_v10/agents"
     )
     & ssh -n @sshOptions $sshTarget ("install -d -m 0755 " + ($rolloutDirectories -join " "))
     if ($LASTEXITCODE -ne 0) {

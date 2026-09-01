@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).parent
 
 
-class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
+class CurrentBodyV6V10NamespaceTests(unittest.TestCase):
     def _input_assignments(self, version: int):
         package = ROOT / f"simple_dog_task_current_body_v{version}"
         module = ast.parse(
@@ -28,7 +28,7 @@ class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
         }
 
     def test_distinct_task_and_experiment_namespaces(self):
-        for version in (6, 7, 8, 9):
+        for version in (6, 7, 8, 9, 10):
             package = ROOT / f"simple_dog_task_current_body_v{version}"
             registration = (package / "__init__.py").read_text(encoding="utf-8")
             agent = (package / "agents" / "rl_games_ppo_cfg.yaml").read_text(
@@ -57,7 +57,7 @@ class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
         self.assertGreaterEqual(v6["linear_command_hold_s"][0], 6.0)
         self.assertGreater(v7["linear_command_hold_s"][0], v6["linear_command_hold_s"][0])
 
-        for version in (6, 7, 8, 9):
+        for version in (6, 7, 8, 9, 10):
             package = ROOT / f"simple_dog_task_current_body_v{version}"
             env_source = (
                 package / f"simple_dog_current_body_v{version}_env.py"
@@ -101,7 +101,7 @@ class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         backend = (ROOT / "simple-dog-gb10.sh").read_text(encoding="utf-8")
-        for version in (6, 7, 8, 9):
+        for version in (6, 7, 8, 9, 10):
             terrain = f"currentbodyv{version}hard"
             family = f"current_body_v{version}"
             self.assertIn(terrain, launcher)
@@ -129,7 +129,7 @@ class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "$isV7Terrain -or $isV8Terrain -or $isV9Terrain",
+            "$isV9Terrain -or $isV10Terrain",
             windows_launcher,
         )
         self.assertIn('"current-body-v5"', windows_launcher)
@@ -176,6 +176,29 @@ class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
         self.assertIn("entropy_coef: 0.015", agent)
         self.assertIn("horizon_length: 64", agent)
         self.assertIn("mlp: {units: [512, 256, 128]", agent)
+
+    def test_v10_bootstraps_translation_through_inputs_only(self):
+        v10 = self._input_assignments(10)
+        self.assertAlmostEqual(
+            sum(v10[name] for name in (
+                "mixed_command_fraction", "posture_only_fraction",
+                "isolated_motion_fraction", "neutral_fraction",
+            )), 1.0
+        )
+        self.assertGreaterEqual(v10["isolated_motion_fraction"], 0.90)
+        self.assertGreaterEqual(v10["isolated_linear_axis_fraction"], 0.99)
+        self.assertGreaterEqual(v10["isolated_forward_share"], 0.85)
+        self.assertGreaterEqual(v10["linear_command_hold_s"][0], 12.0)
+        package = ROOT / "simple_dog_task_current_body_v10"
+        env_source = (package / "simple_dog_current_body_v10_env.py").read_text(
+            encoding="utf-8"
+        )
+        cfg_source = (package / "simple_dog_current_body_v10_env_cfg.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("SimpleDogCurrentBodyV7Env", env_source)
+        self.assertNotIn("def _get_rewards", env_source)
+        self.assertNotIn("reward_scale =", cfg_source)
 
     def test_v7_uses_post_settle_physical_pushes_without_reward_changes(self):
         cfg = self._input_assignments(7)
