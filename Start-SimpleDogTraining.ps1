@@ -100,8 +100,8 @@ $currentBodyTerrains = $v4Terrains + $v5Terrains + $v6Terrains + $v7Terrains + $
 if (($isV4Terrain -or $isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain) -and $Checkpoint) {
     throw "$Terrain requires a random actor and optimizer start; checkpoints are forbidden."
 }
-if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and -not $isV4Terrain -and -not $isV5Terrain -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
-    throw "V1, V2, CurrentV3, CurrentBodyV4, and CurrentBodyV5 checkpoints are not interchangeable because their policy observations differ."
+if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and $Terrain -notin $currentBodyTerrains -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
+    throw "V1, V2, CurrentV3, and CurrentBody checkpoints are not interchangeable because their policy observations differ."
 }
 if ($Terrain -in @("V2Robust", "V2Goal") -and -not $Checkpoint) {
     throw "$Terrain is a continuation stage and requires a passing V2 checkpoint."
@@ -160,7 +160,7 @@ if ($Terrain -in ($currentTerrains + $currentBodyTerrains)) {
         throw "$Terrain fit does not contain complete current and critical feedback."
     }
     $simulationFitHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedSimulationFit).Hash.ToLowerInvariant()
-    $fitFamily = if ($isV5Terrain -or $isV6Terrain -or $isV7Terrain) {
+    $fitFamily = if ($isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain) {
         "current-body-v5"
     }
     elseif ($isV4Terrain) {
@@ -172,7 +172,7 @@ if ($Terrain -in ($currentTerrains + $currentBodyTerrains)) {
     $remoteSimulationFit = "/workspace/projects/training/fits/$fitFamily-$($simulationFitHash.Substring(0, 12)).json"
 }
 elseif ($SimulationFit) {
-    throw "SimulationFit is accepted only for CurrentV3, CurrentBodyV4, and CurrentBodyV5 stages."
+    throw "SimulationFit is accepted only for CurrentV3 and CurrentBody stages."
 }
 
 $identity = (& ssh @sshOptions $sshTarget "whoami").Trim()
@@ -379,7 +379,7 @@ if ($ControlProfile) {
             "CurrentBodyV7Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV8Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV9Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
-            default { throw "Control profiles require a V2, CurrentV3, CurrentBodyV4, or CurrentBodyV5 training stage." }
+            default { throw "Control profiles require a V2, CurrentV3, or CurrentBody training stage." }
         }
         & ssh @sshOptions $sshTarget "docker exec --workdir /workspace/projects/training isaac-lab-gb10 bash /workspace/projects/training/validate_control_profile_robot.sh '$remoteControlProfile' '$validationTask'"
         if ($LASTEXITCODE -ne 0) {

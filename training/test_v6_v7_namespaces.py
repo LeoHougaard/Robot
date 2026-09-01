@@ -125,6 +125,14 @@ class CurrentBodyV6V9NamespaceTests(unittest.TestCase):
         self.assertNotIn(
             'current-body-v4-${simulation_fit_sha:0:12}.json', backend
         )
+        windows_launcher = (ROOT.parent / "Start-SimpleDogTraining.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "$isV7Terrain -or $isV8Terrain -or $isV9Terrain",
+            windows_launcher,
+        )
+        self.assertIn('"current-body-v5"', windows_launcher)
 
     def test_v8_changes_only_the_input_distribution(self):
         v8 = self._input_assignments(8)
