@@ -35,6 +35,17 @@ if ($LASTEXITCODE -ne 0 -or $identity -ne "leo") {
     throw "Refusing to continue because the remote identity is not exactly leo."
 }
 
+$rolloutDirectories = @(
+    "$remoteTraining/simple_dog_task_current_body_v8",
+    "$remoteTraining/simple_dog_task_current_body_v8/agents",
+    "$remoteTraining/simple_dog_task_current_body_v9",
+    "$remoteTraining/simple_dog_task_current_body_v9/agents"
+)
+& ssh -n @sshOptions $sshTarget ("install -d -m 0755 " + ($rolloutDirectories -join " "))
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not prepare remote rollout directories."
+}
+
 $copies = @(
     @{ Local = "training\simple-dog-gb10.sh"; Remote = $remoteTraining },
     @{ Local = "training\render_simple_dog_playback.sh"; Remote = $remoteTraining },
@@ -70,7 +81,17 @@ $copies = @(
     @{ Local = "training\simple_dog_task_current_body_v7\simple_dog_current_body_v7_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7" },
     @{ Local = "training\simple_dog_task_current_body_v7\simple_dog_current_body_v7_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7" },
     @{ Local = "training\simple_dog_task_current_body_v7\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7/agents" },
-    @{ Local = "training\simple_dog_task_current_body_v7\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v7/agents" }
+    @{ Local = "training\simple_dog_task_current_body_v7\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v7/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v8\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8" },
+    @{ Local = "training\simple_dog_task_current_body_v8\simple_dog_current_body_v8_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8" },
+    @{ Local = "training\simple_dog_task_current_body_v8\simple_dog_current_body_v8_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8" },
+    @{ Local = "training\simple_dog_task_current_body_v8\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v8\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v8/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v9\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
+    @{ Local = "training\simple_dog_task_current_body_v9\simple_dog_current_body_v9_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
+    @{ Local = "training\simple_dog_task_current_body_v9\simple_dog_current_body_v9_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
+    @{ Local = "training\simple_dog_task_current_body_v9\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v9\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" }
 )
 foreach ($copy in $copies) {
     $localPath = Join-Path $PSScriptRoot $copy.Local

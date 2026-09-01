@@ -29,6 +29,16 @@ elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v7":
     import simple_dog_task_current_body_v4  # noqa: F401
     import simple_dog_task_current_body_v5  # noqa: F401
     import simple_dog_task_current_body_v7  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v8":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v8  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v9":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v9  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 
