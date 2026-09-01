@@ -578,6 +578,23 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             "_reset_hold_active_mask",
             torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
         )
+        # V4 replaces the inherited locomotion reward, so it must also retain
+        # the reward-independent episode diagnostics that the inherited
+        # reset/logger consumes.  Without this, healthy multi-second episodes
+        # were reported as zero-speed one-step failures even though RL-Games'
+        # own episode-length series showed hundreds of steps.  Keep the
+        # two-second locked drop in the survival duration, but exclude its
+        # intentionally stationary motion from the tracking sums.
+        active = (~settling).to(body_forward.dtype)
+        self._survival_steps += 1.0
+        self._velocity_error_sum += active * torch.linalg.vector_norm(
+            requested[:, :2] - actual[:, :2], dim=1
+        )
+        self._world_forward_speed_sum += active * body_forward
+        self._body_lateral_speed_sum += active * torch.abs(body_lateral)
+        self._heading_error_sum += active * torch.abs(
+            requested[:, 2] - angular_velocity
+        )
         reward = (tracking + motion_shortfall) * self.step_dt
         reward = torch.where(settling, 0.0, reward)
         self._episode_sums["body_tracking"] += torch.where(

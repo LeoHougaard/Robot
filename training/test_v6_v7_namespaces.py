@@ -69,6 +69,21 @@ class CurrentBodyV6V7NamespaceTests(unittest.TestCase):
             self.assertNotIn("reward_scale =", cfg_source)
             self.assertIn("SimpleDogCurrentBodyV5", cfg_source)
 
+    def test_current_body_reward_keeps_episode_motion_telemetry(self):
+        source = (
+            ROOT
+            / "simple_dog_task_current_body_v4"
+            / "simple_dog_current_body_v4_env.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("self._survival_steps += 1.0", source)
+        self.assertIn("self._velocity_error_sum += active", source)
+        self.assertIn("self._world_forward_speed_sum += active * body_forward", source)
+        self.assertIn(
+            "self._body_lateral_speed_sum += active * torch.abs(body_lateral)",
+            source,
+        )
+        self.assertIn("self._heading_error_sum += active", source)
+
     def test_launch_and_playback_support_both_scratch_variants(self):
         launcher = (ROOT / "run_simple_dog.sh").read_text(encoding="utf-8")
         playback = (ROOT / "render_simple_dog_playback.sh").read_text(
