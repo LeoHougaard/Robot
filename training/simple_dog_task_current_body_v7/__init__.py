@@ -20,3 +20,7 @@ def _register(task_id: str, cfg: str) -> None:
 _register("Isaac-Locomotion-CurrentBodyV7-Hard-Simple-Dog-Direct-v0", "SimpleDogCurrentBodyV7HardEnvCfg")
 _register("Isaac-Locomotion-CurrentBodyV7-Simple-Dog-Direct-Eval-v0", "SimpleDogCurrentBodyV7EvalEnvCfg")
 _register("Isaac-Locomotion-CurrentBodyV7-Simple-Dog-Direct-Play-v0", "SimpleDogCurrentBodyV7PlayEnvCfg")
+_register(
+    "Isaac-Locomotion-CurrentBodyV7-Simple-Dog-Direct-Push-Eval-v0",
+    "SimpleDogCurrentBodyV7PushEvalEnvCfg",
+)

@@ -115,6 +115,27 @@ class CurrentBodyV6V7NamespaceTests(unittest.TestCase):
             'current-body-v4-${simulation_fit_sha:0:12}.json', backend
         )
 
+    def test_v7_uses_post_settle_physical_pushes_without_reward_changes(self):
+        cfg = self._input_assignments(7)
+        self.assertGreaterEqual(cfg["push_interval_s"][0], 6.0)
+        self.assertGreater(cfg["push_force_n"][0], 0.0)
+        self.assertGreater(cfg["push_force_n"][1], cfg["push_force_n"][0])
+        self.assertGreater(cfg["push_force_duration_s"][0], 0.0)
+
+        package = ROOT / "simple_dog_task_current_body_v7"
+        env_source = (package / "simple_dog_current_body_v7_env.py").read_text(
+            encoding="utf-8"
+        )
+        registration = (package / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("_reset_settle_steps_remaining > 0", env_source)
+        self.assertIn(
+            "permanent_wrench_composer.set_forces_and_torques_index",
+            env_source,
+        )
+        self.assertNotIn("write_root_velocity", env_source)
+        self.assertNotIn("def _get_rewards", env_source)
+        self.assertIn("CurrentBodyV7-Simple-Dog-Direct-Push-Eval", registration)
+
 
 if __name__ == "__main__":
     unittest.main()
