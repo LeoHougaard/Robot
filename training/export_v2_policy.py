@@ -220,6 +220,24 @@ def validate_current_evaluation(
         raise ValueError("CurrentV3 evaluation is incomplete; missing: " + ", ".join(missing))
 
 
+def validate_current_body_evaluation(evaluation: object) -> None:
+    """Require the locomotion-only mobility screen used by V17 and later."""
+    from evaluate_simple_dog_policy import EXPECTED
+
+    if not isinstance(evaluation, dict) or not evaluation.get("passed"):
+        raise ValueError("CurrentBody export requires a passing evaluation result.")
+    if evaluation.get("stage") != "currentbody":
+        raise ValueError("CurrentBody export requires the currentbody evaluation stage.")
+    segments = evaluation.get("segments")
+    if not isinstance(segments, dict):
+        raise ValueError("CurrentBody evaluation has no segment evidence.")
+    missing = [name for name in EXPECTED["currentbody"] if name not in segments]
+    if missing:
+        raise ValueError(
+            "CurrentBody evaluation is incomplete; missing: " + ", ".join(missing)
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
@@ -335,7 +353,9 @@ def main() -> None:
 
     evaluation = json.loads(args.evaluation.read_text(encoding="utf-8"))
     try:
-        if args.current_fit:
+        if args.current_body_426:
+            validate_current_body_evaluation(evaluation)
+        elif args.current_fit:
             validate_current_evaluation(evaluation)
         elif args.allow_robust_test_policy:
             validate_robust_test_evaluation(evaluation)
@@ -344,7 +364,18 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    if args.current_fit:
+    if args.current_body_426:
+        if args.flat_evaluation:
+            raise SystemExit("CurrentBody export does not use a flat posture evaluation.")
+        if not args.stress_evaluation:
+            raise SystemExit("CurrentBody export requires --stress-evaluation from Push-Eval.")
+        flat_evaluation = None
+        stress_evaluation = json.loads(args.stress_evaluation.read_text(encoding="utf-8"))
+        try:
+            validate_current_body_evaluation(stress_evaluation)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    elif args.current_fit:
         if not args.flat_evaluation or not args.stress_evaluation:
             raise SystemExit(
                 "CurrentV3 export requires --flat-evaluation and --stress-evaluation."
@@ -433,7 +464,7 @@ def main() -> None:
     metadata = {
         "schema_version": 4 if args.current_body_426 else (3 if current_fit else 2),
         "deployment_tier": (
-            "current_body_426_promoted" if args.current_body_426 else
+            "current_body_426_locomotion_test" if args.current_body_426 else
             ("current_v3_promoted" if current_fit else
             ("restricted_robust_test" if args.allow_robust_test_policy else "goal_promoted")
             )
@@ -506,11 +537,17 @@ def main() -> None:
             ),
         }
         metadata["physical_fit"] = current_fit.metadata()
-        metadata["evaluation_set"] = {
-            "flat_regression": flat_evaluation,
-            "held_out_rough": evaluation,
-            "randomized_push_stress": stress_evaluation,
-        }
+        if args.current_body_426:
+            metadata["evaluation_set"] = {
+                "held_out_rough_locomotion": evaluation,
+                "randomized_push_stress": stress_evaluation,
+            }
+        else:
+            metadata["evaluation_set"] = {
+                "flat_regression": flat_evaluation,
+                "held_out_rough": evaluation,
+                "randomized_push_stress": stress_evaluation,
+            }
     metadata_path = args.output / "policy_metadata.json"
     metadata_path.write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"

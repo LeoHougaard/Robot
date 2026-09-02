@@ -20,6 +20,7 @@ EXPECTED = {
     "robust": ("straight", "left_curve", "right_curve", "fast", "slow"),
     "goal": MOBILITY_SEGMENTS,
     "rough": MOBILITY_SEGMENTS,
+    "currentbody": MOBILITY_SEGMENTS,
     "current": MOBILITY_SEGMENTS + (
         "crouch_walk", "tall_walk", "roll_left_walk", "roll_right_walk",
         "pitch_up_walk", "pitch_down_walk", "current_dropout_walk",

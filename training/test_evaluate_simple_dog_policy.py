@@ -80,6 +80,17 @@ class MobilityEvaluationTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(any("mean foot slip" in failure for failure in result["failures"]))
 
+    def test_current_body_uses_mobility_without_old_posture_gates(self):
+        self.assertEqual(EXPECTED["currentbody"], EXPECTED["goal"])
+        segments = {name: ideal_segment(name) for name in EXPECTED["currentbody"]}
+        for segment in segments.values():
+            segment.pop("mean_abs_height_error")
+            segment.pop("mean_abs_roll_error")
+            segment.pop("mean_abs_pitch_error")
+        self.assertTrue(
+            evaluate("currentbody", segments, require_gait_quality=True)["passed"]
+        )
+
     def test_emitted_25_hz_step_duration_controls_heading_math(self):
         segments = {
             name: ideal_segment(name, step_dt=0.04) for name in EXPECTED["goal"]

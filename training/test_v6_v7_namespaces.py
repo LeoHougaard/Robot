@@ -347,6 +347,12 @@ class CurrentBodyV6V19NamespaceTests(unittest.TestCase):
         self.assertEqual(cfg["locomotion_level_penalty_scale"], -2.0)
         self.assertIn("horizon_length: 64", agent_source)
         self.assertNotIn("diagonal", env_source.lower())
+        cfg_source = (package / "simple_dog_current_body_v17_env_cfg.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("V17_EVALUATION_SEGMENTS", cfg_source)
+        self.assertIn('(\"forward\", 200, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0)', cfg_source)
+        self.assertIn('(\"curve_left\", 200, 0.15, 0.0, 0.20, 0.0, 0.0, 0.0)', cfg_source)
 
     def test_v18_adds_only_subordinate_progress_gated_opposite_leg_sync(self):
         package = ROOT / "simple_dog_task_current_body_v18"
