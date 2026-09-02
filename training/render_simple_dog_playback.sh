@@ -143,6 +143,16 @@ case "$terrain" in
     export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
     review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
     ;;
+  currentbodyv16hard)
+    task="Isaac-Locomotion-CurrentBodyV16-Simple-Dog-Direct-Play-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v16"
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'CurrentBodyV16 playback requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
+    ;;
   *)
     printf 'Terrain must be a supported V1, V2, CurrentV3, or CurrentBody stage.\n' >&2
     exit 2
@@ -166,7 +176,8 @@ esac
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v12_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v13_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v14_*/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v15_*/*.pth ]] || {
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v15_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v16_*/*.pth ]] || {
   printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
   exit 2
 }
@@ -176,7 +187,7 @@ if [[ "$terrain" != currentv3* && "$terrain" != currentbodyv4hard &&
       "$terrain" != currentbodyv9hard && "$terrain" != currentbodyv10hard &&
       "$terrain" != currentbodyv11hard && "$terrain" != currentbodyv12hard &&
       "$terrain" != currentbodyv13hard && "$terrain" != currentbodyv14hard &&
-      "$terrain" != currentbodyv15hard &&
+      "$terrain" != currentbodyv15hard && "$terrain" != currentbodyv16hard &&
       -n "$simulation_fit" ]]; then
   printf 'A simulation fit may be supplied only for current-aware playback.\n' >&2
   exit 2
