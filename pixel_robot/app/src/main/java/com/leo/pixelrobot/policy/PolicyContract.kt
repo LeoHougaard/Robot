@@ -20,6 +20,8 @@ class PolicyContract private constructor(value: JSONObject) {
     val observationSize: Int = value.getInt("observation_size")
     val observationHistory: Int = value.getInt("observation_history")
     val observationBuilder: String = value.optString("observation_builder", "v2_180")
+    val selectedHistoryIndices: IntArray
+    val timingReferenceMilliseconds: Float
     val currentBiasMilliamps: FloatArray
     val currentScaleMilliamps: FloatArray
     val currentClipNormalized: FloatArray
@@ -55,16 +57,29 @@ class PolicyContract private constructor(value: JSONObject) {
         require(controlHz in 10..100 && 1000 % controlHz == 0) {
             "policy control rate must divide 1000 Hz and be within 10..100 Hz"
         }
-        require(observationHistory == 4)
-        require(observationBuilder in setOf("v2_180", "current_v3_279"))
+        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426"))
         require(
-            (observationBuilder == "v2_180" && observationSize == 180) ||
-                (observationBuilder == "current_v3_279" && observationSize == 279)
+            (observationBuilder == "v2_180" && observationHistory == 4 && observationSize == 180) ||
+                (observationBuilder == "current_v3_279" && observationHistory == 4 && observationSize == 279) ||
+                (observationBuilder == "current_body_v14_426" && observationHistory == 24 && observationSize == 426)
         ) { "observation builder and size do not match" }
+        if (observationBuilder == "current_body_v14_426") {
+            val selection = value.getJSONObject("history_selection")
+            require(selection.getInt("frame_size") == 70)
+            selectedHistoryIndices = selection.getJSONArray("indices").ints(6)
+            require(selectedHistoryIndices.contentEquals(intArrayOf(0, 5, 10, 15, 20, 23))) {
+                "CurrentBody history selection does not match training"
+            }
+            timingReferenceMilliseconds = selection.getDouble("timing_reference_ms").toFloat()
+            require(timingReferenceMilliseconds > 0f && timingReferenceMilliseconds.isFinite())
+        } else {
+            selectedHistoryIndices = IntArray(observationHistory) { it }
+            timingReferenceMilliseconds = controlFrameSeconds * 1000f
+        }
         require(value.getInt("action_size") == ACTION_COUNT)
         require(commandSmoothingSeconds in controlFrameSeconds..2f)
 
-        if (observationBuilder == "current_v3_279") {
+        if (observationBuilder != "v2_180") {
             val current = value.getJSONObject("current_observation_contract")
             require(current.getString("units") == "mA")
             require(current.optBoolean("absolute", false))
@@ -81,7 +96,12 @@ class PolicyContract private constructor(value: JSONObject) {
             val height = posture.getJSONArray("height_offset_m").pair()
             val roll = posture.getJSONArray("roll_rad").pair()
             val pitch = posture.getJSONArray("pitch_rad").pair()
-            require(posture.getString("layout") == "append_after_history")
+            val expectedPostureLayout = if (observationBuilder == "current_body_v14_426") {
+                "append_after_selected_history"
+            } else {
+                "append_after_history"
+            }
+            require(posture.getString("layout") == expectedPostureLayout)
             postureHeightMinimum = height[0]
             postureHeightMaximum = height[1]
             postureRollMinimum = roll[0]
@@ -212,4 +232,9 @@ private fun JSONArray.floats(expectedSize: Int): FloatArray {
     return FloatArray(expectedSize) { index ->
         getDouble(index).toFloat().also { require(it.isFinite()) }
     }
+}
+
+private fun JSONArray.ints(expectedSize: Int): IntArray {
+    require(length() == expectedSize)
+    return IntArray(expectedSize) { index -> getInt(index) }
 }

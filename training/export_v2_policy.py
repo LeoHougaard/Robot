@@ -294,6 +294,14 @@ def main() -> None:
         type=Path,
         help="Schema-2 physical simulation fit for a CurrentV3 checkpoint.",
     )
+    parser.add_argument(
+        "--current-body-426",
+        action="store_true",
+        help=(
+            "Export the compact 24-frame/6-sample CurrentBody layout used by "
+            "V14 and later locomotion policies. Requires --current-fit."
+        ),
+    )
     parser.add_argument("--flat-evaluation", type=Path)
     parser.add_argument("--stress-evaluation", type=Path)
     parser.add_argument(
@@ -302,6 +310,8 @@ def main() -> None:
         help="Twelve control-profile joint semantics in policy order for CurrentV3.",
     )
     args = parser.parse_args()
+    if args.current_body_426 and not args.current_fit:
+        raise SystemExit("--current-body-426 requires --current-fit.")
 
     try:
         command_limits, stationary_contract, action_contract = deployment_contract(
@@ -370,8 +380,12 @@ def main() -> None:
             raise SystemExit("CurrentV3 export requires --policy-semantics in profile order.")
         from current_policy_fit import load_current_policy_fit
         current_fit = load_current_policy_fit(args.current_fit, args.policy_semantics)
-        observation_size = 279
-        hidden_sizes = (192, 192, 128)
+        if args.current_body_426:
+            observation_size = 426
+            hidden_sizes = (256, 256, 128)
+        else:
+            observation_size = 279
+            hidden_sizes = (192, 192, 128)
     else:
         current_fit = None
         observation_size = 180
@@ -417,10 +431,12 @@ def main() -> None:
     weights_path = args.output / "policy_weights.npz"
     np.savez_compressed(weights_path, **arrays)
     metadata = {
-        "schema_version": 3 if current_fit else 2,
+        "schema_version": 4 if args.current_body_426 else (3 if current_fit else 2),
         "deployment_tier": (
-            "current_v3_promoted" if current_fit else
+            "current_body_426_promoted" if args.current_body_426 else
+            ("current_v3_promoted" if current_fit else
             ("restricted_robust_test" if args.allow_robust_test_policy else "goal_promoted")
+            )
         ),
         "profile_id": args.profile_id,
         "profile_sha256": args.profile_sha,
@@ -428,8 +444,11 @@ def main() -> None:
         "weights_sha256": sha256(weights_path),
         "checkpoint_epoch": int(checkpoint["epoch"]),
         "observation_size": observation_size,
-        "observation_history": 4,
-        "observation_builder": "current_v3_279" if current_fit else "v2_180",
+        "observation_history": 24 if args.current_body_426 else 4,
+        "observation_builder": (
+            "current_body_v14_426" if args.current_body_426 else
+            ("current_v3_279" if current_fit else "v2_180")
+        ),
         "observation_frame": [
             "angular_velocity_body_rad_s[3]",
             "projected_gravity_body[3]",
@@ -454,6 +473,13 @@ def main() -> None:
             "normalized_absolute_servo_current[12]",
             "servo_current_freshness_validity[12]",
         ]
+        if args.current_body_426:
+            metadata["observation_frame"].append("control_interval_over_20ms[1]")
+            metadata["history_selection"] = {
+                "frame_size": 70,
+                "indices": [0, 5, 10, 15, 20, 23],
+                "timing_reference_ms": 20.0,
+            }
         metadata["posture_command"] = [
             "body_height_offset_m", "body_roll_rad", "body_pitch_rad",
         ]
@@ -470,11 +496,14 @@ def main() -> None:
             "missing_behavior": "hold_last_finite_and_validity_zero",
         }
         metadata["posture_command_contract"] = {
-            "height_offset_m": [-0.035, 0.015],
-            "roll_rad": [-0.12, 0.12],
-            "pitch_rad": [-0.12, 0.12],
+            "height_offset_m": [0.0, 0.0] if args.current_body_426 else [-0.035, 0.015],
+            "roll_rad": [0.0, 0.0] if args.current_body_426 else [-0.12, 0.12],
+            "pitch_rad": [0.0, 0.0] if args.current_body_426 else [-0.12, 0.12],
             "smoothing_time_s": 0.5,
-            "layout": "append_after_history",
+            "layout": (
+                "append_after_selected_history" if args.current_body_426
+                else "append_after_history"
+            ),
         }
         metadata["physical_fit"] = current_fit.metadata()
         metadata["evaluation_set"] = {

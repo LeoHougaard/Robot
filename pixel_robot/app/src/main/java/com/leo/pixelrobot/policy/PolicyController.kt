@@ -243,7 +243,11 @@ class PolicyController(
                 val baseFrame = vectors.first + command + joints +
                     FloatArray(ACTION_COUNT) { 0.05f * jointVelocity[it] } +
                     previousActionForObservation
-                val frame = observationBuilder.frame(baseFrame, currentRawByPolicyJoint(state))
+                val frame = observationBuilder.frame(
+                    baseFrame,
+                    currentRawByPolicyJoint(state),
+                    timingRatio = dt * 1000f / contract.timingReferenceMilliseconds,
+                )
                 if (history == null) {
                     history = Array(contract.observationHistory) { frame.copyOf() }
                 }

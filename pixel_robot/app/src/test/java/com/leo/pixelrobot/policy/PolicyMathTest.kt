@@ -260,4 +260,66 @@ class PolicyMathTest {
             1.0e-6f,
         )
     }
+
+    @Test
+    fun currentBodyObservationMatchesTheSixFrameTrainingLayout() {
+        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+            .put("schema_version", 4)
+            .put("observation_size", 426)
+            .put("observation_history", 24)
+            .put("observation_builder", "current_body_v14_426")
+            .put(
+                "history_selection",
+                JSONObject()
+                    .put("frame_size", 70)
+                    .put("indices", JSONArray(listOf(0, 5, 10, 15, 20, 23)))
+                    .put("timing_reference_ms", 20.0),
+            )
+            .put(
+                "current_observation_contract",
+                JSONObject()
+                    .put("units", "mA")
+                    .put("absolute", true)
+                    .put("normalization_bias_ma", JSONArray(List(12) { 10.0 }))
+                    .put("normalization_scale_ma", JSONArray(List(12) { 20.0 }))
+                    .put("clip_normalized", JSONArray(List(12) { 10.0 }))
+                    .put("current_step_ma", 6.5)
+                    .put("missing_behavior", "hold_last_finite_and_validity_zero"),
+            )
+            .put(
+                "posture_command_contract",
+                JSONObject()
+                    .put("height_offset_m", JSONArray(listOf(0.0, 0.0)))
+                    .put("roll_rad", JSONArray(listOf(0.0, 0.0)))
+                    .put("pitch_rad", JSONArray(listOf(0.0, 0.0)))
+                    .put("smoothing_time_s", 0.5)
+                    .put("layout", "append_after_selected_history"),
+            )
+        val contract = PolicyContract.parse(metadata.toString())
+        val builder = PolicyObservationBuilder(contract)
+        val history = Array(24) { historyIndex ->
+            val base = FloatArray(45).also {
+                it[0] = historyIndex.toFloat()
+                it[6] = 100f + historyIndex
+                it[7] = 200f + historyIndex
+                it[8] = 300f + historyIndex
+            }
+            builder.frame(base, Array(12) { 20 }, timingRatio = 1f + historyIndex / 100f)
+        }
+
+        assertEquals(70, history.first().size)
+        assertEquals(1.23f, history.last()[69], 1.0e-6f)
+        val observation = builder.observation(history, FloatArray(3))
+        assertEquals(426, observation.size)
+        assertArrayEquals(
+            floatArrayOf(0f, 5f, 10f, 15f, 20f, 23f),
+            FloatArray(6) { observation[it * 70] },
+            1.0e-6f,
+        )
+        assertArrayEquals(
+            floatArrayOf(123f, 223f, 323f, 0f, 0f, 0f),
+            observation.takeLast(6).toFloatArray(),
+            1.0e-6f,
+        )
+    }
 }
