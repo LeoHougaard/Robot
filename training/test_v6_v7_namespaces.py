@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).parent
 
 
-class CurrentBodyV6V16NamespaceTests(unittest.TestCase):
+class CurrentBodyV6V17NamespaceTests(unittest.TestCase):
     def _input_assignments(self, version: int):
         package = ROOT / f"simple_dog_task_current_body_v{version}"
         module = ast.parse(
@@ -19,16 +19,24 @@ class CurrentBodyV6V16NamespaceTests(unittest.TestCase):
             if isinstance(node, ast.ClassDef)
             and node.name == f"SimpleDogCurrentBodyV{version}HardEnvCfg"
         )
+        config_nodes = list(hard_config.body)
+        if version == 17:
+            locomotion_config = next(
+                node for node in module.body
+                if isinstance(node, ast.ClassDef)
+                and node.name == "_V17LocomotionObjective"
+            )
+            config_nodes = list(locomotion_config.body) + config_nodes
         return {
             target.id: ast.literal_eval(statement.value)
-            for statement in hard_config.body
+            for statement in config_nodes
             if isinstance(statement, ast.Assign)
             for target in statement.targets
             if isinstance(target, ast.Name)
         }
 
     def test_distinct_task_and_experiment_namespaces(self):
-        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
+        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17):
             package = ROOT / f"simple_dog_task_current_body_v{version}"
             registration = (package / "__init__.py").read_text(encoding="utf-8")
             agent = (package / "agents" / "rl_games_ppo_cfg.yaml").read_text(
@@ -110,7 +118,7 @@ class CurrentBodyV6V16NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         backend = (ROOT / "simple-dog-gb10.sh").read_text(encoding="utf-8")
-        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
+        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17):
             terrain = f"currentbodyv{version}hard"
             family = f"current_body_v{version}"
             self.assertIn(terrain, launcher)
@@ -143,7 +151,7 @@ class CurrentBodyV6V16NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "$isV15Terrain -or $isV16Terrain",
+            "$isV16Terrain -or $isV17Terrain",
             windows_launcher,
         )
         self.assertIn('"current-body-v5"', windows_launcher)
@@ -319,6 +327,21 @@ class CurrentBodyV6V16NamespaceTests(unittest.TestCase):
         self.assertNotIn("def _get_rewards", env_source)
         self.assertNotIn("gait_reward_scale =", cfg_source)
         self.assertNotIn("diagonal_gait_reward_scale =", cfg_source)
+
+    def test_v17_is_a_locomotion_only_scratch_objective(self):
+        package = ROOT / "simple_dog_task_current_body_v17"
+        env_source = (package / "simple_dog_current_body_v17_env.py").read_text(
+            encoding="utf-8"
+        )
+        cfg = self._input_assignments(17)
+        self.assertIn("SimpleDogCurrentBodyV16Env", env_source)
+        self.assertIn("def _sample_command_targets", env_source)
+        self.assertIn("def _sample_posture_targets", env_source)
+        self.assertIn("def _get_rewards", env_source)
+        self.assertEqual(cfg["locomotion_speed_range"], (0.10, 0.20))
+        self.assertEqual(cfg["locomotion_shortfall_penalty_scale"], -6.0)
+        self.assertEqual(cfg["locomotion_level_penalty_scale"], -2.0)
+        self.assertNotIn("diagonal", env_source.lower())
 
     def test_v7_uses_post_settle_physical_pushes_without_reward_changes(self):
         cfg = self._input_assignments(7)
