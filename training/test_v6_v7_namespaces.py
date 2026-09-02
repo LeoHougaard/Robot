@@ -339,6 +339,7 @@ class CurrentBodyV6V17NamespaceTests(unittest.TestCase):
         self.assertIn("def _sample_posture_targets", env_source)
         self.assertIn("def _get_rewards", env_source)
         self.assertEqual(cfg["locomotion_speed_range"], (0.10, 0.20))
+        self.assertEqual(cfg["episode_length_s"], 90.0)
         self.assertEqual(cfg["locomotion_shortfall_penalty_scale"], -6.0)
         self.assertEqual(cfg["locomotion_level_penalty_scale"], -2.0)
         self.assertNotIn("diagonal", env_source.lower())

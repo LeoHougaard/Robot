@@ -12,6 +12,7 @@ from simple_dog_task_current_body_v16.simple_dog_current_body_v16_env_cfg import
 
 class _V17LocomotionObjective:
     policy_family = "current_body_v17"
+    episode_length_s = 90.0
     locomotion_translation_fraction = 0.90
     locomotion_forward_fraction = 0.55
     locomotion_lateral_fraction = 0.15
