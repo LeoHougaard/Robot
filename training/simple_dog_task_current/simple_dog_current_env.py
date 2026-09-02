@@ -122,6 +122,9 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         self._reset_hold_joint_position[env_ids] = hold_position
         self._reset_settle_steps_remaining[env_ids] = settle_steps
         self._reset_hold_active_mask[env_ids] = settle_steps > 0
+        # The base task staggers a full reset by randomizing episode timers.
+        # A new locked drop needs its own complete window before policy control.
+        self.episode_length_buf[env_ids] = 0
 
         full_joint_position = self._robot.data.default_joint_pos.torch[
             env_ids

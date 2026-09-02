@@ -103,6 +103,15 @@ class V4DifficultyRampTests(unittest.TestCase):
         get_dones_source = ast.unparse(get_dones)
         self.assertIn("terminated & ~self._reset_hold_active_mask", get_dones_source)
 
+        start_settle = next(
+            node
+            for node in ast.walk(module)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_start_reset_settle"
+        )
+        start_settle_source = ast.unparse(start_settle)
+        self.assertIn("self.episode_length_buf[env_ids] = 0", start_settle_source)
+
 
 if __name__ == "__main__":
     unittest.main()
