@@ -100,7 +100,12 @@ $copies = @(
     @{ Local = "training\simple_dog_task_current_body_v12\simple_dog_current_body_v12_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
     @{ Local = "training\simple_dog_task_current_body_v12\simple_dog_current_body_v12_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
     @{ Local = "training\simple_dog_task_current_body_v12\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" },
-    @{ Local = "training\simple_dog_task_current_body_v12\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" }
+    @{ Local = "training\simple_dog_task_current_body_v12\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v13\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13" },
+    @{ Local = "training\simple_dog_task_current_body_v13\simple_dog_current_body_v13_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13" },
+    @{ Local = "training\simple_dog_task_current_body_v13\simple_dog_current_body_v13_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13" },
+    @{ Local = "training\simple_dog_task_current_body_v13\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13/agents" },
+    @{ Local = "training\simple_dog_task_current_body_v13\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v13/agents" }
 )
 $deployCopies = if ($ReuseDeployedSource) { $copies[0..1] } else { $copies }
 if (-not $ReuseDeployedSource) {
@@ -114,7 +119,9 @@ if (-not $ReuseDeployedSource) {
         "$remoteTraining/simple_dog_task_current_body_v11",
         "$remoteTraining/simple_dog_task_current_body_v11/agents",
         "$remoteTraining/simple_dog_task_current_body_v12",
-        "$remoteTraining/simple_dog_task_current_body_v12/agents"
+        "$remoteTraining/simple_dog_task_current_body_v12/agents",
+        "$remoteTraining/simple_dog_task_current_body_v13",
+        "$remoteTraining/simple_dog_task_current_body_v13/agents"
     )
     & ssh -n @sshOptions $sshTarget ("install -d -m 0755 " + ($rolloutDirectories -join " "))
     if ($LASTEXITCODE -ne 0) {

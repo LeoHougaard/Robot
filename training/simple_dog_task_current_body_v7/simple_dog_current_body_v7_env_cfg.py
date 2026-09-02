@@ -29,6 +29,7 @@ class SimpleDogCurrentBodyV7HardEnvCfg(SimpleDogCurrentBodyV5HardEnvCfg):
     # terms or direct root-velocity edits.  The inherited V4 difficulty ramp
     # scales both event probability and magnitude from mild to full strength.
     push_probability = 0.35
+    push_difficulty_floor = 0.0
     push_interval_s = (6.0, 10.0)
     push_force_duration_s = (0.08, 0.16)
     push_force_n = (4.0, 12.0)

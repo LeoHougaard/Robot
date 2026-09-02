@@ -42,7 +42,9 @@ class SimpleDogCurrentBodyV7Env(SimpleDogCurrentBodyV5Env):
         if len(expired):
             self._robot.permanent_wrench_composer.reset(env_ids=expired)
 
-        difficulty = self._difficulty_fraction()
+        difficulty = max(
+            self._difficulty_fraction(), self.cfg.push_difficulty_floor
+        )
         probability = self.cfg.push_probability * difficulty
         if probability <= 0.0:
             return
