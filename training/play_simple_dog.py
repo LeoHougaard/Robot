@@ -67,6 +67,16 @@ elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v14":
     import simple_dog_task_current_body_v12  # noqa: F401
     import simple_dog_task_current_body_v13  # noqa: F401
     import simple_dog_task_current_body_v14  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v15":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+    import simple_dog_task_current_body_v15  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 import isaaclab_tasks.utils as isaac_task_utils
