@@ -51,6 +51,9 @@ class SimpleDogCurrentBodyV7EvalEnvCfg(SimpleDogCurrentBodyV5EvalEnvCfg):
     command_hold_s = (4.0, 8.0)
     linear_command_hold_s = (8.0, 12.0)
     command_smoothing_time_s = 0.65
+    # The V7 environment reads this field for every registered mode. Normal
+    # deterministic evaluation does not apply early curriculum pushes.
+    push_difficulty_floor = 0.0
 
 
 @configclass
@@ -67,6 +70,9 @@ class SimpleDogCurrentBodyV7PlayEnvCfg(SimpleDogCurrentBodyV5PlayEnvCfg):
     command_hold_s = (4.0, 8.0)
     linear_command_hold_s = (8.0, 12.0)
     command_smoothing_time_s = 0.65
+    # Visual review uses the same environment class as training, so keep its
+    # push-curriculum contract complete while leaving the floor disabled.
+    push_difficulty_floor = 0.0
 
 
 @configclass

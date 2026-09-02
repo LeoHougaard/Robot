@@ -289,6 +289,28 @@ class CurrentBodyV6V13NamespaceTests(unittest.TestCase):
         self.assertNotIn("def _get_rewards", env_source)
         self.assertIn("CurrentBodyV7-Simple-Dog-Direct-Push-Eval", registration)
 
+        cfg_module = ast.parse(
+            (package / "simple_dog_current_body_v7_env_cfg.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        for class_name in (
+            "SimpleDogCurrentBodyV7EvalEnvCfg",
+            "SimpleDogCurrentBodyV7PlayEnvCfg",
+        ):
+            config_class = next(
+                node for node in cfg_module.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            )
+            assignments = {
+                target.id: ast.literal_eval(statement.value)
+                for statement in config_class.body
+                if isinstance(statement, ast.Assign)
+                for target in statement.targets
+                if isinstance(target, ast.Name)
+            }
+            self.assertEqual(assignments["push_difficulty_floor"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
