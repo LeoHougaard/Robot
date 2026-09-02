@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).parent
 
 
-class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
+class CurrentBodyV6V12NamespaceTests(unittest.TestCase):
     def _input_assignments(self, version: int):
         package = ROOT / f"simple_dog_task_current_body_v{version}"
         module = ast.parse(
@@ -28,7 +28,7 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
         }
 
     def test_distinct_task_and_experiment_namespaces(self):
-        for version in (6, 7, 8, 9, 10, 11):
+        for version in (6, 7, 8, 9, 10, 11, 12):
             package = ROOT / f"simple_dog_task_current_body_v{version}"
             registration = (package / "__init__.py").read_text(encoding="utf-8")
             agent = (package / "agents" / "rl_games_ppo_cfg.yaml").read_text(
@@ -57,7 +57,7 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
         self.assertGreaterEqual(v6["linear_command_hold_s"][0], 6.0)
         self.assertGreater(v7["linear_command_hold_s"][0], v6["linear_command_hold_s"][0])
 
-        for version in (6, 7, 8, 9, 10, 11):
+        for version in (6, 7, 8, 9, 10, 11, 12):
             package = ROOT / f"simple_dog_task_current_body_v{version}"
             env_source = (
                 package / f"simple_dog_current_body_v{version}_env.py"
@@ -70,6 +70,7 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
             expected_parent = (
                 "SimpleDogCurrentBodyV5" if version < 8
                 else "SimpleDogCurrentBodyV10" if version == 11
+                else "SimpleDogCurrentBodyV11" if version == 12
                 else "SimpleDogCurrentBodyV7"
             )
             self.assertIn(expected_parent, cfg_source)
@@ -105,7 +106,7 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         backend = (ROOT / "simple-dog-gb10.sh").read_text(encoding="utf-8")
-        for version in (6, 7, 8, 9, 10, 11):
+        for version in (6, 7, 8, 9, 10, 11, 12):
             terrain = f"currentbodyv{version}hard"
             family = f"current_body_v{version}"
             self.assertIn(terrain, launcher)
@@ -138,7 +139,7 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "$isV10Terrain -or $isV11Terrain",
+            "$isV11Terrain -or $isV12Terrain",
             windows_launcher,
         )
         self.assertIn('"current-body-v5"', windows_launcher)
@@ -222,6 +223,24 @@ class CurrentBodyV6V11NamespaceTests(unittest.TestCase):
         self.assertIn("difficulty_ramp_floor = 0.01", cfg_source)
         self.assertIn("difficulty_ramp_terrain_band_rows = 1", cfg_source)
         self.assertIn("difficulty_ramp_full_step = 32 * 200", cfg_source)
+        self.assertNotIn("def _get_rewards", env_source)
+        self.assertNotIn("reward_scale =", cfg_source)
+
+    def test_v12_adds_action_exploration_without_reward_changes(self):
+        package = ROOT / "simple_dog_task_current_body_v12"
+        env_source = (package / "simple_dog_current_body_v12_env.py").read_text(
+            encoding="utf-8"
+        )
+        cfg_source = (package / "simple_dog_current_body_v12_env_cfg.py").read_text(
+            encoding="utf-8"
+        )
+        agent = (package / "agents" / "rl_games_ppo_cfg.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("SimpleDogCurrentBodyV11Env", env_source)
+        self.assertIn("sigma_init: {name: const_initializer, val: 0.0}", agent)
+        self.assertIn("entropy_coef: 0.02", agent)
+        self.assertIn("save_frequency: 10", agent)
         self.assertNotIn("def _get_rewards", env_source)
         self.assertNotIn("reward_scale =", cfg_source)
 

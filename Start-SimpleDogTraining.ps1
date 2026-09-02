@@ -9,7 +9,7 @@ param(
     [ValidateRange(0, 2147483647)]
     [Nullable[int]]$Seed = $null,
 
-    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard")]
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard", "CurrentBodyV12Hard")]
     [string]$Terrain = "Flat",
 
     [string]$Checkpoint = "",
@@ -100,8 +100,10 @@ $v10Terrains = @("CurrentBodyV10Hard")
 $isV10Terrain = $Terrain -in $v10Terrains
 $v11Terrains = @("CurrentBodyV11Hard")
 $isV11Terrain = $Terrain -in $v11Terrains
-$currentBodyTerrains = $v4Terrains + $v5Terrains + $v6Terrains + $v7Terrains + $v8Terrains + $v9Terrains + $v10Terrains + $v11Terrains
-if (($isV4Terrain -or $isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain) -and $Checkpoint) {
+$v12Terrains = @("CurrentBodyV12Hard")
+$isV12Terrain = $Terrain -in $v12Terrains
+$currentBodyTerrains = $v4Terrains + $v5Terrains + $v6Terrains + $v7Terrains + $v8Terrains + $v9Terrains + $v10Terrains + $v11Terrains + $v12Terrains
+if (($isV4Terrain -or $isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain -or $isV12Terrain) -and $Checkpoint) {
     throw "$Terrain requires a random actor and optimizer start; checkpoints are forbidden."
 }
 if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and $Terrain -notin $currentBodyTerrains -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
@@ -164,7 +166,7 @@ if ($Terrain -in ($currentTerrains + $currentBodyTerrains)) {
         throw "$Terrain fit does not contain complete current and critical feedback."
     }
     $simulationFitHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedSimulationFit).Hash.ToLowerInvariant()
-    $fitFamily = if ($isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain) {
+    $fitFamily = if ($isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain -or $isV12Terrain) {
         "current-body-v5"
     }
     elseif ($isV4Terrain) {
@@ -248,6 +250,8 @@ $remoteDirectories = @(
     "$remoteTraining/simple_dog_task_current_body_v10/agents",
     "$remoteTraining/simple_dog_task_current_body_v11",
     "$remoteTraining/simple_dog_task_current_body_v11/agents",
+    "$remoteTraining/simple_dog_task_current_body_v12",
+    "$remoteTraining/simple_dog_task_current_body_v12/agents",
     "$remoteTraining/control_profiles",
     "$remoteTraining/fits"
 )
@@ -337,7 +341,12 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\simple_dog_current_body_v11_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\simple_dog_current_body_v11_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11/agents" },
-    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v11/agents" }
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v11/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\simple_dog_current_body_v12_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\simple_dog_current_body_v12_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" }
 )
 foreach ($copy in $copies) {
     if (-not (Test-Path -LiteralPath $copy.Local -PathType Leaf)) {
@@ -399,6 +408,7 @@ if ($ControlProfile) {
             "CurrentBodyV9Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV10Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV11Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV12Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             default { throw "Control profiles require a V2, CurrentV3, or CurrentBody training stage." }
         }
         & ssh @sshOptions $sshTarget "docker exec --workdir /workspace/projects/training isaac-lab-gb10 bash /workspace/projects/training/validate_control_profile_robot.sh '$remoteControlProfile' '$validationTask'"

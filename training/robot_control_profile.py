@@ -93,6 +93,7 @@ def apply_agent_profile(
         "current_body_v6", "current_body_v7", "current_body_v8", "current_body_v9",
         "current_body_v10",
         "current_body_v11",
+        "current_body_v12",
     ):
         # The selected profile owns robot geometry and hardware limits, but its
         # PPO block was tuned for the 180-input V2 family. Keep CurrentV3's
@@ -107,6 +108,7 @@ def apply_agent_profile(
             "current_body_v9": "quadruped_current_body_v9_",
             "current_body_v10": "quadruped_current_body_v10_",
             "current_body_v11": "quadruped_current_body_v11_",
+            "current_body_v12": "quadruped_current_body_v12_",
         }[policy_family]
         config["name"] = prefix + profile["profile_id"].replace("-", "_")
         return agent_cfg

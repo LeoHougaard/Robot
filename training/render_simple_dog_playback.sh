@@ -103,6 +103,16 @@ case "$terrain" in
     export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
     review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
     ;;
+  currentbodyv12hard)
+    task="Isaac-Locomotion-CurrentBodyV12-Simple-Dog-Direct-Play-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v12"
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'CurrentBodyV12 playback requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
+    ;;
   *)
     printf 'Terrain must be a supported V1, V2, CurrentV3, or CurrentBody stage.\n' >&2
     exit 2
@@ -122,7 +132,8 @@ esac
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v8_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v9_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v10_*/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v11_*/*.pth ]] || {
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v11_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v12_*/*.pth ]] || {
   printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
   exit 2
 }
@@ -130,7 +141,7 @@ if [[ "$terrain" != currentv3* && "$terrain" != currentbodyv4hard &&
       "$terrain" != currentbodyv5hard && "$terrain" != currentbodyv6hard &&
       "$terrain" != currentbodyv7hard && "$terrain" != currentbodyv8hard &&
       "$terrain" != currentbodyv9hard && "$terrain" != currentbodyv10hard &&
-      "$terrain" != currentbodyv11hard && -n "$simulation_fit" ]]; then
+      "$terrain" != currentbodyv11hard && "$terrain" != currentbodyv12hard && -n "$simulation_fit" ]]; then
   printf 'A simulation fit may be supplied only for current-aware playback.\n' >&2
   exit 2
 fi
