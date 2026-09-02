@@ -280,6 +280,7 @@ $copies = @(
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "run_simple_dog.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "simple-dog-gb10.sh"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "render_simple_dog_playback.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "run_simple_dog_scratch_seed_queue.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "ensure_simple_dog_meshes.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "prepare_control_profile_asset.sh"; Remote = $remoteTraining },

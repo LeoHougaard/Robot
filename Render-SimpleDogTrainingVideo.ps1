@@ -102,6 +102,7 @@ $copies = @(
     @{ Local = "training\simple_dog_task_current_body_v12\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" },
     @{ Local = "training\simple_dog_task_current_body_v12\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" }
 )
+$deployCopies = if ($ReuseDeployedSource) { $copies[0..1] } else { $copies }
 if (-not $ReuseDeployedSource) {
     $rolloutDirectories = @(
         "$remoteTraining/simple_dog_task_current_body_v8",
@@ -119,25 +120,25 @@ if (-not $ReuseDeployedSource) {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not prepare remote rollout directories."
     }
-    foreach ($copy in $copies) {
-        $localPath = Join-Path $PSScriptRoot $copy.Local
-        if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
-            throw "Required rollout file is missing: $localPath"
+}
+foreach ($copy in $deployCopies) {
+    $localPath = Join-Path $PSScriptRoot $copy.Local
+    if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
+        throw "Required rollout file is missing: $localPath"
+    }
+    $copied = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & scp @sshOptions $localPath "${sshTarget}:$($copy.Remote)/"
+        if ($LASTEXITCODE -eq 0) {
+            $copied = $true
+            break
         }
-        $copied = $false
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            & scp @sshOptions $localPath "${sshTarget}:$($copy.Remote)/"
-            if ($LASTEXITCODE -eq 0) {
-                $copied = $true
-                break
-            }
-            if ($attempt -lt 3) {
-                Start-Sleep -Seconds 2
-            }
+        if ($attempt -lt 3) {
+            Start-Sleep -Seconds 2
         }
-        if (-not $copied) {
-            throw "Could not deploy rollout file: $localPath"
-        }
+    }
+    if (-not $copied) {
+        throw "Could not deploy rollout file: $localPath"
     }
 }
 & ssh -n @sshOptions $sshTarget "chmod 0755 '$remoteHelper' '$remoteTraining/render_simple_dog_playback.sh' && '$remoteHelper' render-latest-video '$VideoLength' '$ValidationSample'"
