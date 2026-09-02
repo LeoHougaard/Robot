@@ -182,6 +182,14 @@ case "$terrain" in
       exit 2
     }
     ;;
+  currentbodyv18hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV18-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v18"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV18Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
     exit 2
@@ -248,7 +256,7 @@ if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4* ||
       "$terrain" == currentbodyv11* || "$terrain" == currentbodyv12* ||
       "$terrain" == currentbodyv13* || "$terrain" == currentbodyv14* ||
       "$terrain" == currentbodyv15* || "$terrain" == currentbodyv16* ||
-      "$terrain" == currentbodyv17* ]]; then
+      "$terrain" == currentbodyv17* || "$terrain" == currentbodyv18* ]]; then
   [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
     printf 'Current-aware simulation fit is outside the training fits directory: %s\n' \
       "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2
