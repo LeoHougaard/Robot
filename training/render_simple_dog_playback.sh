@@ -173,6 +173,16 @@ case "$terrain" in
     export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
     review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
     ;;
+  currentbodyv19hard)
+    task="Isaac-Locomotion-CurrentBodyV19-Simple-Dog-Direct-Play-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v19"
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'CurrentBodyV19 playback requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    review_num_envs="${SIMPLE_DOG_REVIEW_NUM_ENVS:-5}"
+    ;;
   *)
     printf 'Terrain must be a supported V1, V2, CurrentV3, or CurrentBody stage.\n' >&2
     exit 2
@@ -199,7 +209,8 @@ esac
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v15_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v16_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v17_*/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v18_*/*.pth ]] || {
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v18_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v19_*/*.pth ]] || {
   printf 'Checkpoint must be below the simple-dog log directory.\n' >&2
   exit 2
 }
@@ -211,6 +222,7 @@ if [[ "$terrain" != currentv3* && "$terrain" != currentbodyv4hard &&
       "$terrain" != currentbodyv13hard && "$terrain" != currentbodyv14hard &&
       "$terrain" != currentbodyv15hard && "$terrain" != currentbodyv16hard &&
       "$terrain" != currentbodyv17hard && "$terrain" != currentbodyv18hard &&
+      "$terrain" != currentbodyv19hard &&
       -n "$simulation_fit" ]]; then
   printf 'A simulation fit may be supplied only for current-aware playback.\n' >&2
   exit 2

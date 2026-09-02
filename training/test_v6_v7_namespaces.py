@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).parent
 
 
-class CurrentBodyV6V18NamespaceTests(unittest.TestCase):
+class CurrentBodyV6V19NamespaceTests(unittest.TestCase):
     def _input_assignments(self, version: int):
         package = ROOT / f"simple_dog_task_current_body_v{version}"
         module = ast.parse(
@@ -36,7 +36,7 @@ class CurrentBodyV6V18NamespaceTests(unittest.TestCase):
         }
 
     def test_distinct_task_and_experiment_namespaces(self):
-        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18):
+        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19):
             package = ROOT / f"simple_dog_task_current_body_v{version}"
             registration = (package / "__init__.py").read_text(encoding="utf-8")
             agent = (package / "agents" / "rl_games_ppo_cfg.yaml").read_text(
@@ -118,7 +118,7 @@ class CurrentBodyV6V18NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         backend = (ROOT / "simple-dog-gb10.sh").read_text(encoding="utf-8")
-        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18):
+        for version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19):
             terrain = f"currentbodyv{version}hard"
             family = f"current_body_v{version}"
             self.assertIn(terrain, launcher)
@@ -151,7 +151,7 @@ class CurrentBodyV6V18NamespaceTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "$isV17Terrain -or $isV18Terrain",
+            "$isV17Terrain -or $isV18Terrain -or $isV19Terrain",
             windows_launcher,
         )
         self.assertIn('"current-body-v5"', windows_launcher)
@@ -362,6 +362,21 @@ class CurrentBodyV6V18NamespaceTests(unittest.TestCase):
             cfg["opposite_leg_sync_reward_scale"],
             2.0,
         )
+
+    def test_v19_is_the_stiff_scratch_alternative_without_reward_changes(self):
+        package = ROOT / "simple_dog_task_current_body_v19"
+        env_source = (package / "simple_dog_current_body_v19_env.py").read_text(
+            encoding="utf-8"
+        )
+        cfg = self._input_assignments(19)
+        agent_source = (package / "agents" / "rl_games_ppo_cfg.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("SimpleDogCurrentBodyV18Env", env_source)
+        self.assertNotIn("def _get_rewards", env_source)
+        self.assertEqual(cfg["actuator_drive_scale"], (1.0, 1.35))
+        self.assertIn("load_checkpoint: false", agent_source)
+        self.assertIn("horizon_length: 64", agent_source)
 
     def test_v7_uses_post_settle_physical_pushes_without_reward_changes(self):
         cfg = self._input_assignments(7)
