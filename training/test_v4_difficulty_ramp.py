@@ -87,6 +87,22 @@ class V4DifficultyRampTests(unittest.TestCase):
         ):
             self.assertEqual(ast.literal_eval(assignments[field]), 0.0)
 
+    def test_locked_drop_is_not_ended_by_fall_detection(self):
+        source_path = (
+            Path(__file__).parent
+            / "simple_dog_task_current"
+            / "simple_dog_current_env.py"
+        )
+        module = ast.parse(source_path.read_text(encoding="utf-8"))
+        get_dones = next(
+            node
+            for node in ast.walk(module)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_get_dones"
+        )
+        get_dones_source = ast.unparse(get_dones)
+        self.assertIn("terminated & ~self._reset_hold_active_mask", get_dones_source)
+
 
 if __name__ == "__main__":
     unittest.main()

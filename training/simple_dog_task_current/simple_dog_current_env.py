@@ -149,6 +149,14 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
                 flush=True,
             )
 
+    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Do not terminate an episode during the requested locked drop."""
+
+        terminated, time_out = super()._get_dones()
+        if hasattr(self, "_reset_hold_active_mask"):
+            terminated = terminated & ~self._reset_hold_active_mask
+        return terminated, time_out
+
     def _joint_tensor(self, values) -> torch.Tensor:
         if len(values) != self.cfg.action_space:
             raise ValueError("CurrentV3 fit arrays must match the action size")
