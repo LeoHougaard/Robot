@@ -139,9 +139,19 @@ render_latest_video() {
     printf 'Validation sample must be 0-4.\n' >&2
     return 2
   }
-  mapfile -t candidates < <(
-    find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r
-  )
+  if active; then
+    # An active review must belong to the active run. If that run has not
+    # emitted a checkpoint yet, fail honestly instead of rendering an older
+    # experiment and rejecting it only after spending several GPU minutes.
+    latest="$(latest_run || true)"
+    candidates=()
+    [[ -z "$latest" ]] || candidates+=("$latest")
+    latest=""
+  else
+    mapfile -t candidates < <(
+      find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r
+    )
+  fi
   for candidate in "${candidates[@]}"; do
     experiment="$(
       grep -E 'Exact experiment name requested from command line: /workspace/projects/' \

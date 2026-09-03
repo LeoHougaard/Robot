@@ -156,6 +156,16 @@ class CurrentBodyV6V19NamespaceTests(unittest.TestCase):
         )
         self.assertIn('"current-body-v5"', windows_launcher)
 
+    def test_active_review_never_falls_back_to_an_older_run(self):
+        backend = (ROOT / "simple-dog-gb10.sh").read_text(encoding="utf-8")
+        selector = backend.split("render_latest_video()", 1)[1].split(
+            "render_checkpoint_video()", 1
+        )[0]
+        self.assertIn("if active; then", selector)
+        self.assertIn('latest="$(latest_run || true)"', selector)
+        self.assertIn('candidates+=("$latest")', selector)
+        self.assertIn("else\n    mapfile -t candidates", selector)
+
     def test_v8_changes_only_the_input_distribution(self):
         v8 = self._input_assignments(8)
         self.assertAlmostEqual(
