@@ -102,7 +102,10 @@ case "$stage" in
     fi
     video_length=2600
     expected_segments=14
-    screen_timeout=240s
+    # CurrentBody startup can spend several minutes loading the large custom
+    # articulation and checkpoint on the Spark. Keep evaluation bounded while
+    # allowing the complete 52-second deterministic command screen to run.
+    screen_timeout=600s
     [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v${version}_*/*.pth ]] || {
       printf 'CurrentBodyV%s evaluation requires a matching checkpoint.\n' "$version" >&2
       exit 2
