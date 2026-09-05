@@ -17,6 +17,7 @@
     <string name="servo_load_explanation">The ST3215 reports motor load and current, not calibrated contact force. Estimated joint torque uses the 7.4 V model constants. Foot force needs linkage geometry and calibration.</string>
     <string name="forward_request">Forward request: %1$.2f m/s</string>
     <string name="yaw_request">Yaw request: %1$.2f rad/s</string>
+    <string name="lateral_request">Sideways request: %1$.2f m/s</string>
     <string name="height_request">Body height offset: %1$.3f m</string>
     <string name="roll_request">Body roll request: %1$.2f rad</string>
     <string name="pitch_request">Body pitch request: %1$.2f rad</string>

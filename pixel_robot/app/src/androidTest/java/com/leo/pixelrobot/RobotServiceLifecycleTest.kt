@@ -39,6 +39,22 @@ class RobotServiceLifecycleTest {
             check(status.getBoolean("ok"))
             check(!status.getBoolean("policy_armed"))
 
+            // Setting all six commands must work without starting motion.
+            // An invalid posture must be rejected by the installed contract.
+            for ((roll, expectedCode) in listOf(0.0 to 200, 1e10 to 400)) {
+                val command = URL("http://127.0.0.1:8767/api/command").openConnection() as HttpURLConnection
+                command.connectTimeout = 500
+                command.readTimeout = 500
+                command.requestMethod = "POST"
+                command.doOutput = true
+                try {
+                    val body = JSONObject().put("forward", 0).put("lateral", 0).put("yaw_rate", 0)
+                        .put("height_offset", 0).put("roll", roll).put("pitch", 0).toString()
+                    command.outputStream.use { it.write(body.toByteArray()) }
+                    check(command.responseCode == expectedCode)
+                } finally { command.disconnect() }
+            }
+
             val stopConnection = URL("http://127.0.0.1:8767/api/stop").openConnection() as HttpURLConnection
             stopConnection.connectTimeout = 500
             stopConnection.readTimeout = 500

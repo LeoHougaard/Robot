@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.startPolicyButton.setOnClickListener {
             runCatching {
-                robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value)
+                robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value, binding.lateralSlider.value)
                 updatePostureRequest()
                 robotService?.startPolicy()
             }.onFailure { binding.runtimeStatus.text = it.message }
@@ -153,12 +153,17 @@ class MainActivity : AppCompatActivity() {
                 .onFailure { binding.runtimeStatus.text = it.message }
         }
         binding.forwardSlider.addOnChangeListener { _, value, _ ->
-            runCatching { robotService?.updateMotionRequest(value, binding.yawSlider.value) }
+            runCatching { robotService?.updateMotionRequest(value, binding.yawSlider.value, binding.lateralSlider.value) }
                 .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
         binding.yawSlider.addOnChangeListener { _, value, _ ->
-            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, value) }
+            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, value, binding.lateralSlider.value) }
+                .onFailure { binding.runtimeStatus.text = it.message }
+            renderMotionLabels()
+        }
+        binding.lateralSlider.addOnChangeListener { _, value, _ ->
+            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value, value) }
                 .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
@@ -318,9 +323,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateArmAvailability() {
         val ready = robotService?.status?.value?.linkState == LinkState.READY
-        val clockedPolicyReady = FirmwareCapabilities.supportsClockedPolicyFeedback(
+        val clockedPolicyReady = robotService?.firmwareSupportsInstalledPolicy(
             robotService?.status?.value?.firmwareVersion,
-        )
+        ) == true
         val idle = robotService?.policyStatus?.value?.active != true
         binding.startPolicyButton.isEnabled = ready && clockedPolicyReady && idle
         binding.standAtStartPoseButton.isEnabled =
@@ -339,6 +344,12 @@ class MainActivity : AppCompatActivity() {
         binding.yawSlider.valueTo = service.yawMaximum
         binding.yawSlider.value = binding.yawSlider.value.coerceIn(service.yawMinimum, service.yawMaximum)
         val postureEnabled = service.supportsPostureCommands
+        binding.lateralSlider.isEnabled = service.lateralMinimum < service.lateralMaximum
+        if (binding.lateralSlider.isEnabled) {
+            binding.lateralSlider.valueFrom = service.lateralMinimum
+            binding.lateralSlider.valueTo = service.lateralMaximum
+            binding.lateralSlider.value = binding.lateralSlider.value.coerceIn(service.lateralMinimum, service.lateralMaximum)
+        }
         listOf(binding.heightSlider, binding.rollSlider, binding.pitchSlider).forEach {
             it.isEnabled = postureEnabled
         }
@@ -366,6 +377,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderMotionLabels() {
         binding.forwardRequestLabel.text = getString(R.string.forward_request, binding.forwardSlider.value)
         binding.yawRequestLabel.text = getString(R.string.yaw_request, binding.yawSlider.value)
+        binding.lateralRequestLabel.text = getString(R.string.lateral_request, binding.lateralSlider.value)
         binding.heightRequestLabel.text = getString(R.string.height_request, binding.heightSlider.value)
         binding.rollRequestLabel.text = getString(R.string.roll_request, binding.rollSlider.value)
         binding.pitchRequestLabel.text = getString(R.string.pitch_request, binding.pitchSlider.value)

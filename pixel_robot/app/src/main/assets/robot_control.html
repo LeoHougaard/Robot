@@ -130,6 +130,19 @@
         <p class="restriction">The ESP32 sets all 12 servos to full torque immediately before policy arm.</p>
       </div>
 
+      <div>
+        <div class="control-head"><h2>Body height offset</h2><output id="height-value">0 mm</output></div>
+        <input id="height" type="range" min="0" max="0" step="0.001" value="0" disabled>
+      </div>
+      <div>
+        <div class="control-head"><h2>Body roll</h2><output id="roll-value">0.00 rad</output></div>
+        <input id="roll" type="range" min="0" max="0" step="0.01" value="0" disabled>
+      </div>
+      <div>
+        <div class="control-head"><h2>Body pitch</h2><output id="pitch-value">0.00 rad</output></div>
+        <input id="pitch" type="range" min="0" max="0" step="0.01" value="0" disabled>
+      </div>
+
       <div class="buttons">
         <button id="stand" disabled>STAND</button>
         <button id="start" disabled>Start continuous test</button>
@@ -145,7 +158,7 @@
       <button id="download" disabled>Download last run data</button>
       <button id="download-capture" disabled>Download training capture</button>
       <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
-      <p class="restriction">The controls use the installed policy?s tested command limits.</p>
+      <p class="restriction">The controls use the installed policy's tested command limits.</p>
     </section>
   </main>
   <script>
@@ -158,7 +171,8 @@
     let clockedPolicyReady = false;
 
     function values() {
-      return { forward: Number(ui.forward.value), lateral: Number(ui.lateral.value), yaw_rate: Number(ui.yaw.value) };
+      return { forward: Number(ui.forward.value), lateral: Number(ui.lateral.value), yaw_rate: Number(ui.yaw.value),
+        height_offset: Number(ui.height.value), roll: Number(ui.roll.value), pitch: Number(ui.pitch.value) };
     }
 
     function renderValues() {
@@ -166,6 +180,9 @@
       ui["forward-value"].textContent = `${command.forward.toFixed(2)} m/s`;
       ui["lateral-value"].textContent = `${command.lateral.toFixed(2)} m/s`;
       ui["yaw-value"].textContent = `${command.yaw_rate.toFixed(2)} rad/s`;
+      ui["height-value"].textContent = `${(command.height_offset * 1000).toFixed(0)} mm`;
+      ui["roll-value"].textContent = `${command.roll.toFixed(2)} rad`;
+      ui["pitch-value"].textContent = `${command.pitch.toFixed(2)} rad`;
       if (live) {
         clearTimeout(commandTimer);
         commandTimer = setTimeout(() => post("/api/command", command).catch(() => {}), 80);
@@ -254,6 +271,14 @@
         ui.yaw.max = status.yaw_max;
       }
       ui.download.disabled = !status.latest_session_available;
+      for (const name of ["height", "roll", "pitch"]) {
+        const minimum = status[`${name}_min`], maximum = status[`${name}_max`];
+        if (Number.isFinite(minimum) && Number.isFinite(maximum)) {
+          ui[name].min = minimum;
+          ui[name].max = maximum;
+          ui[name].disabled = minimum === maximum;
+        }
+      }
       ui.record.textContent = status.recording_active ? "Stop recording" : "Record";
       ui.download.textContent = status.latest_session_file
         ? `Download ${status.latest_session_file}`
@@ -288,12 +313,14 @@
     ui.forward.addEventListener("input", renderValues);
     ui.yaw.addEventListener("input", renderValues);
     ui.lateral.addEventListener("input", renderValues);
+    for (const name of ["height", "roll", "pitch"]) ui[name].addEventListener("input", renderValues);
     ui.stand.addEventListener("click", () => post("/api/stand"));
     ui.start.addEventListener("click", () => post("/api/start", values()));
     ui.stop.addEventListener("click", () => {
       ui.forward.value = "0";
       ui.lateral.value = "0";
       ui.yaw.value = "0";
+      ui.height.value = ui.roll.value = ui.pitch.value = "0";
       renderValues();
       post("/api/stop").catch(() => {});
     });

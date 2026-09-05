@@ -10,8 +10,8 @@ android {
         applicationId = "com.leo.pixelrobot"
         minSdk = 31
         targetSdk = 37
-        versionCode = 10
-        versionName = "0.2.8"
+        versionCode = 11
+        versionName = "0.2.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

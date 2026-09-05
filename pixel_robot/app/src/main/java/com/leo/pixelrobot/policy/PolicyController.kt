@@ -73,6 +73,15 @@ class PolicyController(
     val status: StateFlow<PolicyRuntimeStatus> = mutableStatus.asStateFlow()
     private val operation = PolicyOperation()
 
+    fun updateFullRequest(next: MotionRequest) {
+        contract.requireRequest(next.forward, next.lateral, next.yawRate)
+        contract.requirePosture(next.heightOffset, next.roll, next.pitch)
+        request.set(next)
+        runCatching { recorder.recordEvent("motion_and_posture_request", JSONObject()
+            .put("forward_m_s", next.forward).put("lateral_m_s", next.lateral).put("yaw_rate_rad_s", next.yawRate)
+            .put("height_offset_m", next.heightOffset).put("roll_rad", next.roll).put("pitch_rad", next.pitch)) }
+    }
+
     fun updateRequest(forward: Float, yawRate: Float, lateral: Float = 0f) {
         contract.requireRequest(forward, lateral, yawRate)
         request.updateAndGet { it.copy(forward = forward, lateral = lateral, yawRate = yawRate) }

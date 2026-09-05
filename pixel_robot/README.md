@@ -16,8 +16,10 @@ Firebase, Drive, ARCore, RTSP, TensorFlow Lite models, or legacy WebRTC bundle.
 - USB protocol: newline-delimited JSON at 2,000,000 baud. Firmware output is
   padded to 64-byte USB packets before CRLF.
 - Safety: firmware boot disables torque; learned control requires explicit
-  arming, all 12 servo/IMU feedback, monotonic sequence numbers, <=6 degree
-  target steps, and a 120 ms stale-frame watchdog.
+  arming, all 12 servo/IMU feedback, monotonic sequence numbers, finite targets
+  within calibrated limits, and a 120 ms stale-frame watchdog. The policy
+  contract supplies joint action filtering and slew limits; firmware programs
+  the servo's speed and acceleration limits when arming.
 - Servo battery: the ST3215 bus reports the independently powered 2S LiPo.
   The Pixel app, browser page, foreground notification, and run data warn at
   7.0 V and show a critical warning at 6.6 V. These warnings do not block
@@ -33,6 +35,14 @@ See [docs/AUDIT.md](docs/AUDIT.md) for the source-backed audit and
 [docs/USB-C.md](docs/USB-C.md) for the direct-cable test. The run-data format
 and the measurements it contains are documented in
 [docs/RUN-DATA.md](docs/RUN-DATA.md).
+
+Version 0.2.9 supports the separate V20 426-input delivery contract and all six
+command axes in both interfaces. That
+support does not replace the installed actor: a V20 bundle must first pass its
+exact-checkpoint numerical, video, stress and original-collision checks. The
+current installed V2 bundle remains restricted to the envelope above.
+Firmware 0.1.15 adds a torque-off diagnostic for tomorrow's transport checks;
+see [the delivery test procedure](docs/DELIVERY-TEST.md).
 
 ## Build
 

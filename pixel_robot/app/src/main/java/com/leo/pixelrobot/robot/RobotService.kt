@@ -144,7 +144,7 @@ class RobotService : Service() {
             RobotControlServer(
                 assets = assets,
                 status = ::controlStatus,
-                updateCommand = ::updateMotionRequest,
+                updateCommand = policyController::updateFullRequest,
                 stand = ::standAtCapturedPose,
                 startTest = ::startPolicy,
                 stop = ::emergencyStop,
@@ -222,9 +222,11 @@ class RobotService : Service() {
     val policyStatus: StateFlow<PolicyRuntimeStatus> get() = policyController.status
     val forwardMinimum: Float get() = policyContract.forwardMinimum
     val forwardMaximum: Float get() = policyContract.forwardMaximum
+    val lateralMinimum: Float get() = policyContract.lateralMinimum
+    val lateralMaximum: Float get() = policyContract.lateralMaximum
     val yawMinimum: Float get() = policyContract.yawMinimum
     val yawMaximum: Float get() = policyContract.yawMaximum
-    val supportsPostureCommands: Boolean get() = policyContract.observationBuilder == "current_v3_279"
+    val supportsPostureCommands: Boolean get() = policyContract.observationBuilder != "v2_180"
     val postureHeightMinimum: Float get() = policyContract.postureHeightMinimum
     val postureHeightMaximum: Float get() = policyContract.postureHeightMaximum
     val postureRollMinimum: Float get() = policyContract.postureRollMinimum
@@ -255,7 +257,7 @@ class RobotService : Service() {
         policyController.updatePosture(heightOffset, roll, pitch)
     }
 
-    private fun firmwareSupportsInstalledPolicy(version: String?): Boolean =
+    fun firmwareSupportsInstalledPolicy(version: String?): Boolean =
         if (policyContract.observationBuilder == "current_body_v20_426") {
             FirmwareCapabilities.supportsStablePolicyFeedback(version)
         } else FirmwareCapabilities.supportsClockedPolicyFeedback(version)
@@ -417,6 +419,12 @@ class RobotService : Service() {
             .put("lateral_max", policyContract.lateralMaximum)
             .put("yaw_min", policyContract.yawMinimum)
             .put("yaw_max", policyContract.yawMaximum)
+            .put("height_min", policyContract.postureHeightMinimum)
+            .put("height_max", policyContract.postureHeightMaximum)
+            .put("roll_min", policyContract.postureRollMinimum)
+            .put("roll_max", policyContract.postureRollMaximum)
+            .put("pitch_min", policyContract.posturePitchMinimum)
+            .put("pitch_max", policyContract.posturePitchMaximum)
             .put("recording_active", recording.active)
             .put("recording_file", recording.activeFileName ?: JSONObject.NULL)
             .put("recording_records", recording.recordCount)

@@ -1,6 +1,7 @@
 package com.leo.pixelrobot.robot
 
 import android.content.res.AssetManager
+import com.leo.pixelrobot.policy.MotionRequest
 import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
@@ -15,7 +16,7 @@ import java.util.concurrent.Executors
 class RobotControlServer(
     assets: AssetManager,
     private val status: () -> JSONObject,
-    private val updateCommand: (Float, Float, Float) -> Unit,
+    private val updateCommand: (MotionRequest) -> Unit,
     private val stand: () -> Unit,
     private val startTest: () -> Unit,
     private val stop: () -> Unit,
@@ -123,11 +124,7 @@ class RobotControlServer(
                 }
                 method == "POST" && path == "/api/start" -> {
                     val request = JSONObject(body.ifBlank { "{}" })
-                    updateCommand(
-                        request.getDouble("forward").toFloat(),
-                        request.getDouble("yaw_rate").toFloat(),
-                        request.optDouble("lateral", 0.0).toFloat(),
-                    )
+                    updateCommand(motionRequest(request))
                     startTest()
                     respondStatus(socket)
                 }
@@ -137,11 +134,7 @@ class RobotControlServer(
                 }
                 method == "POST" && path == "/api/command" -> {
                     val request = JSONObject(body.ifBlank { "{}" })
-                    updateCommand(
-                        request.getDouble("forward").toFloat(),
-                        request.getDouble("yaw_rate").toFloat(),
-                        request.optDouble("lateral", 0.0).toFloat(),
-                    )
+                    updateCommand(motionRequest(request))
                     respondStatus(socket)
                 }
                 method == "POST" && path == "/api/stop" -> {
@@ -165,6 +158,15 @@ class RobotControlServer(
             respond(socket, 400, JSON_CONTENT_TYPE, errorJson(error.message ?: "request failed"))
         }
     }
+
+    private fun motionRequest(value: JSONObject) = MotionRequest(
+        forward = value.getDouble("forward").toFloat(),
+        yawRate = value.getDouble("yaw_rate").toFloat(),
+        lateral = value.optDouble("lateral", 0.0).toFloat(),
+        heightOffset = value.optDouble("height_offset", 0.0).toFloat(),
+        roll = value.optDouble("roll", 0.0).toFloat(),
+        pitch = value.optDouble("pitch", 0.0).toFloat(),
+    )
 
     private fun respondStatus(socket: Socket) {
         respond(socket, 200, JSON_CONTENT_TYPE, status().put("ok", true).toString())
