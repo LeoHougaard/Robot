@@ -1,10 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$')]
+    [ValidatePattern('^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+|quadruped_current_body_v(?:17|18|19)_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$')]
     [string]$Checkpoint,
 
-    [ValidateSet("Core", "Robust", "Goal", "Rough", "CurrentFlat", "Current", "CurrentStress")]
+    [ValidateSet("Core", "Robust", "Goal", "Rough", "CurrentFlat", "Current", "CurrentStress", "CurrentBodyV17", "CurrentBodyV18", "CurrentBodyV19", "CurrentBodyV17Push", "CurrentBodyV18Push", "CurrentBodyV19Push")]
     [string]$Stage = "Core",
 
     [switch]$ScreenOnly,
@@ -91,7 +91,7 @@ if (-not $validation.ok) {
 }
 $profileHash = $validation.hash
 $remoteProfile = "/workspace/projects/training/control_profiles/$($validation.profile_id)-$($profileHash.Substring(0, 12)).json"
-if ($Stage -in @("CurrentFlat", "Current", "CurrentStress")) {
+if ($Stage -like "Current*") {
     if (-not $SimulationFit) {
         throw "Current evaluation requires the provenance-bearing simulation fit."
     }
@@ -126,6 +126,26 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current/agents" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current/agents" }
 )
+# CurrentBody task registration imports earlier family modules. Copy only
+# source/config files, preserving checkpoints and all generated evidence.
+if ($Stage -like "CurrentBody*") {
+    $copies += @{ Local = Join-Path $localTraining "v4_difficulty_ramp.py"; Remote = $remoteTraining }
+    $bodyDirectories = @()
+    foreach ($version in 4..19) {
+        $family = "simple_dog_task_current_body_v$version"
+        $familyRoot = Join-Path $localTraining $family
+        foreach ($file in Get-ChildItem -LiteralPath $familyRoot -Recurse -File |
+            Where-Object { $_.Extension -in @(".py", ".yaml") -and $_.FullName -notmatch '[\\/]__pycache__[\\/]' }) {
+            $relative = $file.FullName.Substring($localTraining.Length + 1).Replace('\', '/')
+            $destination = "$remoteTraining/" + $relative.Substring(0, $relative.LastIndexOf('/'))
+            $bodyDirectories += $destination
+            $copies += @{ Local = $file.FullName; Remote = $destination }
+        }
+    }
+    $directoryArgs = ($bodyDirectories | Sort-Object -Unique) -join " "
+    & ssh @sshOptions $sshTarget "install -d -m 0755 $directoryArgs"
+    if ($LASTEXITCODE -ne 0) { throw "Could not prepare CurrentBody evaluation directories." }
+}
 foreach ($copy in $copies) {
     & scp @sshOptions $copy.Local "${sshTarget}:$($copy.Remote)/"
     if ($LASTEXITCODE -ne 0) { throw "Could not deploy $($copy.Local)." }
@@ -144,7 +164,7 @@ if ($LASTEXITCODE -ne 0) { throw "The checkpoint does not exist in Isaac Lab." }
 
 $stageName = $Stage.ToLowerInvariant()
 $recordVideo = if ($ScreenOnly) { "0" } else { "1" }
-$qualityGate = if ($RequireGaitQuality -or $Stage -in @("Rough", "CurrentFlat", "Current", "CurrentStress")) { "1" } else { "0" }
+$qualityGate = if ($RequireGaitQuality -or $Stage -eq "Rough" -or $Stage -like "Current*") { "1" } else { "0" }
 & ssh @sshOptions $sshTarget `
     "docker exec --workdir /workspace/isaaclab isaac-lab-gb10 /workspace/projects/training/evaluate_simple_dog_policy.sh '$Checkpoint' '$stageName' '$remoteProfile' '$recordVideo' '$qualityGate' '$remoteSimulationFit'"
 if ($LASTEXITCODE -ne 0) {

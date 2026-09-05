@@ -6,6 +6,8 @@ import math
 
 import torch
 
+from isaaclab.utils.math import quat_apply
+
 from simple_dog_task_current.simple_dog_current_env import SimpleDogCurrentV3Env
 from v4_difficulty_ramp import difficulty_fraction, scheduled_terrain_level
 from .simple_dog_current_body_v4_env_cfg import (
@@ -625,6 +627,55 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         if self.cfg.print_play_metrics and not bool(settling[0].item()):
             self._play_step_count += 1
         return reward
+
+    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        terminated, time_out = super()._get_dones()
+        # DirectRLEnv calls this after physics and before rewards/resets. V4+
+        # replace the V2 reward, so evaluation must not depend on that reward.
+        # The play counter still refers to the command that produced this step.
+        if self._evaluation_segments and not bool(self._reset_hold_active_mask[0].item()):
+            self._record_body_evaluation_step()
+        return terminated, time_out
+
+    def _record_body_evaluation_step(self) -> None:
+        """Measure the same physical quantities as V2, without its reward."""
+        data = self._robot.data
+        linear = self._semantic_vector_b(data.root_lin_vel_b.torch)
+        angular = self._semantic_vector_b(data.root_ang_vel_b.torch)
+        gravity = self._semantic_vector_b(data.projected_gravity_b.torch)
+        forces = self._contact_sensor.data.net_forces_w_history.torch
+        contact = torch.linalg.vector_norm(
+            forces[:, :, self._feet_sensor_ids], dim=-1
+        ).amax(dim=1) > 1.0
+        airborne = ~contact
+        feet_velocity = data.body_lin_vel_w.torch[:, self._feet_body_ids, :2]
+        slip = (torch.linalg.vector_norm(feet_velocity, dim=-1) * contact).sum(dim=1)
+        slip /= contact.float().sum(dim=1).clamp_min(1.0)
+        relative = data.body_com_pos_w.torch[:, self._feet_body_ids] - data.root_pos_w.torch.unsqueeze(1)
+        # This is the existing body-relative clearance proxy, not a terrain raycast.
+        clearance = ((relative[:, :, 2] - self.cfg.nominal_foot_com_z_from_base_m).clamp_min(0.0) * airborne).sum(dim=1)
+        clearance /= airborne.float().sum(dim=1).clamp_min(1.0)
+        positions, _ = self._get_policy_joint_state()
+        abduction = positions[:, self._leg_policy_indices][:, :, 0].abs()
+        lateral_axis = quat_apply(data.root_quat_w.torch, self._physical_lateral_axis_b)
+        foot_lateral = (relative * lateral_axis.unsqueeze(1)).sum(dim=2)
+        spread = ((foot_lateral - self._nominal_foot_lateral_m) * self._foot_outward_sign).clamp_min(0.0)
+        delta = self._filtered_actions - self._previous_filtered_actions
+        self._record_evaluation_step(
+            body_forward=linear[:, 0], body_lateral=linear[:, 1],
+            yaw_rate=angular[:, 2], foot_slip=slip,
+            swing_foot_clearance=clearance,
+            action_rate=delta.square().sum(dim=1),
+            max_action_step=delta.abs().amax(dim=1),
+            slew_clamp_fraction=self._action_slew_clamped.float().mean(dim=1),
+            mean_hip_abduction=abduction.mean(dim=1),
+            max_hip_abduction=abduction.amax(dim=1),
+            mean_outward_foot_spread=spread.mean(dim=1),
+            max_outward_foot_spread=spread.amax(dim=1),
+            vertical_speed=linear[:, 2],
+            tilt=torch.linalg.vector_norm(gravity[:, :2], dim=1),
+            feet_contact=contact, root_height=data.root_pos_w.torch[:, 2],
+        )
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         if env_ids is None:

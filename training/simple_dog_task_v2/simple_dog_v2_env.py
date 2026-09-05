@@ -1685,6 +1685,9 @@ class SimpleDogV2Env(SimpleDogEnv):
         """Allow compatible policy families to append deterministic metrics."""
         return ""
 
+    def _accumulate_evaluation_extra_metrics(self) -> None:
+        """Collect family metrics after segment initialization, before emission."""
+
     def _record_evaluation_step(
         self,
         *,
@@ -1720,6 +1723,7 @@ class SimpleDogV2Env(SimpleDogEnv):
                 self._finish_evaluation_segment()
             self._begin_evaluation_segment(segment_index)
 
+        self._accumulate_evaluation_extra_metrics()
         self._evaluation_segment_steps += 1
         self._evaluation_body_forward_sum += body_forward[0].item()
         self._evaluation_body_lateral_sum += body_lateral[0].item()

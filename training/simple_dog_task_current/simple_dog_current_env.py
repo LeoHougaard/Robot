@@ -401,7 +401,7 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
         self._evaluation_current_valid_sum = 0.0
         super()._begin_evaluation_segment(segment_index)
 
-    def _record_evaluation_step(self, **kwargs) -> None:
+    def _accumulate_evaluation_extra_metrics(self) -> None:
         height, roll, pitch = self._body_posture()
         desired_height = self.cfg.nominal_support_height_m + self._posture_commands[0, 0]
         self._evaluation_posture_height_sum += height[0].item()
@@ -417,7 +417,6 @@ class SimpleDogCurrentV3Env(SimpleDogV2Env):
             pitch[0].item() - self._posture_commands[0, 2].item()
         )
         self._evaluation_current_valid_sum += self._latest_current_validity[0].mean().item()
-        super()._record_evaluation_step(**kwargs)
 
     def _evaluation_extra_metrics(self, steps: int, segment) -> str:
         return (
