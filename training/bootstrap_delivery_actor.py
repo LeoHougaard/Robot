@@ -1,4 +1,4 @@
-"""Initialize a new 426-input actor from the exact Pixel V2 ONNX actor.
+"""Initialize a 426-input actor from Pixel V2 ONNX, or preserve a random start.
 
 This is weight initialization, not checkpoint continuation: optimizer, value
 network, epoch and reward statistics start fresh. New current/history/posture
@@ -20,7 +20,7 @@ from onnx.reference import ReferenceEvaluator
 from rl_games.algos_torch.model_builder import ModelBuilder
 
 
-def bootstrap(actor_path, config_path, output):
+def new_model(config_path):
     torch.manual_seed(42)
     torch.set_num_threads(1)
     params = yaml.safe_load(config_path.read_text())["params"]
@@ -30,6 +30,31 @@ def bootstrap(actor_path, config_path, output):
         actions_num=12, input_shape=(426,), num_seqs=1, value_size=1,
         normalize_input=True, normalize_value=True,
     ))
+    return params, model
+
+
+def initialize_random(config_path, output):
+    """Preserve an exact random epoch-zero baseline before a fresh PPO trial."""
+    if output.exists():
+        raise ValueError("refusing to overwrite an actor initialization")
+    params, model = new_model(config_path)
+    optimizer = torch.optim.Adam(model.parameters(), lr=params["config"]["learning_rate"], eps=1e-8)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(dict(model=model.state_dict(), optimizer=optimizer.state_dict(), epoch=0, frame=0,
+                    last_mean_rewards=-1e9), output)
+    report = dict(checkpoint_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
+                  config_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                  initializer_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                  seed=42, initialization="random actor, critic and optimizer; no transferred policy",
+                  selected_history_indices=[0, 10, 20, 21, 22, 23])
+    output.with_suffix(".manifest.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report), flush=True)
+
+
+def bootstrap(actor_path, config_path, output):
+    if output.exists():
+        raise ValueError("refusing to overwrite an actor initialization")
+    params, model = new_model(config_path)
     source = {item.name: to_array(item).copy() for item in onnx.load(str(actor_path)).graph.initializer}
     if source["w0"].shape != (128, 180) or source["obs_mean"].shape != (180,):
         raise ValueError("expected the recorded 180-input V2 actor")
@@ -83,8 +108,16 @@ def bootstrap(actor_path, config_path, output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("actor", type=Path)
+    parser.add_argument("actor", type=Path, nargs="?")
     parser.add_argument("config", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--random", action="store_true", help="start without a transferred ONNX actor")
     args = parser.parse_args()
-    bootstrap(args.actor, args.config, args.output)
+    if args.random:
+        if args.actor is not None:
+            parser.error("--random does not accept a source actor")
+        initialize_random(args.config, args.output)
+    else:
+        if args.actor is None:
+            parser.error("a source actor is required unless --random is selected")
+        bootstrap(args.actor, args.config, args.output)

@@ -34,6 +34,21 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         # terrain only after measured acceptance, never because time passed.
         pass
 
+    def _body_posture(self):
+        # Rays remain vertical while the body pitches/rolls. Their symmetric
+        # footprint measures the local terrain under the chassis; swinging a
+        # leg cannot change this height reference. Missing terrain is a broken
+        # measurement, never an invented successful posture.
+        hits = self._height_scanner.data.ray_hits_w.torch[..., 2]
+        if not torch.isfinite(hits).all():
+            raise RuntimeError("delivery ground-height rays missed terrain")
+        height = self._robot.data.root_pos_w.torch[:, 2] - hits.mean(dim=1)
+        projected = self._semantic_vector_b(self._robot.data.projected_gravity_b.torch)
+        roll = torch.atan2(projected[:, 1], -projected[:, 2])
+        pitch = torch.atan2(-projected[:, 0],
+                            torch.sqrt(projected[:, 1].square() + projected[:, 2].square()))
+        return height, roll, pitch
+
     def _pre_physics_step(self, actions):
         # Reuse only the reviewed command/filter/slew/reset handling. This
         # family's cfg disables the old lag, residual and measured-p95 cap.

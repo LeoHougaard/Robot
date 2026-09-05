@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import isaaclab.terrains as terrain_gen
+from isaaclab.sensors import RayCasterCfg, patterns
 from isaaclab.terrains import TerrainGeneratorCfg
 from isaaclab.utils.configclass import configclass
 from simple_dog_task_current_body_v4.simple_dog_current_body_v4_env_cfg import SimpleDogCurrentBodyV4HardEnvCfg
@@ -43,6 +44,20 @@ class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     selected_history_indices = HISTORY_INDICES
     observation_space = 426
     state_space = 0
+    # Reward/evaluation only. The actor still receives exactly 426 physical
+    # sensor/history/command values. Measure vertical clearance above terrain
+    # beneath the body, not above the moving lower-leg centers of mass.
+    nominal_support_height_m = .18
+    height_scanner = RayCasterCfg(
+        prim_path=(SimpleDogCurrentBodyV4HardEnvCfg().robot.prim_path + "/links/"
+                   + SimpleDogCurrentBodyV4HardEnvCfg().base_contact_pattern),
+        update_period=.02,
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=.075, size=(.30, .30)),
+        mesh_prim_paths=["/World/ground"],
+        max_distance=2.,
+        debug_vis=False,
+    )
     episode_length_s = 12.
     terrain = _terrain
     terrain_curriculum = False
