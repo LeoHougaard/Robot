@@ -362,6 +362,9 @@ fi
 
 source_root="$TRAINING_ROOT"
 if [[ "$terrain" == currentbodyv20train ]]; then
+  # Keep NumPy/OpenBLAS workers out of Kit's startup fork. Scope this to the
+  # delivery process; do not change the host or preserved policy families.
+  export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
   /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 "${TRAINING_ROOT}/snapshot_delivery_run.py" "$TRAINING_ROOT" "$run_dir"
   source_root="${run_dir}/source"
 fi

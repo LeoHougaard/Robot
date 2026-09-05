@@ -41,7 +41,8 @@ def run(checkpoint, profile, fit, suite, seed, source):
     print("Evaluation evidence:", output, flush=True)
     env = os.environ.copy()
     env.update(SIMPLE_DOG_CONTROL_PROFILE=str(profile), SIMPLE_DOG_SIMULATION_FIT=str(fit),
-               SIMPLE_DOG_CHECKPOINT=str(checkpoint))
+               SIMPLE_DOG_CHECKPOINT=str(checkpoint),
+               OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
     old = os.environ.copy()
     try:
         os.environ.update(env)
@@ -67,6 +68,7 @@ def run(checkpoint, profile, fit, suite, seed, source):
                       simulation_fit_sha256=sha(fit), source_files=source_hashes,
                       asset=manifest["inputs"]["asset"], task=task, suite=suite, seed=seed,
                       deterministic=True, control_hz=50,
+                      execution_environment=manifest["execution_environment"],
                       command_screen_sha256=sha(source / "delivery_contract.py"),
                       player_sha256=sha("/workspace/isaaclab/scripts/reinforcement_learning/rl_games/play.py"),
                       packages={name: importlib.metadata.version(name) for name in ("torch", "rl-games", "gymnasium")})

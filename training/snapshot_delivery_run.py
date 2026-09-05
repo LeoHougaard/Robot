@@ -48,7 +48,10 @@ def snapshot(root, run):
         layers = {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in asset.parent.rglob("*") if p.suffix.lower() in (".usd", ".usda", ".usdc")}
     inputs["asset"]["source_layers"] = layers
-    (run / "source_manifest.json").write_text(json.dumps(dict(source_files=hashes, inputs=inputs), indent=2) + "\n")
+    execution_environment = {name: os.environ.get(name) for name in
+                             ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS")}
+    (run / "source_manifest.json").write_text(json.dumps(
+        dict(source_files=hashes, inputs=inputs, execution_environment=execution_environment), indent=2) + "\n")
 
 
 if __name__ == "__main__":
