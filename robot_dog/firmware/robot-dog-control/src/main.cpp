@@ -220,6 +220,8 @@ struct ServoIdChangeResult {
 
 struct PolicyControlState {
   bool armed = false;
+  bool monitoring = false;
+  uint32_t monitorEndsAt = 0;
   uint32_t lastFrameAt = 0;
   uint32_t lastSequence = 0;
   uint32_t feedbackTick = 0;
@@ -352,6 +354,17 @@ public:
     if (!readResponse(id, response, sizeof(response), 20, statusError)) return false;
     voltage = response[5] * 0.1f;
     return true;
+  }
+
+  bool readTorqueDisabled(uint8_t id) {
+    if (!bus) return false;
+    clearRx();
+    uint8_t params[] = {STS_TORQUE_ENABLE_ADDR, 1};
+    writePacket(id, 0x02, params, sizeof(params));
+    uint8_t response[7];
+    uint8_t statusError = 0;
+    return readResponse(id, response, sizeof(response), 20, statusError)
+      && statusError == 0 && response[5] == 0;
   }
 
   bool readTelemetry(
@@ -1242,7 +1255,7 @@ void sendPolicyState(
   uint32_t frameMicros = 0
 ) {
   DynamicJsonDocument doc(3072);
-  doc["type"] = "policy_state";
+  doc["type"] = policyControl.monitoring ? "policy_monitor_state" : "policy_state";
   doc["armed"] = policyControl.armed;
   doc["seq"] = sequence;
   doc["tick"] = tick;
@@ -1351,7 +1364,9 @@ bool policyHardwareReady(String &reason) {
 
 void disarmPolicy(const char *reason, bool notify) {
   bool wasArmed = policyControl.armed;
+  bool wasMonitoring = policyControl.monitoring;
   policyControl.armed = false;
+  policyControl.monitoring = false;
   policyControl.lastFrameAt = 0;
   policyControl.feedbackTick = 0;
   policyControl.nextFeedbackAt = 0;
@@ -1363,9 +1378,9 @@ void disarmPolicy(const char *reason, bool notify) {
       servos[i].nextMonitorAt = 0;
     }
   }
-  if (notify && wasArmed) {
+  if (notify && (wasArmed || wasMonitoring)) {
     StaticJsonDocument<256> doc;
-    doc["type"] = "policy_disarmed";
+    doc["type"] = wasMonitoring ? "policy_monitor_stopped" : "policy_disarmed";
     doc["reason"] = reason;
     sendJson(doc);
   }
@@ -1441,12 +1456,44 @@ void handlePolicyArm(JsonDocument &doc) {
   sendPolicyState(0, 0, feedback, received, current, currentReceived, 0, currentMicros);
 }
 
-void handlePolicyFrame(JsonDocument &doc) {
-  if (!policyControl.armed) {
+void handlePolicyMonitor(JsonDocument &doc) {
+  // Read-only diagnostics. Never disable/enable torque or move a servo here.
+  // Refuse to take over a held pose or another motion operation.
+  if (policyControl.armed || policyControl.monitoring || programPlaying || identifyJob.active) {
+    sendError("monitor requires an idle controller with torque already off");
+    return;
+  }
+  for (uint8_t i = 0; i < MOTOR_COUNT; i++) {
+    if (motors[i].command != 0) { sendError("motor output must already be stopped"); return; }
+  }
+  String reason;
+  if (!policyHardwareReady(reason)) { sendError(reason.c_str()); return; }
+  for (uint8_t i = 0; i < servoCount; i++) {
+    if (servos[i].velocityDps != 0 || servos[i].motorSpeed != 0 || !servoBus.readTorqueDisabled(servos[i].id)) {
+      sendError("monitor requires verified disabled torque on every servo");
+      return;
+    }
+  }
+  uint32_t duration = doc["duration_ms"] | 30000U;
+  if (duration < 1000 || duration > 60000) { sendError("monitor duration must be 1000..60000 ms"); return; }
+  policyControl.monitoring = true;
+  policyControl.monitorEndsAt = millis() + duration;
+  policyControl.lastSequence = 0;
+  policyControl.feedbackTick = 0;
+  policyControl.feedbackFailures = 0;
+  policyControl.missedFeedbackPeriods = 0;
+  policyControl.compactFeedback = true;
+  policyControl.nextFeedbackAt = millis() + POLICY_FEEDBACK_INTERVAL_MS;
+  sendOk("policy_monitor");
+}
+
+void handlePolicyFrame(JsonDocument &doc, bool monitorOnly = false) {
+  if (monitorOnly ? !policyControl.monitoring : !policyControl.armed) {
     sendError("policy is not armed");
     return;
   }
-  uint32_t sequence = doc["seq"] | 0;
+  if (!doc["seq"].is<uint32_t>()) { sendError("policy frame sequence must be an unsigned integer"); return; }
+  uint32_t sequence = doc["seq"].as<uint32_t>();
   if (sequence == 0 || sequence <= policyControl.lastSequence) {
     sendError("policy frame sequence must increase");
     return;
@@ -1457,6 +1504,7 @@ void handlePolicyFrame(JsonDocument &doc) {
   }
 
   JsonObject targets = doc["targets"].as<JsonObject>();
+  if (targets.size() != MAX_SERVOS) { sendError("policy frame requires exactly 12 targets"); return; }
   uint8_t ids[MAX_SERVOS];
   uint16_t positions[MAX_SERVOS];
   float nextAngles[MAX_SERVOS];
@@ -1469,19 +1517,26 @@ void handlePolicyFrame(JsonDocument &doc) {
       return;
     }
     float target = targets[key].as<float>();
+    if (!isfinite(target) || target < servo.minAngle || target > servo.maxAngle) {
+      disarmPolicy("invalid target outside calibrated limits", true);
+      sendError("policy target must be finite and within calibrated limits");
+      return;
+    }
     ids[i] = servo.id;
     nextAngles[i] = target;
     positions[i] = angleToBusPosition(servo, target);
   }
 
-  servoBus.syncPosition(ids, positions, servoCount);
-  for (uint8_t i = 0; i < servoCount; i++) servos[i].lastAngle = nextAngles[i];
+  if (!monitorOnly) {
+    servoBus.syncPosition(ids, positions, servoCount);
+    for (uint8_t i = 0; i < servoCount; i++) servos[i].lastAngle = nextAngles[i];
+  }
   policyControl.lastSequence = sequence;
   policyControl.lastFrameAt = millis();
 }
 
 void runPolicyFeedback() {
-  if (!policyControl.armed) return;
+  if (!policyControl.armed && !policyControl.monitoring) return;
   uint32_t now = millis();
   if (!consumePeriodicDeadline(
       now, POLICY_FEEDBACK_INTERVAL_MS, policyControl.nextFeedbackAt,
@@ -1527,6 +1582,9 @@ void runPolicyFeedback() {
 }
 
 void runPolicyWatchdog() {
+  if (policyControl.monitoring && static_cast<int32_t>(millis() - policyControl.monitorEndsAt) >= 0) {
+    disarmPolicy("monitor duration complete", true);
+  }
   if (
     policyControl.armed &&
     millis() - policyControl.lastFrameAt > POLICY_FRAME_TIMEOUT_MS
@@ -2638,6 +2696,11 @@ void handleCommand(const String &line) {
   }
 
   const char *cmd = doc["cmd"] | "";
+  if (policyControl.monitoring && strcmp(cmd, "policy_monitor_frame") != 0 &&
+      strcmp(cmd, "policy_disarm") != 0 && strcmp(cmd, "stop") != 0 && strcmp(cmd, "hello") != 0) {
+    sendError("motion and configuration commands are rejected during read-only monitoring");
+    return;
+  }
   bool allowedWhilePolicyArmed =
     strcmp(cmd, "policy_frame") == 0 ||
     strcmp(cmd, "policy_disarm") == 0 ||
@@ -2655,6 +2718,8 @@ void handleCommand(const String &line) {
     response["wifi"] = WiFi.isConnected();
     response["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
     response["policyArmed"] = policyControl.armed;
+    response["policyMonitoring"] = policyControl.monitoring;
+    response["supportsTorqueOffPolicyMonitor"] = true;
     response["policyFrameTimeoutMs"] = POLICY_FRAME_TIMEOUT_MS;
     response["policyFeedbackIntervalMs"] = POLICY_FEEDBACK_INTERVAL_MS;
     response["policyServoSpeedStepsPerSecond"] = POLICY_SERVO_SPEED_STEPS_S;
@@ -2723,6 +2788,10 @@ void handleCommand(const String &line) {
     handlePolicyArm(doc);
   } else if (strcmp(cmd, "policy_frame") == 0) {
     handlePolicyFrame(doc);
+  } else if (strcmp(cmd, "policy_monitor") == 0) {
+    handlePolicyMonitor(doc);
+  } else if (strcmp(cmd, "policy_monitor_frame") == 0) {
+    handlePolicyFrame(doc, true);
   } else if (strcmp(cmd, "policy_disarm") == 0) {
     disarmPolicy("host request", true);
     sendOk("policy_disarm");
@@ -2977,10 +3046,13 @@ void setup() {
 void loop() {
   // OTA and synchronous HTTP handling can block a feedback deadline. The
   // Pixel owns policy control over USB; resume board network services at idle.
-  if (!policyControl.armed) runNetworkServices();
+  if (!policyControl.armed && !policyControl.monitoring) runNetworkServices();
   pollSerial();
   runPolicyWatchdog();
   runPolicyFeedback();
+  // Match policy feedback scheduling while preventing background bus work.
+  // Monitor admission checked that all motion controllers were already idle.
+  if (policyControl.monitoring) return;
   runProgram();
   runServoVelocities();
   runServoIdentify();

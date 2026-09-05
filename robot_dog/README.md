@@ -42,7 +42,11 @@ Wi-Fi can also be configured over USB serial:
 {"cmd":"wifi_set","ssid":"YourNetwork","password":"YourPassword"}
 ```
 
-For learned-policy commissioning, finish the measured calibration described in
+The current four-leg linkage robot uses the [Pixel controller](../pixel_robot/README.md).
+The Windows/Raspberry Pi instructions below describe the older `assembly-1`
+180-input runtime and must not be used with a V20 delivery bundle.
+
+For legacy learned-policy commissioning, finish the measured calibration described in
 `policy_runtime/README.md`, disconnect the UI's manual board connection, and
 start the local runtime bridge:
 
