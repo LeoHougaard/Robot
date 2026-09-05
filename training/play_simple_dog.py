@@ -140,7 +140,14 @@ original_resolve_task_config = isaac_task_utils.resolve_task_config
 
 def resolve_task_config_with_profile(*args, **kwargs):
     env_cfg, agent_cfg = original_resolve_task_config(*args, **kwargs)
-    return env_cfg, apply_agent_profile(agent_cfg, control_profile)
+    agent_cfg = apply_agent_profile(agent_cfg, control_profile)
+    evidence = os.environ.get("SIMPLE_DOG_EVALUATION_EVIDENCE")
+    if evidence:
+        from pathlib import Path
+        from isaaclab.utils.io import dump_yaml
+        dump_yaml(str(Path(evidence) / "resolved_env.yaml"), env_cfg)
+        dump_yaml(str(Path(evidence) / "resolved_agent.yaml"), agent_cfg)
+    return env_cfg, agent_cfg
 
 
 isaac_task_utils.resolve_task_config = resolve_task_config_with_profile

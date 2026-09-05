@@ -54,7 +54,9 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         encoder = self._encoder_zeros + self._encoder_signs * policy_to_motor(q)
         if self.cfg.observation_noise_enabled:
             encoder = encoder + torch.empty_like(encoder).uniform_(-self.cfg.joint_position_noise, self.cfg.joint_position_noise)
-        encoder = torch.round(encoder * (4096 / (2 * math.pi))) * (2 * math.pi / 4096)
+        # Match firmware's angleToBusPosition/busPositionToMeasuredAngle
+        # reported-degree convention (0..4095 maps to 0..360 degrees).
+        encoder = torch.round(encoder * (4095 / (2 * math.pi))) * (2 * math.pi / 4095)
         position = motor_to_policy((encoder - self._encoder_zeros) * self._encoder_signs)
         velocity = torch.where(fresh[:, None], 0., (position - self._encoder_previous) / self.step_dt)
         self._encoder_previous.copy_(position)

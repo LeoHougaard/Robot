@@ -1,13 +1,16 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+|quadruped_current_body_v(?:17|18|19)_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$')]
+    [ValidatePattern('^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+|quadruped_current_body_v(?:17|18|19|20)_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$')]
     [string]$Checkpoint,
 
-    [ValidateSet("Core", "Robust", "Goal", "Rough", "CurrentFlat", "Current", "CurrentStress", "CurrentBodyV17", "CurrentBodyV18", "CurrentBodyV19", "CurrentBodyV17Push", "CurrentBodyV18Push", "CurrentBodyV19Push")]
+    [ValidateSet("Core", "Robust", "Goal", "Rough", "CurrentFlat", "Current", "CurrentStress", "CurrentBodyV17", "CurrentBodyV18", "CurrentBodyV19", "CurrentBodyV17Push", "CurrentBodyV18Push", "CurrentBodyV19Push", "DeliveryFlat", "Delivery", "DeliveryStress")]
     [string]$Stage = "Core",
 
     [switch]$ScreenOnly,
+
+    [ValidateRange(0, 2147483647)]
+    [int]$Seed = 42,
 
     [switch]$RequireGaitQuality,
 
@@ -91,7 +94,7 @@ if (-not $validation.ok) {
 }
 $profileHash = $validation.hash
 $remoteProfile = "/workspace/projects/training/control_profiles/$($validation.profile_id)-$($profileHash.Substring(0, 12)).json"
-if ($Stage -like "Current*") {
+if (($Stage -like "Current*" -or $Stage -like "Delivery*")) {
     if (-not $SimulationFit) {
         throw "Current evaluation requires the provenance-bearing simulation fit."
     }
@@ -112,6 +115,7 @@ $copies = @(
     @{ Local = Join-Path $localTraining "terrain_curriculum.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "video_camera.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "robot_control_profile.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "delivery_contract.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "evaluate_simple_dog_policy.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "evaluate_simple_dog_policy.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "current_policy_fit.py"; Remote = $remoteTraining },
@@ -146,6 +150,26 @@ if ($Stage -like "CurrentBody*") {
     & ssh @sshOptions $sshTarget "install -d -m 0755 $directoryArgs"
     if ($LASTEXITCODE -ne 0) { throw "Could not prepare CurrentBody evaluation directories." }
 }
+if ($Stage -like "Delivery*") {
+    if ($ScreenOnly) { throw "Delivery certification includes exact-checkpoint video; omit ScreenOnly." }
+    if ($Checkpoint -notmatch '/quadruped_current_body_v20_') { throw "Delivery requires its V20 checkpoint." }
+    foreach ($name in @("train_simple_dog.py", "simple_dog_tuning.py", "v4_difficulty_ramp.py", "deployable_dynamics.py", "snapshot_delivery_run.py", "evaluate_delivery_policy.py")) {
+        $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
+    }
+    $copies += @{ Local = Join-Path $localTraining "fits/servo-response-20260829.json"; Remote = "$remoteTraining/fits" }
+    $directories = @()
+    foreach ($family in @("simple_dog_task", "simple_dog_task_v2", "simple_dog_task_current_body_v4", "simple_dog_task_current_body_v20")) {
+        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $localTraining $family) -Recurse -File |
+            Where-Object { $_.Extension -in @(".py", ".yaml") }) {
+            $relative = $file.FullName.Substring($localTraining.Length + 1).Replace('\', '/')
+            $destination = "$remoteTraining/" + $relative.Substring(0, $relative.LastIndexOf('/'))
+            $directories += $destination
+            $copies += @{ Local = $file.FullName; Remote = $destination }
+        }
+    }
+    & ssh @sshOptions $sshTarget ("install -d -m 0755 " + (($directories | Sort-Object -Unique) -join " "))
+    if ($LASTEXITCODE -ne 0) { throw "Could not prepare delivery source directories." }
+}
 foreach ($copy in $copies) {
     & scp @sshOptions $copy.Local "${sshTarget}:$($copy.Remote)/"
     if ($LASTEXITCODE -ne 0) { throw "Could not deploy $($copy.Local)." }
@@ -162,9 +186,16 @@ if ($SimulationFit) {
     "sed -i 's/\r$//' $remoteTraining/evaluate_simple_dog_policy.sh && chmod 0755 $remoteTraining/evaluate_simple_dog_policy.sh && docker exec isaac-lab-gb10 test -f '$Checkpoint'"
 if ($LASTEXITCODE -ne 0) { throw "The checkpoint does not exist in Isaac Lab." }
 
+if ($Stage -like "Delivery*") {
+    $suite = $Stage.ToLowerInvariant()
+    & ssh @sshOptions $sshTarget "docker exec --workdir /workspace/isaaclab isaac-lab-gb10 /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 /workspace/projects/training/evaluate_delivery_policy.py '$Checkpoint' --profile '$remoteProfile' --fit '$remoteSimulationFit' --suite '$suite' --seed $Seed"
+    if ($LASTEXITCODE -ne 0) { throw "$Stage evaluation rejected the candidate; see its evidence directory." }
+    return
+}
+
 $stageName = $Stage.ToLowerInvariant()
 $recordVideo = if ($ScreenOnly) { "0" } else { "1" }
-$qualityGate = if ($RequireGaitQuality -or $Stage -eq "Rough" -or $Stage -like "Current*") { "1" } else { "0" }
+$qualityGate = if ($RequireGaitQuality -or $Stage -eq "Rough" -or ($Stage -like "Current*" -or $Stage -like "Delivery*")) { "1" } else { "0" }
 & ssh @sshOptions $sshTarget `
     "docker exec --workdir /workspace/isaaclab isaac-lab-gb10 /workspace/projects/training/evaluate_simple_dog_policy.sh '$Checkpoint' '$stageName' '$remoteProfile' '$recordVideo' '$qualityGate' '$remoteSimulationFit'"
 if ($LASTEXITCODE -ne 0) {

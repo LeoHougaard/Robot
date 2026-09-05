@@ -112,6 +112,20 @@ class DeliveryEvalCfg(DeliveryTrainCfg):
     # Initial delivery envelope, fixed before PPO. Compare the initialized
     # actor and every candidate under this same screen and source snapshot.
     evaluation_segments = SEGMENTS
+    # A one-robot evaluation of the training mixture selects its first terrain
+    # column (a plane). Use an explicit held-out uneven surface so the mild
+    # suite cannot silently repeat the flat suite.
+    terrain = copy.deepcopy(_terrain)
+    terrain.terrain_generator = TerrainGeneratorCfg(
+        seed=7042, curriculum=False, size=(6., 6.), border_width=1.,
+        num_rows=1, num_cols=1, horizontal_scale=.05, vertical_scale=.001,
+        slope_threshold=.75, difficulty_range=(1., 1.), use_cache=False,
+        sub_terrains={"small_uneven": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=1., noise_range=(.001, .006), noise_step=.001, border_width=.2)},
+    )
+    video_recorder = copy.deepcopy(DeliveryTrainCfg().video_recorder)
+    video_recorder.window_width = 640
+    video_recorder.window_height = 360
     episode_length_s = sum(s[1] for s in evaluation_segments) / 50 + 10.
     domain_randomization_enabled = False
     observation_noise_enabled = False
@@ -130,3 +144,14 @@ class DeliveryFlatEvalCfg(DeliveryEvalCfg):
     terrain = copy.deepcopy(_terrain)
     terrain.terrain_type = "plane"
     terrain.terrain_generator = None
+
+
+@configclass
+class DeliveryStressEvalCfg(DeliveryEvalCfg):
+    domain_randomization_enabled = True
+    observation_noise_enabled = True
+    current_effort_scale_randomization = (.75, 1.25)
+    push_probability = 1.
+    push_interval_s = (6., 6.)
+    push_linear_velocity = .08
+    push_yaw_velocity = .08

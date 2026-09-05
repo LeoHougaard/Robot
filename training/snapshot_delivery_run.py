@@ -34,7 +34,20 @@ def snapshot(root, run):
     inputs["asset"] = {"path": str(asset), "sha256": hashlib.sha256(asset.read_bytes()).hexdigest()}
     manifest = asset.with_suffix(".manifest.json")
     if manifest.exists():
-        inputs["asset"]["conversion_manifest"] = json.loads(manifest.read_text())
+        conversion = json.loads(manifest.read_text())
+        for name, digest in conversion["source_layers"].items():
+            if hashlib.sha256(Path(name).read_bytes()).hexdigest() != digest:
+                raise ValueError(f"collision conversion source changed: {name}")
+        if inputs["asset"]["sha256"] != conversion["output_sha256"]:
+            raise ValueError("collision conversion output changed")
+        inputs["asset"]["conversion_manifest"] = conversion
+        layers = conversion["source_layers"]
+    else:
+        # The original SDF asset keeps its mesh layers below its own directory.
+        # Hash those too: the root USD alone does not identify its geometry.
+        layers = {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in asset.parent.rglob("*") if p.suffix.lower() in (".usd", ".usda", ".usdc")}
+    inputs["asset"]["source_layers"] = layers
     (run / "source_manifest.json").write_text(json.dumps(dict(source_files=hashes, inputs=inputs), indent=2) + "\n")
 
 
