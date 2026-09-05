@@ -44,6 +44,15 @@ current installed V2 bundle remains restricted to the envelope above.
 Firmware 0.1.15 adds a torque-off diagnostic for tomorrow's transport checks;
 see [the delivery test procedure](docs/DELIVERY-TEST.md).
 
+`DeliveryOnnxTest` exercises a separate random 426-input fixture through the
+production ONNX loader at scheduled 20 ms intervals. Its assets belong only to
+the instrumentation APK. The Pixel passed 500 measured inferences with median
+1.83 ms, p99 4.71 ms and maximum 7.82 ms, plus reference-vector parity. This
+checks inference capacity, not walking quality or complete USB/motor timing.
+`tools/create_delivery_onnx_fixture.py` reproduces the fixture; the measured
+generation environment used NumPy 2.5.2, ONNX 1.22.0 and ONNX Runtime 1.29.0.
+Android uses the app's ONNX Runtime 1.26.0.
+
 ## Build
 
 Open the project in a current Android Studio with Android SDK 37 installed, or
