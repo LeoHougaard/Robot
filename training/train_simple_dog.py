@@ -134,6 +134,8 @@ elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v19":
     import simple_dog_task_current_body_v17  # noqa: F401
     import simple_dog_task_current_body_v18  # noqa: F401
     import simple_dog_task_current_body_v19  # noqa: F401
+if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v20":
+    import simple_dog_task_current_body_v20  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 

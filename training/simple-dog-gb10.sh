@@ -388,7 +388,7 @@ start_training() {
      "$terrain" == currentbodyv13hard || "$terrain" == currentbodyv14hard ||
      "$terrain" == currentbodyv15hard || "$terrain" == currentbodyv16hard ||
      "$terrain" == currentbodyv17hard || "$terrain" == currentbodyv18hard ||
-     "$terrain" == currentbodyv19hard ]] ||
+     "$terrain" == currentbodyv19hard || "$terrain" == currentbodyv20train ]] ||
     { printf 'Invalid terrain: %s\n' "$terrain" >&2; exit 2; }
   [[ "$terrain" != v2robust && "$terrain" != v2goal &&
      ( "$terrain" != currentv3* || "$terrain" == currentv3core ||
@@ -400,6 +400,11 @@ start_training() {
   [[ -x "${ROOT}/run_simple_dog.sh" ]] ||
     { printf 'Training launcher is missing: %s\n' "${ROOT}/run_simple_dog.sh" >&2; exit 1; }
   if [[ -n "$checkpoint" ]]; then
+    if [[ "$terrain" == currentbodyv20train ]]; then
+      [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || return 2
+    else
+      [[ "$checkpoint" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || return 2
+    fi
     [[ "$terrain" != currentbodyv4hard && "$terrain" != currentbodyv5hard &&
        "$terrain" != currentbodyv6hard && "$terrain" != currentbodyv7hard &&
        "$terrain" != currentbodyv8hard && "$terrain" != currentbodyv9hard &&
@@ -414,7 +419,8 @@ start_training() {
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
        "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
-       "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+       "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] ||
       { printf 'Checkpoint is outside the simple-dog log directory: %s\n' "$checkpoint" >&2; exit 2; }
     if [[ "$terrain" == currentv3* ]]; then
       [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
@@ -456,7 +462,7 @@ start_training() {
         "$terrain" == currentbodyv13hard || "$terrain" == currentbodyv14hard ||
         "$terrain" == currentbodyv15hard || "$terrain" == currentbodyv16hard ||
         "$terrain" == currentbodyv17hard || "$terrain" == currentbodyv18hard ||
-        "$terrain" == currentbodyv19hard ]]; then
+        "$terrain" == currentbodyv19hard || "$terrain" == currentbodyv20train ]]; then
     [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] ||
       { printf 'Current-aware simulation fit is outside the training fits directory.\n' >&2; exit 2; }
     docker exec "$CONTAINER" test -f "$simulation_fit" ||

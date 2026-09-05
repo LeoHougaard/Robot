@@ -1677,7 +1677,7 @@ class SimpleDogV2Env(SimpleDogEnv):
             f"{','.join(f'{value:.4f}' for value in swing_fraction.tolist())} "
             f"landings_frflbrbl="
             f"{','.join(str(int(value)) for value in self._evaluation_landings.tolist())} "
-            f"resets={self._evaluation_resets}",
+            f"resets={self._evaluation_resets + int(getattr(self, '_evaluation_pending_reset', False))}",
             flush=True,
         )
 

@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+from delivery_contract import SEGMENTS as DELIVERY_SEGMENTS
 
 
 MOBILITY_SEGMENTS = (
@@ -29,6 +30,10 @@ EXPECTED = {
 EXPECTED["currentflat"] = EXPECTED["current"]
 EXPECTED["currentstress"] = EXPECTED["current"]
 CURRENT_STAGES = {"current", "currentflat", "currentstress"}
+DELIVERY_STAGES = {"delivery", "deliveryflat", "deliverystress"}
+for _stage in DELIVERY_STAGES:
+    EXPECTED[_stage] = tuple(segment[0] for segment in DELIVERY_SEGMENTS)
+CURRENT_STAGES |= DELIVERY_STAGES
 
 
 def step_duration(record: dict) -> float:
@@ -307,6 +312,12 @@ def evaluate(
 
     for name in expected:
         record = segments[name]
+        numeric = [item for value in record.values()
+                   for item in (value if isinstance(value, list) else [value])
+                   if isinstance(item, (int, float))]
+        if any(not math.isfinite(item) for item in numeric):
+            add_failure(failures, name, "non-finite evaluation evidence")
+            continue
         check_common(name, record, failures)
         command_forward = float(record["command_forward"])
         command_lateral = float(record["command_lateral"])
@@ -326,7 +337,7 @@ def evaluate(
                 name,
                 f"mean body tilt is {record['mean_tilt']:.3f} (limit 0.120)",
             )
-        if (require_gait_quality or stage == "rough") and (
+        if (require_gait_quality or stage == "rough" or stage in DELIVERY_STAGES) and (
             command_speed > 0.05 or abs(command_yaw) > 0.05
         ):
             # Robust evaluation injects repeated planar velocity impulses and
@@ -384,6 +395,32 @@ def evaluate(
                     failures, name,
                     f"unexpected current dropout left validity at {valid_fraction:.3f}",
                 )
+        if stage in DELIVERY_STAGES:
+            expected_record = next(s for s in DELIVERY_SEGMENTS if s[0] == name)
+            for field, expected_value in zip(
+                ("steps", "command_forward", "command_lateral", "command_yaw",
+                 "command_height_offset", "command_roll", "command_pitch"), expected_record[1:]
+            ):
+                if abs(float(record[field]) - expected_value) > 1e-5:
+                    add_failure(failures, name, f"{field} differs from the fixed delivery screen")
+            if abs(float(record.get("step_dt", 0)) - .02) > 1e-6:
+                add_failure(failures, name, "delivery evidence must explicitly use 50 Hz")
+            if float(record["mean_foot_slip"]) > .06:
+                add_failure(failures, name, "stance foot slip exceeds 0.06 m/s")
+            if name in {"stand", "stop"} and float(record["mean_abs_body_lateral"]) > .02:
+                add_failure(failures, name, "lateral motion while stopped exceeds 0.02 m/s")
+            # Slow commands need proportional directional gates: the legacy
+            # 0.07 m/s tolerance could accept the wrong direction at this pace.
+            for field, command in (("mean_body_forward", command_forward),
+                                   ("mean_body_lateral", command_lateral)):
+                if abs(float(record[field]) - command) > max(.02, .35 * abs(command)):
+                    add_failure(failures, name, f"{field} misses slow command {command:.3f}")
+            if abs(float(record["mean_yaw_rate"]) - command_yaw) > max(.05, .35 * abs(command_yaw)):
+                add_failure(failures, name, "yaw rate misses the delivery command")
+            if float(record["mean_abs_height_error"]) > .015:
+                add_failure(failures, name, "body height error exceeds 15 mm")
+            if max(float(record["mean_abs_roll_error"]), float(record["mean_abs_pitch_error"])) > .08:
+                add_failure(failures, name, "body attitude error exceeds 0.08 rad")
     return {
         "stage": stage,
         "passed": not failures,

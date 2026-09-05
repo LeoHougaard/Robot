@@ -27,7 +27,9 @@ V17_EVALUATION_SEGMENTS = (
     ("stop", 100, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
 )
 V17_EVALUATION_EPISODE_SECONDS = (
-    sum(segment[1] for segment in V17_EVALUATION_SEGMENTS) / 50.0 + 2.0
+    # Leave room for initial settling and the final measurement. A timeout
+    # on the last commanded step teleports the robot inside the stop segment.
+    sum(segment[1] for segment in V17_EVALUATION_SEGMENTS) / 50.0 + 10.0
 )
 
 

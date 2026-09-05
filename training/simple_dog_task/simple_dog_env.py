@@ -12,7 +12,7 @@ import os
 import torch
 
 from terrain_curriculum import classify_terrain_progress
-from video_camera import CAMERA_OFFSETS, select_video_camera_sample
+from video_camera import CAMERA_OFFSETS, select_video_camera_sample, update_recording_camera
 import warp as wp
 
 import isaaclab.sim as sim_utils
@@ -183,7 +183,10 @@ class SimpleDogEnv(DirectRLEnv):
             camera_step, self._video_camera_interval, self.num_envs
         )
         env_index = sample.env_index
-        root_position = self._robot.data.root_pos_w.torch[env_index]
+        # Publisher actor origins need not coincide with the visible chassis.
+        root_position = self._robot.data.body_com_pos_w.torch[
+            env_index, self._base_body_ids
+        ].mean(dim=0)
         root_quat = self._robot.data.root_quat_w.torch[env_index].unsqueeze(0)
         forward = quat_apply(
             root_quat, self._physical_forward_axis_b[env_index].unsqueeze(0)
@@ -205,8 +208,9 @@ class SimpleDogEnv(DirectRLEnv):
         ).clone()
         eye[2] = root_position[2] + height_offset
         lookat = (root_position + 0.04 * forward).clone()
-        lookat[2] = root_position[2] + 0.02
+        lookat[2] = root_position[2] - 0.04
         self.sim.set_camera_view(eye.tolist(), lookat.tolist())
+        update_recording_camera(self.video_recorder, eye.tolist(), lookat.tolist())
         if sample != self._video_camera_sample:
             print(
                 "VIDEO_CAMERA_SAMPLE "

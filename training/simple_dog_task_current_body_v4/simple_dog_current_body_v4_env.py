@@ -634,6 +634,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         # replace the V2 reward, so evaluation must not depend on that reward.
         # The play counter still refers to the command that produced this step.
         if self._evaluation_segments and not bool(self._reset_hold_active_mask[0].item()):
+            # A final-step fall must be visible before _reset_idx increments
+            # the cumulative count, including at the end of the last segment.
+            self._evaluation_pending_reset = bool((terminated[0] | time_out[0]).item())
             self._record_body_evaluation_step()
             # Command progression is part of evaluation, including when play
             # logging is disabled. Rewards must not advance this counter too.

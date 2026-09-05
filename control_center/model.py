@@ -16,7 +16,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-STAGES = ("V2Core", "V2Robust", "V2Goal", "V2Rough")
+STAGES = ("V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentBodyV20Train")
 SEMANTIC_JOINTS_12 = tuple(
     f"{leg}_{joint}"
     for leg in ("front_right", "front_left", "back_right", "back_left")

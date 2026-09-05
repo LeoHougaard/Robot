@@ -37,6 +37,29 @@ fi
   printf 'Unsupported robot asset source: %s\n' "$asset_source" >&2
   exit 2
 }
+# Native collision overlays already reference prepared USD meshes. Verify the
+# conversion evidence and every source layer instead of treating them as a
+# Publisher glTF export (which would overwrite the reviewed overlay).
+if [[ "$asset" == "$ASSET_ROOT"/*/robot.usda && -f "${asset%.usda}.manifest.json" ]]; then
+  /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 - "$asset" "$ASSET_ROOT" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+asset, root = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
+assert asset.parent.parent == root and asset.name == "robot.usda"
+manifest = json.loads(asset.with_suffix(".manifest.json").read_text())
+assert manifest["output"] == str(asset)
+assert manifest["unchanged_attribute_check"] is True
+assert len(set(manifest["changed_collision_roots"])) == 29
+assert hashlib.sha256(asset.read_bytes()).hexdigest() == manifest["output_sha256"]
+assert manifest["source_layers"]
+for name, expected in manifest["source_layers"].items():
+    layer = Path(name).resolve()
+    assert layer.is_relative_to(root)
+    assert hashlib.sha256(layer.read_bytes()).hexdigest() == expected, f"changed source layer: {layer}"
+print("Verified native collision overlay and all referenced source layers:", asset)
+PY
+  exit 0
+fi
 [[ "$asset" == "$ASSET_ROOT"/*/robot.usd ]] || {
   printf 'Custom training asset must be one robot.usd directly below %s: %s\n' "$ASSET_ROOT" "$asset" >&2
   exit 2

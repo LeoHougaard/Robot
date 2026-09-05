@@ -26,12 +26,12 @@ class VideoCameraTests(unittest.TestCase):
         sample = select_video_camera_sample(10_000, 2000, 3)
         self.assertEqual(sample.env_index, 2)
 
-    def test_views_are_close_enough_to_show_the_robot(self):
+    def test_views_leave_room_for_the_complete_linkage_robot(self):
         distances = [
             math.sqrt(sum(component * component for component in offset))
             for offset in CAMERA_OFFSETS
         ]
-        self.assertTrue(all(0.24 <= distance <= 0.28 for distance in distances))
+        self.assertTrue(all(0.70 <= distance <= 0.85 for distance in distances))
 
     def test_rejects_invalid_ranges(self):
         with self.assertRaises(ValueError):
