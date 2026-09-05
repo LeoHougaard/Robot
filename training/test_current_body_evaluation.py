@@ -89,10 +89,10 @@ class EvaluationTests(unittest.TestCase):
     def test_collects_without_calling_rewards_and_keeps_first_and_last_samples(self):
         env = fixture()
         for i in range(4):
-            env._play_step_count = i
             terminated, timeout = env._get_dones()
             self.assertTrue(terminated.item())
             self.assertFalse(timeout.item())
+            self.assertEqual(env._play_step_count, i + 1)
         self.assertEqual([r["steps"] for r in env.results], [2, 1])
         self.assertEqual([r["current"] for r in env.results], [2, 1])
         for result in env.results:
@@ -108,6 +108,7 @@ class EvaluationTests(unittest.TestCase):
         env._reset_hold_active_mask[:] = True
         env._get_dones()
         self.assertEqual(env._evaluation_segment_index, -1)
+        self.assertEqual(env._play_step_count, 0)
         env._reset_hold_active_mask[:] = False
         env._evaluation_segments = ()
         env._get_dones()

@@ -172,6 +172,6 @@ class SimpleDogCurrentBodyV17Env(SimpleDogCurrentBodyV16Env):
             * shortfall
             * self.step_dt,
         )
-        if self.cfg.print_play_metrics and not bool(settling[0].item()):
+        if self.cfg.print_play_metrics and not self._evaluation_segments and not bool(settling[0].item()):
             self._play_step_count += 1
         return reward

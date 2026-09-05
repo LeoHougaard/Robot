@@ -624,7 +624,7 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         self._episode_sums["body_motion_shortfall"] += torch.where(
             settling, 0.0, motion_shortfall * self.step_dt
         )
-        if self.cfg.print_play_metrics and not bool(settling[0].item()):
+        if self.cfg.print_play_metrics and not self._evaluation_segments and not bool(settling[0].item()):
             self._play_step_count += 1
         return reward
 
@@ -635,6 +635,9 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         # The play counter still refers to the command that produced this step.
         if self._evaluation_segments and not bool(self._reset_hold_active_mask[0].item()):
             self._record_body_evaluation_step()
+            # Command progression is part of evaluation, including when play
+            # logging is disabled. Rewards must not advance this counter too.
+            self._play_step_count += 1
         return terminated, time_out
 
     def _record_body_evaluation_step(self) -> None:
