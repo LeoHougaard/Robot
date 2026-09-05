@@ -42,6 +42,9 @@ params:
     save_frequency: 25
     grad_norm: 1.0
     entropy_coef: 0.005
+    # Raw Gaussian entropy can grow without bound while actions are clipped.
+    # Keep the restored sane noise level fixed; continue learning actor means.
+    freeze_exploration_std: true
     truncate_grads: true
     e_clip: 0.2
     horizon_length: 64

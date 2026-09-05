@@ -8,7 +8,7 @@ import yaml
 from rl_games.algos_torch.central_value import CentralValueTrain
 from rl_games.algos_torch.model_builder import ModelBuilder
 
-from delivery_checkpointing import DeliveryA2CAgent
+from delivery_checkpointing import DeliveryA2CAgent, freeze_exploration
 
 
 def make_agent():
@@ -77,6 +77,32 @@ class CheckpointTest(unittest.TestCase):
         self.assertFalse(restored.central_value_net.optimizer.state)
         self.assertEqual(restored.last_lr, .0002)
         self.assertEqual(restored.central_value_net.epoch_num, weights["epoch"])
+
+    def test_fixed_exploration_still_allows_actor_learning(self):
+        params = yaml.safe_load((Path(__file__).parent / "simple_dog_task_current_body_v20/agents/rl_games_ppo_cfg.yaml").read_text())["params"]
+        model = ModelBuilder().load(params).build(dict(actions_num=12, input_shape=(426,),
+            num_seqs=128, value_size=1, normalize_value=True, normalize_input=True))
+        optimizer = torch.optim.Adam(model.parameters(), lr=.001)
+        freeze_exploration(model)
+        initial = model.a2c_network.sigma.detach().clone()
+        weights = {k: v.detach().clone() for k, v in model.named_parameters() if "actor_mlp" in k}
+        self.assertTrue(weights)
+        batch = torch.randn(128, 426)
+        for _ in range(3):
+            optimizer.zero_grad()
+            prediction = model(dict(obs=batch, is_train=True, prev_actions=torch.zeros(128, 12)))
+            # Include the same entropy incentive that caused runaway noise.
+            loss = (prediction["mus"] - .3).square().mean() - .005 * prediction["entropy"].mean()
+            loss.backward()
+            optimizer.step()
+        self.assertTrue(torch.equal(initial, model.a2c_network.sigma))
+        self.assertIsNone(model.a2c_network.sigma.grad)
+        current = dict(model.named_parameters())
+        self.assertTrue(any(not torch.equal(v, current[k]) for k, v in weights.items()))
+        with torch.no_grad():
+            model.a2c_network.sigma.fill_(2.)
+        with self.assertRaisesRegex(ValueError, "excessive"):
+            freeze_exploration(model)
 
 
 if __name__ == "__main__":
