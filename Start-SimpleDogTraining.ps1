@@ -424,7 +424,7 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v19/agents" }
 )
 if ($isV20Terrain) {
-    foreach ($name in @("deployable_dynamics.py", "delivery_contract.py", "snapshot_delivery_run.py")) {
+    foreach ($name in @("deployable_dynamics.py", "delivery_contract.py", "delivery_checkpointing.py", "snapshot_delivery_run.py")) {
         $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
     }
     $copies += @{ Local = Join-Path $localTraining "fits\servo-response-20260829.json"; Remote = "$remoteTraining/fits" }

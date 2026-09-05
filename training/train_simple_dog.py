@@ -154,7 +154,8 @@ isaac_task_utils.resolve_task_config = resolve_task_config_with_profile
 
 
 deferred_checkpoint = os.environ.pop("SIMPLE_DOG_CHECKPOINT", "")
-if deferred_checkpoint:
+delivery_training = os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v20"
+if deferred_checkpoint or delivery_training:
     # Isaac's stock trainer places the checkpoint into agent configuration
     # before gym.make(), even though RL-Games restores it only in Runner.run().
     # On GB10 that resume configuration makes this generated rough scene's
@@ -173,7 +174,12 @@ if deferred_checkpoint:
 
                 def run_with_deferred_checkpoint(self, args):
                     deferred_args = dict(args)
-                    deferred_args["checkpoint"] = deferred_checkpoint
+                    if deferred_checkpoint:
+                        deferred_args["checkpoint"] = deferred_checkpoint
+                    if delivery_training:
+                        from delivery_checkpointing import DeliveryA2CAgent
+                        self.algo_factory.register_builder(
+                            "a2c_continuous", lambda **kwargs: DeliveryA2CAgent(**kwargs))
                     return original_runner_run(self, deferred_args)
 
                 torch_runner.Runner.run = run_with_deferred_checkpoint
@@ -190,5 +196,5 @@ try:
     )
 finally:
     isaac_task_utils.resolve_task_config = original_resolve_task_config
-    if deferred_checkpoint:
+    if deferred_checkpoint or delivery_training:
         builtins.__import__ = original_import

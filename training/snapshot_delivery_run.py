@@ -13,7 +13,8 @@ def snapshot(root, run):
     files = ["train_simple_dog.py", "play_simple_dog.py", "robot_control_profile.py",
              "simple_dog_tuning.py", "pose_goal_controller.py", "terrain_curriculum.py",
              "video_camera.py", "v4_difficulty_ramp.py", "current_policy_fit.py",
-             "deployable_dynamics.py", "delivery_contract.py", "fits/servo-response-20260829.json"]
+             "deployable_dynamics.py", "delivery_contract.py", "delivery_checkpointing.py",
+             "fits/servo-response-20260829.json"]
     for package in ("simple_dog_task", "simple_dog_task_v2", "simple_dog_task_current",
                     "simple_dog_task_current_body_v4", "simple_dog_task_current_body_v20"):
         files += [p.relative_to(root).as_posix() for p in (root / package).rglob("*") if p.suffix in (".py", ".yaml")]
