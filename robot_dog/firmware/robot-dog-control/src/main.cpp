@@ -9,6 +9,7 @@
 
 #include "AK09918.h"
 #include "QMI8658.h"
+#include "PeriodicDeadline.h"
 
 #ifndef ROBOT_DOG_VERSION
 #define ROBOT_DOG_VERSION "dev"
@@ -105,6 +106,8 @@ static constexpr uint8_t STS_MODE_SERVO = 0;
 static constexpr uint8_t STS_MODE_MOTOR = 1;
 static constexpr uint16_t POLICY_FRAME_TIMEOUT_MS = 120;
 static constexpr uint16_t POLICY_FEEDBACK_INTERVAL_MS = 20;
+static constexpr uint16_t POLICY_SERVO_SPEED_STEPS_S = 1200;
+static constexpr uint8_t POLICY_SERVO_ACCELERATION = 30;
 static constexpr uint8_t POLICY_MAX_FEEDBACK_FAILURES = 3;
 static constexpr size_t USB_SERIAL_PACKET_BYTES = 64;
 // Conservative warning thresholds for the robot's two-cell LiPo. These are
@@ -221,6 +224,7 @@ struct PolicyControlState {
   uint32_t lastSequence = 0;
   uint32_t feedbackTick = 0;
   uint32_t nextFeedbackAt = 0;
+  uint32_t missedFeedbackPeriods = 0;
   uint8_t feedbackFailures = 0;
   bool compactFeedback = false;
   bool savedMonitorEnabled[MAX_SERVOS] = {false};
@@ -1246,6 +1250,7 @@ void sendPolicyState(
   doc["feedback_us"] = feedbackMicros;
   doc["current_us"] = currentMicros;
   doc["frame_us"] = frameMicros;
+  doc["missed_feedback_periods"] = policyControl.missedFeedbackPeriods;
   doc["compact"] = policyControl.compactFeedback;
   if (!policyControl.compactFeedback) {
     doc["mag_available"] = imuState.magAvailable;
@@ -1410,8 +1415,8 @@ void handlePolicyArm(JsonDocument &doc) {
     servoBus.moveTo(
       servos[i].id,
       angleToBusPosition(servos[i], servos[i].measuredAngle),
-      1200,
-      30
+      POLICY_SERVO_SPEED_STEPS_S,
+      POLICY_SERVO_ACCELERATION
     );
     servoBus.setTorque(servos[i].id, true);
   }
@@ -1425,6 +1430,7 @@ void handlePolicyArm(JsonDocument &doc) {
   policyControl.lastSequence = 0;
   policyControl.feedbackTick = 0;
   policyControl.nextFeedbackAt = millis() + POLICY_FEEDBACK_INTERVAL_MS;
+  policyControl.missedFeedbackPeriods = 0;
   policyControl.feedbackFailures = 0;
   policyControl.compactFeedback = doc["compact_feedback"] | false;
   int16_t current[MAX_SERVOS] = {0};
@@ -1477,10 +1483,9 @@ void handlePolicyFrame(JsonDocument &doc) {
 void runPolicyFeedback() {
   if (!policyControl.armed) return;
   uint32_t now = millis();
-  if ((int32_t)(now - policyControl.nextFeedbackAt) < 0) return;
-  // Never emit catch-up bursts. A late servo transaction starts a new 20 ms
-  // period, keeping telemetry cadence stable and leaving USB parsing time.
-  policyControl.nextFeedbackAt = now + POLICY_FEEDBACK_INTERVAL_MS;
+  if (!consumePeriodicDeadline(
+      now, POLICY_FEEDBACK_INTERVAL_MS, policyControl.nextFeedbackAt,
+      policyControl.missedFeedbackPeriods)) return;
   uint32_t frameStartedAt = micros();
   ServoNativeFeedback feedback[MAX_SERVOS];
   bool received[MAX_SERVOS] = {false};
@@ -2651,6 +2656,9 @@ void handleCommand(const String &line) {
     response["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
     response["policyArmed"] = policyControl.armed;
     response["policyFrameTimeoutMs"] = POLICY_FRAME_TIMEOUT_MS;
+    response["policyFeedbackIntervalMs"] = POLICY_FEEDBACK_INTERVAL_MS;
+    response["policyServoSpeedStepsPerSecond"] = POLICY_SERVO_SPEED_STEPS_S;
+    response["policyServoAcceleration"] = POLICY_SERVO_ACCELERATION;
     response["serialRxBufferBytes"] = serialRxBufferBytes;
     addServoBatteryToJson(response);
     JsonObject imu = response["imu"].to<JsonObject>();
@@ -2967,7 +2975,9 @@ void setup() {
 }
 
 void loop() {
-  runNetworkServices();
+  // OTA and synchronous HTTP handling can block a feedback deadline. The
+  // Pixel owns policy control over USB; resume board network services at idle.
+  if (!policyControl.armed) runNetworkServices();
   pollSerial();
   runPolicyWatchdog();
   runPolicyFeedback();
