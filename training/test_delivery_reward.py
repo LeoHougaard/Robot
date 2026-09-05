@@ -53,6 +53,48 @@ class DeliveryRewardTests(unittest.TestCase):
         self.assertLess(reward(fall=True), -4.)
         self.assertEqual(reward(settling=True), 0.)
 
+    def test_zero_net_translation_cannot_buy_reward_by_rocking(self):
+        for axis in (0, 1):
+            for target in (-.08, -.04, .04, .08):
+                command = [0., 0., 0.]
+                command[axis] = target
+                parked = reward(command=command)
+                for amplitude in (.001, .005, .02, .04, .08, .12):
+                    forward = [0., 0., 0.]
+                    backward = [0., 0., 0.]
+                    forward[axis], backward[axis] = amplitude, -amplitude
+                    rocking = .5 * (reward(command=command, motion=forward)
+                                    + reward(command=command, motion=backward))
+                    self.assertLess(rocking, parked, (command, amplitude))
+                opposite = [-3. * value for value in command]
+                # Same total forward/backward distance, with a faster return.
+                asymmetric = .75 * reward(command=command, motion=command) + .25 * reward(command=command, motion=opposite)
+                self.assertLess(asymmetric, parked)
+
+    def test_zero_net_turning_cannot_buy_reward_by_rocking(self):
+        for target in (-.2, -.06, .06, .2):
+            command = (0., 0., target)
+            parked = reward(command=command)
+            for amplitude in (.005, .02, .06, .2, .4):
+                rocking = .5 * (reward(command=command, yaw=amplitude)
+                                + reward(command=command, yaw=-amplitude))
+                self.assertLess(rocking, parked, (target, amplitude))
+            self.assertLess(.75 * reward(command=command, yaw=target)
+                            + .25 * reward(command=command, yaw=-3.*target), parked)
+            tracked = reward(command=command, yaw=target)
+            self.assertGreater(tracked, reward(command=command, yaw=target*1.2))
+
+    def test_mixed_commands_preserve_the_same_no_rocking_rule(self):
+        for command in ((.06, .04, .15), (-.06, .04, -.06), (.04, -.06, .06)):
+            def rate(scale):
+                return reward(command=command,
+                              motion=(scale*command[0], scale*command[1], 0.),
+                              yaw=scale*command[2])
+            for amplitude in (.05, .25, .5, 1., 2.):
+                self.assertLess(.5 * (rate(amplitude) + rate(-amplitude)), rate(0.))
+            self.assertLess(.75*rate(1.) + .25*rate(-3.), rate(0.))
+            self.assertGreater(rate(1.), rate(1.2))
+
 
 if __name__ == "__main__":
     unittest.main()

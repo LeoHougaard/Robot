@@ -119,29 +119,40 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         yaw_error = (gyro[:, 2] - self._commands[:, 2]).abs()
         height_error = height - self.cfg.nominal_support_height_m - self._posture_commands[:, 0]
         attitude_error = (roll - self._posture_commands[:, 1]).square() + (pitch - self._posture_commands[:, 2]).square()
-        tracking = (3. * torch.exp(-planar_error.square() / .01)
-                    + torch.exp(-yaw_error.square() / .09)
+        # A Gaussian velocity score saturates on the wrong-way portion of a
+        # rocking cycle. Keep the same optimum and scale, but use convex
+        # velocity losses: zero-net oscillation must pay for its variance.
+        tracking = (3. * (1. - planar_error.square() / .01)
+                    + 1. - yaw_error.square() / .09
                     + .5 * torch.exp(-height_error.square() / .0004)
                     + .5 * torch.exp(-attitude_error / .02))
         speed = torch.linalg.vector_norm(self._commands[:, :2], dim=-1)
         aligned = (motion[:, :2] * self._commands[:, :2]).sum(-1) / speed.clamp_min(1e-6)
-        planar_progress = (aligned / speed.clamp_min(.03)).clamp(-1, 1)
-        yaw_progress = (gyro[:, 2] * self._commands[:, 2].sign() / self._commands[:, 2].abs().clamp_min(.05)).clamp(-1, 1)
+        # Cap credit for overspeed, but do not erase faster backward motion.
+        planar_progress = (aligned / speed.clamp_min(.03)).clamp(max=1.)
+        yaw_progress = (gyro[:, 2] * self._commands[:, 2].sign() / self._commands[:, 2].abs().clamp_min(.05)).clamp(max=1.)
         linear_active = speed > .03
         yaw_active = self._commands[:, 2].abs() > .05
         active_count = linear_active.float() + yaw_active.float()
         progress = (planar_progress * linear_active + yaw_progress * yaw_active) / active_count.clamp_min(1)
-        shortfall = (active_count > 0) * (1 - progress.clamp(0, 1))
+        shortfall = (active_count > 0) * (1 - progress).clamp_min(0.)
         delta = self._actions - self._previous_actions
         regularization = .02 * delta.square().sum(-1)
         contact = self._contact_sensor.data
         sync = self._dense_diagonal_gait_reward(contact.current_air_time.torch[:, self._feet_sensor_ids],
                                                contact.current_contact_time.torch[:, self._feet_sensor_ids])
-        sync_rate = self.cfg.opposite_leg_sync_reward_scale * progress.clamp(0, 1) * sync
+        # Retain the progress-gated diagonal prior. Its quadratic gate and
+        # command-dependent budget keep a tiny zero-net oscillation from
+        # buying gait reward at a lower cost than its tracking error.
+        sync_budget = torch.full_like(speed, self.cfg.opposite_leg_sync_reward_scale)
+        sync_budget = torch.where(linear_active, torch.minimum(sync_budget, 3. * speed.square() / .01), sync_budget)
+        sync_budget = torch.where(yaw_active, torch.minimum(sync_budget, self._commands[:, 2].square() / .09), sync_budget)
+        sync_rate = sync_budget * progress.clamp(0, 1).square() * sync
         rate = tracking + .5 * progress - .5 * shortfall - regularization + sync_rate
         active = ~self._reset_hold_active_mask
         reward = torch.where(active, rate * self.step_dt, 0.)
-        # A fall cannot avoid future tracking costs by ending the episode.
+        # Keep an explicit fall cost; deterministic evaluation also requires
+        # zero falls. Monitor termination rates when changing tracking losses.
         reward -= 5. * (self.reset_terminated & active)
         self._survival_steps += 1.
         self._velocity_error_sum += active * planar_error
@@ -149,7 +160,7 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         self._body_lateral_speed_sum += active * motion[:, 1].abs()
         self._heading_error_sum += active * yaw_error
         self._terrain_commanded_distance += active * speed * self.step_dt
-        self._terrain_tracked_distance += active * torch.minimum(aligned, speed).clamp_min(0) * self.step_dt
+        self._terrain_tracked_distance += active * torch.minimum(aligned, speed) * self.step_dt
         self._episode_sums["body_tracking"] += active * tracking * self.step_dt
         self._episode_sums["body_motion_shortfall"] -= active * .5 * shortfall * self.step_dt
         self._episode_sums["opposite_leg_sync"] += active * sync_rate * self.step_dt
