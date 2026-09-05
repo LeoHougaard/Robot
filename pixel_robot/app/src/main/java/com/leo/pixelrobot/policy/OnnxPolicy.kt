@@ -72,6 +72,7 @@ class OnnxPolicy(
         }
     }
 
+    @Synchronized
     override fun close() {
         session.close()
         options.close()

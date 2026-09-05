@@ -7,11 +7,27 @@
   "imu": {
     "calibrated": true,
     "body_axis_from_sensor_axis": [
-      [6.123233995736766e-17, 1.0, 0.0],
-      [-1.0, 6.123233995736766e-17, 0.0],
-      [0.0, 0.0, 1.0]
+      [
+        6.123233995736766e-17,
+        1,
+        0
+      ],
+      [
+        -1,
+        6.123233995736766e-17,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ]
     ],
-    "gyro_bias_dps": [-0.0125, 0.06458, -0.24958],
+    "gyro_bias_dps": [
+      -0.0125,
+      0.06458,
+      -0.24958
+    ],
     "gravity_sign": -1
   },
   "joints": [
@@ -19,128 +35,128 @@
       "policy_index": 0,
       "semantic": "front_right_hip_abduction",
       "servo_id": 7,
-      "zero_deg": 176.967,
+      "zero_deg": 178.54949951171875,
       "servo_degrees_per_policy_radian": -57.2957795,
-      "min_deg": 156.967,
-      "max_deg": 196.967
+      "min_deg": 158.54949951171875,
+      "max_deg": 198.54949951171875
     },
     {
       "policy_index": 1,
       "semantic": "front_right_hip_flexion",
       "servo_id": 8,
-      "zero_deg": 173.7143,
+      "zero_deg": 173.09890747070312,
       "servo_degrees_per_policy_radian": -57.2957795,
-      "min_deg": 153.7143,
-      "max_deg": 193.7143
+      "min_deg": 153.09890747070312,
+      "max_deg": 193.09890747070312
     },
     {
       "policy_index": 2,
       "semantic": "front_right_knee_flexion",
       "servo_id": 9,
-      "zero_deg": 146.9011,
+      "zero_deg": 145.23080444335938,
       "servo_degrees_per_policy_radian": -57.2957795,
-      "min_deg": 111.9011,
-      "max_deg": 181.9011,
+      "min_deg": 110.2308120727539,
+      "max_deg": 180.23080444335938,
       "linkage": {
         "type": "four_bar_follow",
         "parent_policy_index": 1,
-        "parent_ratio": 1.0
+        "parent_ratio": 1
       }
     },
     {
       "policy_index": 3,
       "semantic": "front_left_hip_abduction",
       "servo_id": 1,
-      "zero_deg": 253.4505,
+      "zero_deg": 253.01100158691406,
       "servo_degrees_per_policy_radian": 57.2957795,
-      "min_deg": 233.4505,
-      "max_deg": 273.4505
+      "min_deg": 233.01100158691406,
+      "max_deg": 273.010986328125
     },
     {
       "policy_index": 4,
       "semantic": "front_left_hip_flexion",
       "servo_id": 2,
-      "zero_deg": 163.956,
+      "zero_deg": 162.81320190429688,
       "servo_degrees_per_policy_radian": 57.2957795,
-      "min_deg": 143.956,
-      "max_deg": 183.956
+      "min_deg": 142.81320190429688,
+      "max_deg": 182.81320190429688
     },
     {
       "policy_index": 5,
       "semantic": "front_left_knee_flexion",
       "servo_id": 3,
-      "zero_deg": 39.7363,
+      "zero_deg": 35.86812973022461,
       "servo_degrees_per_policy_radian": 57.2957795,
-      "min_deg": 4.7363,
-      "max_deg": 74.7363,
+      "min_deg": 0.8681282997131348,
+      "max_deg": 70.86812591552734,
       "linkage": {
         "type": "four_bar_follow",
         "parent_policy_index": 4,
-        "parent_ratio": 1.0
+        "parent_ratio": 1
       }
     },
     {
       "policy_index": 6,
       "semantic": "back_right_hip_abduction",
       "servo_id": 4,
-      "zero_deg": 179.8681,
+      "zero_deg": 179.3406982421875,
       "servo_degrees_per_policy_radian": 57.2957795,
-      "min_deg": 159.8681,
-      "max_deg": 199.8681
+      "min_deg": 159.3406982421875,
+      "max_deg": 199.3406982421875
     },
     {
       "policy_index": 7,
       "semantic": "back_right_hip_flexion",
       "servo_id": 5,
-      "zero_deg": 182.4176,
+      "zero_deg": 181.3625946044922,
       "servo_degrees_per_policy_radian": 57.2957795,
-      "min_deg": 162.4176,
-      "max_deg": 202.4176
+      "min_deg": 161.3625946044922,
+      "max_deg": 201.3625946044922
     },
     {
       "policy_index": 8,
       "semantic": "back_right_knee_flexion",
       "servo_id": 6,
-      "zero_deg": 221.1868,
+      "zero_deg": 219.95599365234375,
       "servo_degrees_per_policy_radian": 57.2957795,
-      "min_deg": 186.1868,
-      "max_deg": 256.1868,
+      "min_deg": 184.95599365234375,
+      "max_deg": 254.95599365234375,
       "linkage": {
         "type": "four_bar_follow",
         "parent_policy_index": 7,
-        "parent_ratio": 1.0
+        "parent_ratio": 1
       }
     },
     {
       "policy_index": 9,
       "semantic": "back_left_hip_abduction",
       "servo_id": 10,
-      "zero_deg": 188.9231,
+      "zero_deg": 189.01100158691406,
       "servo_degrees_per_policy_radian": -57.2957795,
-      "min_deg": 168.9231,
-      "max_deg": 208.9231
+      "min_deg": 169.01100158691406,
+      "max_deg": 209.01100158691406
     },
     {
       "policy_index": 10,
       "semantic": "back_left_hip_flexion",
       "servo_id": 11,
-      "zero_deg": 180.6593,
+      "zero_deg": 179.51649475097656,
       "servo_degrees_per_policy_radian": -57.2957795,
-      "min_deg": 160.6593,
-      "max_deg": 200.6593
+      "min_deg": 159.51649475097656,
+      "max_deg": 199.51649475097656
     },
     {
       "policy_index": 11,
       "semantic": "back_left_knee_flexion",
       "servo_id": 12,
-      "zero_deg": 133.3626,
+      "zero_deg": 130.54949951171875,
       "servo_degrees_per_policy_radian": -57.2957795,
-      "min_deg": 98.3626,
-      "max_deg": 168.3626,
+      "min_deg": 95.54950714111328,
+      "max_deg": 165.54949951171875,
       "linkage": {
         "type": "four_bar_follow",
         "parent_policy_index": 10,
-        "parent_ratio": 1.0
+        "parent_ratio": 1
       }
     }
   ]

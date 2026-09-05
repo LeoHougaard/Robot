@@ -74,7 +74,7 @@
 </head>
 <body>
   <main>
-    <p class="eyebrow">Physical robot, restricted Robust policy</p>
+    <p class="eyebrow">Physical robot, Pixel USB controller</p>
     <h1>Continuous policy test</h1>
     <p class="subtitle">The policy runs until you stop it. Commands run on the Pixel and reach the ESP32 over USB. Closing or hiding this page requests stop and torque-off.</p>
 
@@ -115,6 +115,11 @@
         <div class="ticks"><span id="forward-min">Stationary</span><span id="forward-max">0.22 m/s</span></div>
       </div>
       <div>
+        <div class="control-head"><h2>Sideways request</h2><output id="lateral-value">0.00 m/s</output></div>
+        <input id="lateral" type="range" min="0" max="0" step="0.01" value="0" disabled>
+        <div class="ticks"><span>Right</span><span>Stationary</span><span>Left</span></div>
+      </div>
+      <div>
         <div class="control-head"><h2>Turn request</h2><output id="yaw-value">0.00 rad/s</output></div>
         <input id="yaw" type="range" min="-0.25" max="0.25" step="0.01" value="0">
         <div class="ticks"><span id="yaw-min">Right</span><span>Straight</span><span id="yaw-max">Left</span></div>
@@ -140,7 +145,7 @@
       <button id="download" disabled>Download last run data</button>
       <button id="download-capture" disabled>Download training capture</button>
       <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
-      <p class="restriction">This policy is limited to forward motion and curved turns. Reverse, strafe, and in-place turns remain disabled in this build.</p>
+      <p class="restriction">The controls use the installed policy?s tested command limits.</p>
     </section>
   </main>
   <script>
@@ -153,12 +158,13 @@
     let clockedPolicyReady = false;
 
     function values() {
-      return { forward: Number(ui.forward.value), yaw_rate: Number(ui.yaw.value) };
+      return { forward: Number(ui.forward.value), lateral: Number(ui.lateral.value), yaw_rate: Number(ui.yaw.value) };
     }
 
     function renderValues() {
       const command = values();
       ui["forward-value"].textContent = `${command.forward.toFixed(2)} m/s`;
+      ui["lateral-value"].textContent = `${command.lateral.toFixed(2)} m/s`;
       ui["yaw-value"].textContent = `${command.yaw_rate.toFixed(2)} rad/s`;
       if (live) {
         clearTimeout(commandTimer);
@@ -168,7 +174,7 @@
 
     async function request(path, options = {}) {
       const response = await fetch(path, { cache: "no-store", ...options });
-      const result = await response.json();
+      const result = await response.json().catch(() => { throw new Error("Pixel bridge is unavailable. Reconnect and try again."); });
       if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
       renderStatus(result);
       return result;
@@ -238,6 +244,11 @@
         ui["forward-min"].textContent = Number(status.forward_min) === 0 ? "Stationary" : `${Number(status.forward_min).toFixed(2)} m/s`;
         ui["forward-max"].textContent = `${Number(status.forward_max).toFixed(2)} m/s`;
       }
+      if (Number.isFinite(status.lateral_min) && Number.isFinite(status.lateral_max)) {
+        ui.lateral.min = status.lateral_min;
+        ui.lateral.max = status.lateral_max;
+        ui.lateral.disabled = status.lateral_min === status.lateral_max;
+      }
       if (Number.isFinite(status.yaw_min) && Number.isFinite(status.yaw_max)) {
         ui.yaw.min = status.yaw_min;
         ui.yaw.max = status.yaw_max;
@@ -276,10 +287,12 @@
 
     ui.forward.addEventListener("input", renderValues);
     ui.yaw.addEventListener("input", renderValues);
+    ui.lateral.addEventListener("input", renderValues);
     ui.stand.addEventListener("click", () => post("/api/stand"));
     ui.start.addEventListener("click", () => post("/api/start", values()));
     ui.stop.addEventListener("click", () => {
       ui.forward.value = "0";
+      ui.lateral.value = "0";
       ui.yaw.value = "0";
       renderValues();
       post("/api/stop").catch(() => {});

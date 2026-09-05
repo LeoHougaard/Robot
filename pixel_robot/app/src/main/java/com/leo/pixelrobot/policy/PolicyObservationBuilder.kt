@@ -6,6 +6,8 @@ import kotlin.math.abs
 class PolicyObservationBuilder(private val contract: PolicyContract) {
     private val heldCurrent = FloatArray(12)
 
+    fun reset() { heldCurrent.fill(0f) }
+
     fun frame(
         baseFrame: FloatArray,
         currentRawByPolicyJoint: Array<Int?>,
@@ -30,7 +32,7 @@ class PolicyObservationBuilder(private val contract: PolicyContract) {
             current[index] = heldCurrent[index]
         }
         val currentFrame = baseFrame + current + validity
-        return if (contract.observationBuilder == "current_body_v14_426") {
+        return if (contract.usesSelectedHistory) {
             currentFrame + timingRatio
         } else {
             currentFrame
@@ -39,16 +41,16 @@ class PolicyObservationBuilder(private val contract: PolicyContract) {
 
     fun observation(history: Array<FloatArray>, posture: FloatArray): FloatArray {
         require(history.size == contract.observationHistory)
-        val flat = history.flatMap { it.asIterable() }.toFloatArray()
+        require(history.all { frame -> frame.all(Float::isFinite) })
         require(posture.size == 3 && posture.all(Float::isFinite))
         val observation = when (contract.observationBuilder) {
-            "current_v3_279" -> flat + posture
-            "current_body_v14_426" -> {
+            "current_v3_279" -> history.flatMap { it.asIterable() }.toFloatArray() + posture
+            "current_body_v14_426", "current_body_v20_426" -> {
                 val selected = contract.selectedHistoryIndices.flatMap { history[it].asIterable() }.toFloatArray()
                 val latestCommand = history.last().copyOfRange(6, 9)
                 selected + latestCommand + posture
             }
-            else -> flat
+            else -> history.flatMap { it.asIterable() }.toFloatArray()
         }
         return observation.also { require(it.size == contract.observationSize) }
     }

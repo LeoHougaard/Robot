@@ -6,7 +6,6 @@ import com.leo.pixelrobot.robot.RobotProtocol
 import com.leo.pixelrobot.robot.RunSessionRecorder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -15,7 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
@@ -26,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference
 data class MotionRequest(
     val forward: Float = 0f,
     val yawRate: Float = 0f,
+    val lateral: Float = 0f,
     val heightOffset: Float = 0f,
     val roll: Float = 0f,
     val pitch: Float = 0f,
@@ -64,20 +63,22 @@ class PolicyController(
         contract.observationSize,
     )
     private val observationBuilder = PolicyObservationBuilder(contract)
-    private val messages = Channel<JSONObject>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private data class Received(val message: JSONObject, val receivedNs: Long)
+    private var lastFeedbackReceivedNs = 0L
+    private val messages = Channel<Received>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val request = AtomicReference(MotionRequest())
     private val mutableStatus = MutableStateFlow(
         PolicyRuntimeStatus(detail = "Actor ready", executionProvider = policy.executionProvider),
     )
     val status: StateFlow<PolicyRuntimeStatus> = mutableStatus.asStateFlow()
-    private var runJob: Job? = null
+    private val operation = PolicyOperation()
 
-    fun updateRequest(forward: Float, yawRate: Float) {
-        contract.requireRequest(forward, 0f, yawRate)
-        request.updateAndGet { it.copy(forward = forward, yawRate = yawRate) }
+    fun updateRequest(forward: Float, yawRate: Float, lateral: Float = 0f) {
+        contract.requireRequest(forward, lateral, yawRate)
+        request.updateAndGet { it.copy(forward = forward, lateral = lateral, yawRate = yawRate) }
         runCatching { recorder.recordEvent(
             "motion_request",
-            JSONObject().put("forward_m_s", forward).put("yaw_rate_rad_s", yawRate),
+            JSONObject().put("forward_m_s", forward).put("lateral_m_s", lateral).put("yaw_rate_rad_s", yawRate),
         ) }
     }
 
@@ -98,7 +99,7 @@ class PolicyController(
     }
 
     fun onRobotMessage(message: JSONObject) {
-        messages.trySend(message)
+        messages.trySend(Received(message, SystemClock.elapsedRealtimeNanos()))
     }
 
     fun onLinkReady() {
@@ -113,51 +114,48 @@ class PolicyController(
     }
 
     fun startPolicy() {
-        check(runJob?.isActive != true) { "policy is already running" }
-        while (messages.tryReceive().isSuccess) Unit
         runCatching {
             val initialRequest = request.get()
             recorder.recordEvent(
                 "policy_start_requested",
                 JSONObject()
                     .put("forward_m_s", initialRequest.forward)
+                    .put("lateral_m_s", initialRequest.lateral)
                     .put("yaw_rate_rad_s", initialRequest.yawRate),
             )
         }
-        runJob = scope.launch { run() }
+        operation.start(scope) {
+            while (messages.tryReceive().isSuccess) Unit
+            run()
+        }
     }
 
     fun standAtCapturedPose() {
-        check(runJob?.isActive != true) { "another robot operation is already running" }
-        while (messages.tryReceive().isSuccess) Unit
         runCatching {
             recorder.recordEvent("stand_requested")
         }
-        runJob = scope.launch {
+        operation.start(scope) {
+            while (messages.tryReceive().isSuccess) Unit
             try {
                 withTimeout(STAND_OPERATION_TIMEOUT_MS) { moveToCapturedPose() }
             } catch (timeout: TimeoutCancellationException) {
                 safeDisarm("Stand failed: controller did not finish within 15 seconds")
-            } finally {
-                runJob = null
             }
         }
     }
 
     fun stop(reason: String = "Stop requested") {
         request.set(MotionRequest())
-        runJob?.cancel(CancellationException(reason))
-        safeDisarm(reason)
+        operation.stop(reason) { safeDisarm(reason) }
     }
 
     private suspend fun run() {
+        observationBuilder.reset()
         val startedFromHeldPose = mutableStatus.value.holdingPose
         var armAttempted = false
-        val gravity = GravityEstimator()
-        var previousJointPosition: FloatArray? = null
-        var previousSampleMs: Long? = null
+        val sensors = PolicySensors(calibration, contract.controlFrameSeconds)
         var history: Array<FloatArray>? = null
-        var command = floatArrayOf(request.get().forward, 0f, request.get().yawRate)
+        var command = floatArrayOf(request.get().forward, request.get().lateral, request.get().yawRate)
         var postureCommand = floatArrayOf(
             request.get().heightOffset, request.get().roll, request.get().pitch,
         )
@@ -198,11 +196,11 @@ class PolicyController(
                 torquePercent = SERVO_TORQUE_LIMIT / 10,
                 gyroBiasDps = sessionGyroBias.copyOf(),
             )
-            send(RobotProtocol.torqueLimitAll(SERVO_TORQUE_LIMIT))
+            sendForOperation(RobotProtocol.torqueLimitAll(SERVO_TORQUE_LIMIT))
             awaitMessage("ok", 2_000) { it.optString("cmd") == "servo_torque_limit" }
             mutableStatus.value = mutableStatus.value.copy(detail = "Arming guarded firmware transport")
             armAttempted = true
-            send(RobotProtocol.arm())
+            sendForOperation(RobotProtocol.arm())
             var state = awaitPolicyStateAfterTick(previousTick = -1, timeoutMs = 2_000)
             require(state.getLong("seq") == 0L && state.getLong("tick") == 0L) {
                 "initial policy feedback must start at sequence 0, tick 0"
@@ -214,18 +212,13 @@ class PolicyController(
                 val inputState = state
                 val inputTick = state.getLong("tick")
                 val sampleMs = state.getLong("sample_ms") and 0xffff_ffffL
-                val dt = previousSampleMs?.let { previous ->
-                    val elapsed = (sampleMs - previous) and 0xffff_ffffL
-                    if (elapsed in 5..100) elapsed / 1000f else contract.controlFrameSeconds
-                } ?: contract.controlFrameSeconds
-                val vectors = stateVectors(state, gravity, dt, sessionGyroBias)
-                val joints = vectors.second
-                val jointVelocity = previousJointPosition?.let { previous ->
-                    FloatArray(ACTION_COUNT) { (joints[it] - previous[it]) / dt }
-                } ?: FloatArray(ACTION_COUNT)
+                val sensorFrame = sensors.read(state, sessionGyroBias)
+                val dt = sensorFrame.dt
+                val joints = sensorFrame.position
+                val jointVelocity = sensorFrame.velocity
 
                 val target = request.get()
-                val commandTarget = floatArrayOf(target.forward, 0f, target.yawRate)
+                val commandTarget = floatArrayOf(target.forward, target.lateral, target.yawRate)
                 val alpha = (
                     contract.controlFrameSeconds / contract.commandSmoothingSeconds
                 ).coerceAtMost(1f)
@@ -240,12 +233,12 @@ class PolicyController(
                 val stateSequence = state.getLong("seq")
                 val previousActionForObservation = requireNotNull(actionsBySequence[stateSequence]).copyOf()
                 val inputAppliedTargets = requireNotNull(targetsBySequence[stateSequence])
-                val baseFrame = vectors.first + command + joints +
+                val baseFrame = sensorFrame.imu + command + joints +
                     FloatArray(ACTION_COUNT) { 0.05f * jointVelocity[it] } +
                     previousActionForObservation
                 val frame = observationBuilder.frame(
                     baseFrame,
-                    currentRawByPolicyJoint(state),
+                    sensorFrame.current,
                     timingRatio = dt * 1000f / contract.timingReferenceMilliseconds,
                 )
                 if (history == null) {
@@ -278,9 +271,10 @@ class PolicyController(
                 actionsBySequence[sequence] = appliedAction.copyOf()
                 targetsBySequence[sequence] = targets
                 val commandSentNs = SystemClock.elapsedRealtimeNanos()
-                send(RobotProtocol.policyFrame(sequence, targets))
-                previousJointPosition = joints
-                previousSampleMs = sampleMs
+                require(SystemClock.elapsedRealtimeNanos() - lastFeedbackReceivedNs <= MAX_FEEDBACK_AGE_NS) {
+                    "policy computation outlived its feedback"
+                }
+                sendForOperation(RobotProtocol.policyFrame(sequence, targets))
                 state = coalescePolicyAngles(
                     next = awaitPolicyStateAfterTick(inputTick, FEEDBACK_TIMEOUT_MS),
                     previous = inputState,
@@ -308,8 +302,8 @@ class PolicyController(
                         .put("dt_s", dt)
                         .put("command_target", commandTarget.jsonArray())
                         .put("command_applied", command.jsonArray())
-                        .put("gyro_body_rad_s", vectors.first.copyOfRange(0, 3).jsonArray())
-                        .put("projected_gravity_body", vectors.first.copyOfRange(3, 6).jsonArray())
+                        .put("gyro_body_rad_s", sensorFrame.imu.copyOfRange(0, 3).jsonArray())
+                        .put("projected_gravity_body", sensorFrame.imu.copyOfRange(3, 6).jsonArray())
                         .put("joint_position_rad", joints.jsonArray())
                         .put("joint_velocity_rad_s", jointVelocity.jsonArray())
                         .put("previous_applied_action", previousActionForObservation.jsonArray())
@@ -359,8 +353,6 @@ class PolicyController(
             } else {
                 safeDisarm("Policy stopped: ${error.detail()}")
             }
-        } finally {
-            runJob = null
         }
     }
 
@@ -395,9 +387,9 @@ class PolicyController(
                     .put("maximum_step_deg", trajectory.maximumStepDegrees),
             )
 
-            send(RobotProtocol.torqueLimitAll(SERVO_TORQUE_LIMIT))
+            sendForOperation(RobotProtocol.torqueLimitAll(SERVO_TORQUE_LIMIT))
             awaitMessage("ok", 2_000) { it.optString("cmd") == "servo_torque_limit" }
-            send(RobotProtocol.torqueAll(true))
+            sendForOperation(RobotProtocol.torqueAll(true))
             awaitMessage("ok", 3_000) { it.optString("cmd") == "servo_torque" }
             // Upload small acknowledged records, then start them atomically.
             // A damaged or missing record cannot start partial motion.
@@ -407,7 +399,7 @@ class PolicyController(
                 speed = STAND_SPEED,
                 acceleration = STAND_ACCELERATION,
             ) { command, expectedAcknowledgement ->
-                send(command)
+                sendForOperation(command)
                 awaitMessage("ok", 3_000) {
                     it.optString("cmd") == expectedAcknowledgement
                 }
@@ -433,10 +425,10 @@ class PolicyController(
 
     private suspend fun readAnglesWithVerifiedTorqueOff(sampleCount: Int): Map<Int, Float> {
         require(sampleCount >= 1)
-        send(RobotProtocol.torqueAll(false))
+        sendForOperation(RobotProtocol.torqueAll(false))
         awaitMessage("ok", 2_000) { it.optString("cmd") == "servo_torque" }
         for (servoId in 1..ACTION_COUNT) {
-            send(RobotProtocol.servoBusProbe(servoId, TORQUE_ENABLE_ADDRESS, 1))
+            sendForOperation(RobotProtocol.servoBusProbe(servoId, TORQUE_ENABLE_ADDRESS, 1))
             val response = awaitMessage("servo_bus_probe", 2_000) {
                 it.optInt("id", -1) == servoId
             }
@@ -457,7 +449,7 @@ class PolicyController(
         require(sampleCount >= 1)
         val samples = ArrayList<Map<Int, Float>>(sampleCount)
         repeat(sampleCount) { sampleIndex ->
-            send(RobotProtocol.readAll())
+            sendForOperation(RobotProtocol.readAll())
             val state = awaitMessage("state", 3_000)
             val measured = state.optJSONObject("measured")
                 ?: error("servo position response is missing")
@@ -485,13 +477,17 @@ class PolicyController(
         }
     }
 
+    private suspend fun sendForOperation(bytes: ByteArray) {
+        operation.send { send(bytes) }
+    }
+
     private suspend fun awaitMessage(
         type: String,
         timeoutMs: Long,
         accept: (JSONObject) -> Boolean = { true },
     ): JSONObject = withTimeout(timeoutMs) {
         while (true) {
-            val message = messages.receive()
+            val message = messages.receive().message
             if (message.optString("type") == "error") {
                 error(message.optString("message", "ESP32 error"))
             }
@@ -501,18 +497,35 @@ class PolicyController(
     }
 
     private suspend fun awaitPolicyStateAfterTick(previousTick: Long, timeoutMs: Long): JSONObject = withTimeout(timeoutMs) {
-        while (true) {
-            val message = messages.receive()
+        fun accepted(received: Received): Boolean {
+            val message = received.message
             when (message.optString("type")) {
                 "error" -> error(message.optString("message", "ESP32 error"))
                 "policy_disarmed" -> error(message.optString("reason", "firmware disarmed"))
                 "policy_state" -> {
-                    val tick = message.optLong("tick", -1)
-                    if (tick <= previousTick) continue
                     require(message.optBoolean("armed", false)) { "firmware reports policy disarmed" }
-                    return@withTimeout message
+                    return message.optLong("tick", -1) > previousTick
                 }
             }
+            return false
+        }
+        while (true) {
+            var newest = messages.receive()
+            if (!accepted(newest)) continue
+            // Preserve the required tick-zero arm acknowledgement. During
+            // control, consume the newest available state and inspect every
+            // queued error; never run catch-up inferences on old observations.
+            if (previousTick >= 0) {
+                while (true) {
+                    val queued = messages.tryReceive().getOrNull() ?: break
+                    if (accepted(queued) && queued.message.getLong("tick") > newest.message.getLong("tick")) newest = queued
+                }
+            }
+            require(SystemClock.elapsedRealtimeNanos() - newest.receivedNs <= MAX_FEEDBACK_AGE_NS) {
+                "queued robot feedback is stale"
+            }
+            lastFeedbackReceivedNs = newest.receivedNs
+            return@withTimeout newest.message
         }
         error("unreachable")
     }
@@ -525,7 +538,7 @@ class PolicyController(
         var attempts = 0
         while (gyroSamples.size < GYRO_ZERO_SAMPLE_COUNT && attempts < GYRO_ZERO_MAX_ATTEMPTS) {
             attempts += 1
-            send(RobotProtocol.imuStatus())
+            sendForOperation(RobotProtocol.imuStatus())
             val sample = awaitMessage("imu", 2_000)
             if (sample.optBoolean("available", false)) {
                 val vector = runCatching { sample.optJSONObject("gyro")?.vector3() }.getOrNull()
@@ -557,35 +570,6 @@ class PolicyController(
             }
         }
         return worstServoId to worstError
-    }
-
-    private fun stateVectors(
-        state: JSONObject,
-        gravity: GravityEstimator,
-        dt: Float,
-        gyroBiasDps: FloatArray,
-    ): Pair<FloatArray, FloatArray> {
-        val ids = state.getJSONArray("ids").intArray()
-        val angles = state.getJSONArray("angles_deg").floatArray()
-        require(ids.size == ACTION_COUNT && angles.size == ACTION_COUNT)
-        val joints = calibration.policyPositions(ids.indices.associate { ids[it] to angles[it] })
-        val gyroSensor = state.getJSONArray("gyro_dps").floatArray()
-        val accelerationSensor = state.getJSONArray("accel_mg").floatArray()
-        val gyroBody = calibration.bodyGyroRadPerSecond(gyroSensor, gyroBiasDps)
-        val accelerationBody = calibration.bodyAccelerationMg(accelerationSensor)
-        val projectedGravity = gravity.update(accelerationBody, gyroBody, calibration.gravitySign, dt)
-        return (gyroBody + projectedGravity) to joints
-    }
-
-    private fun currentRawByPolicyJoint(state: JSONObject): Array<Int?> {
-        val ids = state.getJSONArray("ids").intArray()
-        val currents = state.optJSONArray("current_raw")
-            ?: return arrayOfNulls(ACTION_COUNT)
-        if (currents.length() != ids.size) return arrayOfNulls(ACTION_COUNT)
-        val currentByServoId = ids.indices.associate { index ->
-            ids[index] to if (currents.isNull(index)) null else currents.getInt(index)
-        }
-        return Array(ACTION_COUNT) { index -> currentByServoId[calibration.servoIds[index]] }
     }
 
     private fun safeDisarm(detail: String) {
@@ -630,13 +614,13 @@ class PolicyController(
     }
 
     override fun close() {
-        stop("Runtime closed")
-        policy.close()
+        operation.close({ safeDisarm("Runtime closed") }, { policy.close() })
     }
 
     companion object {
         private const val ACTION_COUNT = 12
         private const val FEEDBACK_TIMEOUT_MS = 80L
+        private const val MAX_FEEDBACK_AGE_NS = 40_000_000L
         private const val SERVO_TORQUE_LIMIT = 1000
         private const val TORQUE_ENABLE_ADDRESS = 0x28
         private const val CAPTURE_SAMPLE_INTERVAL_MS = 40L

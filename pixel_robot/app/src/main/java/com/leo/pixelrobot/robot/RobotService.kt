@@ -247,18 +247,23 @@ class RobotService : Service() {
         check(!status.active) { status.error ?: "recording could not stop" }
     }
 
-    fun updateMotionRequest(forward: Float, yawRate: Float) {
-        policyController.updateRequest(forward, yawRate)
+    fun updateMotionRequest(forward: Float, yawRate: Float, lateral: Float = 0f) {
+        policyController.updateRequest(forward, yawRate, lateral)
     }
 
     fun updatePostureRequest(heightOffset: Float, roll: Float, pitch: Float) {
         policyController.updatePosture(heightOffset, roll, pitch)
     }
 
+    private fun firmwareSupportsInstalledPolicy(version: String?): Boolean =
+        if (policyContract.observationBuilder == "current_body_v20_426") {
+            FirmwareCapabilities.supportsStablePolicyFeedback(version)
+        } else FirmwareCapabilities.supportsClockedPolicyFeedback(version)
+
     fun startPolicy() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
-        check(FirmwareCapabilities.supportsClockedPolicyFeedback(mutableStatus.value.firmwareVersion)) {
-            "ESP32 firmware 0.1.13 or newer is required for clocked 50 Hz policy feedback"
+        check(firmwareSupportsInstalledPolicy(mutableStatus.value.firmwareVersion)) {
+            "ESP32 firmware ${if (policyContract.observationBuilder == "current_body_v20_426") "0.1.14" else "0.1.13"} or newer is required for this policy"
         }
         policyController.startPolicy()
         startSessionMonitor()
@@ -395,7 +400,7 @@ class RobotService : Service() {
             .put("feedback_hz", policy.feedbackHertz)
             .put(
                 "clocked_policy_ready",
-                FirmwareCapabilities.supportsClockedPolicyFeedback(robot.firmwareVersion),
+                firmwareSupportsInstalledPolicy(robot.firmwareVersion),
             )
             .put("execution_provider", policy.executionProvider)
             .put("torque_percent", policy.torquePercent ?: JSONObject.NULL)
@@ -408,6 +413,8 @@ class RobotService : Service() {
             .put("worst_tracking_servo_id", policy.worstTrackingServoId ?: JSONObject.NULL)
             .put("forward_min", policyContract.forwardMinimum)
             .put("forward_max", policyContract.forwardMaximum)
+            .put("lateral_min", policyContract.lateralMinimum)
+            .put("lateral_max", policyContract.lateralMaximum)
             .put("yaw_min", policyContract.yawMinimum)
             .put("yaw_max", policyContract.yawMaximum)
             .put("recording_active", recording.active)

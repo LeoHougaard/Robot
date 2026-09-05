@@ -15,7 +15,7 @@ import java.util.concurrent.Executors
 class RobotControlServer(
     assets: AssetManager,
     private val status: () -> JSONObject,
-    private val updateCommand: (Float, Float) -> Unit,
+    private val updateCommand: (Float, Float, Float) -> Unit,
     private val stand: () -> Unit,
     private val startTest: () -> Unit,
     private val stop: () -> Unit,
@@ -126,6 +126,7 @@ class RobotControlServer(
                     updateCommand(
                         request.getDouble("forward").toFloat(),
                         request.getDouble("yaw_rate").toFloat(),
+                        request.optDouble("lateral", 0.0).toFloat(),
                     )
                     startTest()
                     respondStatus(socket)
@@ -139,6 +140,7 @@ class RobotControlServer(
                     updateCommand(
                         request.getDouble("forward").toFloat(),
                         request.getDouble("yaw_rate").toFloat(),
+                        request.optDouble("lateral", 0.0).toFloat(),
                     )
                     respondStatus(socket)
                 }

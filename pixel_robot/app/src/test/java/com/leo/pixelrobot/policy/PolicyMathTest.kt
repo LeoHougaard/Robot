@@ -263,16 +263,25 @@ class PolicyMathTest {
 
     @Test
     fun currentBodyObservationMatchesTheSixFrameTrainingLayout() {
+        checkCurrentBodyLayout("current_body_v14_426", listOf(0, 5, 10, 15, 20, 23))
+    }
+
+    @Test
+    fun deliveryObservationPreservesConsecutiveFramesAndActiveStabilization() {
+        checkCurrentBodyLayout("current_body_v20_426", listOf(0, 10, 20, 21, 22, 23))
+    }
+
+    private fun checkCurrentBodyLayout(builderName: String, indices: List<Int>) {
         val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
             .put("schema_version", 4)
             .put("observation_size", 426)
             .put("observation_history", 24)
-            .put("observation_builder", "current_body_v14_426")
+            .put("observation_builder", builderName)
             .put(
                 "history_selection",
                 JSONObject()
                     .put("frame_size", 70)
-                    .put("indices", JSONArray(listOf(0, 5, 10, 15, 20, 23)))
+                    .put("indices", JSONArray(indices))
                     .put("timing_reference_ms", 20.0),
             )
             .put(
@@ -295,7 +304,18 @@ class PolicyMathTest {
                     .put("smoothing_time_s", 0.5)
                     .put("layout", "append_after_selected_history"),
             )
+        if (builderName == "current_body_v20_426") {
+            metadata.getJSONObject("stationary_action_contract").put("behavior", "policy_stabilization")
+        }
         val contract = PolicyContract.parse(metadata.toString())
+        if (builderName == "current_body_v20_426") {
+            assertTrue(!contract.stationaryOverrideEnabled)
+            val action = contract.applyAction(FloatArray(12) { .2f }, FloatArray(12), FloatArray(12), FloatArray(3))
+            assertTrue(action.applied.all { it > 0f })
+            val wrong = JSONObject(metadata.toString())
+            wrong.getJSONObject("history_selection").put("indices", JSONArray(listOf(0, 5, 10, 15, 20, 23)))
+            assertTrue(runCatching { PolicyContract.parse(wrong.toString()) }.isFailure)
+        }
         val builder = PolicyObservationBuilder(contract)
         val history = Array(24) { historyIndex ->
             val base = FloatArray(45).also {
@@ -312,7 +332,7 @@ class PolicyMathTest {
         val observation = builder.observation(history, FloatArray(3))
         assertEquals(426, observation.size)
         assertArrayEquals(
-            floatArrayOf(0f, 5f, 10f, 15f, 20f, 23f),
+            indices.map(Int::toFloat).toFloatArray(),
             FloatArray(6) { observation[it * 70] },
             1.0e-6f,
         )

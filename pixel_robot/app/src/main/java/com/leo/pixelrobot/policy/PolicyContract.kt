@@ -20,6 +20,7 @@ class PolicyContract private constructor(value: JSONObject) {
     val observationSize: Int = value.getInt("observation_size")
     val observationHistory: Int = value.getInt("observation_history")
     val observationBuilder: String = value.optString("observation_builder", "v2_180")
+    val usesSelectedHistory = observationBuilder in setOf("current_body_v14_426", "current_body_v20_426")
     val selectedHistoryIndices: IntArray
     val timingReferenceMilliseconds: Float
     val currentBiasMilliamps: FloatArray
@@ -57,17 +58,21 @@ class PolicyContract private constructor(value: JSONObject) {
         require(controlHz in 10..100 && 1000 % controlHz == 0) {
             "policy control rate must divide 1000 Hz and be within 10..100 Hz"
         }
-        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426"))
+        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426", "current_body_v20_426"))
         require(
             (observationBuilder == "v2_180" && observationHistory == 4 && observationSize == 180) ||
                 (observationBuilder == "current_v3_279" && observationHistory == 4 && observationSize == 279) ||
-                (observationBuilder == "current_body_v14_426" && observationHistory == 24 && observationSize == 426)
+                (usesSelectedHistory && observationHistory == 24 && observationSize == 426)
         ) { "observation builder and size do not match" }
-        if (observationBuilder == "current_body_v14_426") {
+        if (usesSelectedHistory) {
             val selection = value.getJSONObject("history_selection")
             require(selection.getInt("frame_size") == 70)
             selectedHistoryIndices = selection.getJSONArray("indices").ints(6)
-            require(selectedHistoryIndices.contentEquals(intArrayOf(0, 5, 10, 15, 20, 23))) {
+            val expectedSelection = if (observationBuilder == "current_body_v20_426") {
+                require(controlHz == 50)
+                intArrayOf(0, 10, 20, 21, 22, 23)
+            } else intArrayOf(0, 5, 10, 15, 20, 23)
+            require(selectedHistoryIndices.contentEquals(expectedSelection)) {
                 "CurrentBody history selection does not match training"
             }
             timingReferenceMilliseconds = selection.getDouble("timing_reference_ms").toFloat()
@@ -96,7 +101,7 @@ class PolicyContract private constructor(value: JSONObject) {
             val height = posture.getJSONArray("height_offset_m").pair()
             val roll = posture.getJSONArray("roll_rad").pair()
             val pitch = posture.getJSONArray("pitch_rad").pair()
-            val expectedPostureLayout = if (observationBuilder == "current_body_v14_426") {
+            val expectedPostureLayout = if (usesSelectedHistory) {
                 "append_after_selected_history"
             } else {
                 "append_after_history"
@@ -160,11 +165,14 @@ class PolicyContract private constructor(value: JSONObject) {
             actionSlewLimit = action.getDouble("applied_normalized_slew_limit").toFloat()
             positionTargetScaleRadians = action.getDouble("position_target_scale_rad").toFloat()
             val stationary = value.getJSONObject("stationary_action_contract")
-            require(stationary.getString("behavior") == "slew_to_validated_four_foot_stance_action")
+            val activeStabilization = observationBuilder == "current_body_v20_426"
+            require(stationary.getString("behavior") == if (activeStabilization) {
+                "policy_stabilization"
+            } else "slew_to_validated_four_foot_stance_action")
             stationaryPlanarDeadband = stationary.getDouble("planar_command_deadband_m_s").toFloat()
             stationaryYawDeadband = stationary.getDouble("yaw_command_deadband_rad_s").toFloat()
             stationaryStanceAction = stationary.getJSONArray("normalized_stance_action").floats(ACTION_COUNT)
-            stationaryOverrideEnabled = true
+            stationaryOverrideEnabled = !activeStabilization
         }
         require(actorMinimum == -1f && actorMaximum == 1f)
         require(actionLimits.all { it > 0f && it <= 1f })

@@ -12,6 +12,7 @@ enum class LinkState {
 }
 
 object FirmwareCapabilities {
+    fun supportsStablePolicyFeedback(version: String?): Boolean = atLeast(version, 0, 1, 14)
     fun supportsClockedPolicyFeedback(version: String?): Boolean = atLeast(version, 0, 1, 13)
 
     fun supportsPolicyServoTelemetry(version: String?): Boolean {
