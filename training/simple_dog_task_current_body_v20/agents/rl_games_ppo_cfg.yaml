@@ -51,3 +51,18 @@ params:
     clip_value: true
     seq_length: 4
     bounds_loss_coef: 0.001
+    central_value_config:
+      minibatch_size: 4096
+      mini_epochs: 4
+      learning_rate: 1.5e-4
+      lr_schedule: constant
+      clip_value: true
+      normalize_input: true
+      truncate_grads: true
+      grad_norm: 1.0
+      e_clip: 0.2
+      model: {name: central_value}
+      network:
+        name: actor_critic
+        central_value: true
+        mlp: {units: [128, 128, 128], activation: elu, d2rl: false, initializer: {name: default}, regularizer: {name: None}}

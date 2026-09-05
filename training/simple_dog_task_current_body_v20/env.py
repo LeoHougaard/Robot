@@ -109,7 +109,16 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         observation = torch.cat((history[:, self.cfg.selected_history_indices].flatten(1),
                                  self._commands, self._posture_commands), dim=-1)
         self._update_video_camera()
-        return {"policy": observation}
+        return {"policy": observation, "critic": self._critic_observation(observation)}
+
+    def _critic_observation(self, observation):
+        motion = self._semantic_vector_b(self._robot.data.root_lin_vel_b.torch)
+        height, roll, pitch = self._body_posture()
+        # These ten values judge actions during PPO; they never enter the
+        # physical actor, its history, or the exported ONNX network.
+        contact = self._contact_sensor.data.current_contact_time.torch[:, self._feet_sensor_ids] > 0
+        return torch.cat((observation, motion, torch.stack((height, roll, pitch), dim=-1),
+                          contact.to(observation.dtype)), dim=-1)
 
     def _get_rewards(self):
         motion = self._semantic_vector_b(self._robot.data.root_lin_vel_b.torch)

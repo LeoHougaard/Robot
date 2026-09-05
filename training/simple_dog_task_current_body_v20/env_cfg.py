@@ -43,7 +43,9 @@ class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     # the recorded V2 actor while retaining longer context and current input.
     selected_history_indices = HISTORY_INDICES
     observation_space = 426
-    state_space = 0
+    # Training-only value network sees ground-truth velocity/posture/contact.
+    # The exported actor still receives the same 426 physical sensor values.
+    state_space = 436
     # Reward/evaluation only. The actor still receives exactly 426 physical
     # sensor/history/command values. Measure vertical clearance above terrain
     # beneath the body, not above the moving lower-leg centers of mass.
