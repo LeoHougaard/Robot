@@ -4,6 +4,18 @@ set -Eeuo pipefail
 readonly TRAINING_ROOT="/workspace/projects/training"
 readonly RUNS_ROOT="${TRAINING_ROOT}/runs/simple_dog"
 
+# BEGIN immutable launcher
+# Bash may read the rest of a script after its long-running child returns.
+# A later source deployment must not change those unread instructions.
+if [[ "${BASH_SOURCE[0]##*/}" == "run_simple_dog.sh" ]]; then
+  mkdir -p "${TRAINING_ROOT}/runs/launchers"
+  frozen_script="$(mktemp "${TRAINING_ROOT}/runs/launchers/simple-dog.XXXXXXXX.sh")"
+  cp -- "${BASH_SOURCE[0]}" "$frozen_script"
+  chmod 0400 "$frozen_script"
+  exec /bin/bash "$frozen_script" "$@"
+fi
+# END immutable launcher
+
 terrain="${SIMPLE_DOG_TERRAIN:-flat}"
 if [[ "$terrain" == v2robust || "$terrain" == v2goal ||
       ( "$terrain" == currentv3* && "$terrain" != currentv3core &&
@@ -227,6 +239,8 @@ esac
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${mode}-$$"
 run_dir="${RUNS_ROOT}/${run_id}"
 mkdir -p "$run_dir"
+cp -- "${BASH_SOURCE[0]}" "${run_dir}/launcher.sh"
+sha256sum "${run_dir}/launcher.sh" >"${run_dir}/launcher.sha256"
 
 printf '%s\n' "$$" >"${run_dir}/launcher.pid"
 printf 'running\n' >"${run_dir}/status"
