@@ -13,7 +13,8 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]
 
 
 def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settling=False,
-           thresholds=(.03, .05), yaw_variance=.09, support_scale=0., feet_down=4):
+           thresholds=(.03, .05), yaw_variance=.09, support_scale=0., feet_down=4,
+           contact_times=None, air_times=None, duration_scale=0.):
     wrapped = lambda x: NS(torch=torch.tensor(x, dtype=torch.float32))
     env = NS(
         _robot=NS(data=NS(root_lin_vel_b=wrapped([motion]), root_ang_vel_b=wrapped([[0., 0., yaw]]))),
@@ -22,10 +23,13 @@ def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settli
         _body_posture=lambda: (torch.tensor([.135]), torch.zeros(1), torch.zeros(1)),
         cfg=NS(nominal_support_height_m=.135, opposite_leg_sync_reward_scale=.25,
                progress_planar_threshold=thresholds[0], progress_yaw_threshold=thresholds[1],
-               yaw_tracking_variance=yaw_variance, stationary_contact_penalty_scale=support_scale),
+               yaw_tracking_variance=yaw_variance, stationary_contact_penalty_scale=support_scale,
+               moving_foot_duration_penalty_scale=duration_scale,
+               moving_foot_contact_limit_s=1.25, moving_foot_air_limit_s=1.0,
+               moving_foot_duration_ramp_s=.25),
         _actions=torch.zeros(1, 12), _previous_actions=torch.zeros(1, 12),
-        _contact_sensor=NS(data=NS(current_air_time=wrapped([[0.] * 4]),
-                                  current_contact_time=wrapped([[1.] * feet_down + [0.] * (4-feet_down)]))),
+        _contact_sensor=NS(data=NS(current_air_time=wrapped([air_times or [0.] * 4]),
+                                  current_contact_time=wrapped([contact_times or ([1.] * feet_down + [0.] * (4-feet_down))]))),
         _feet_sensor_ids=[0, 1, 2, 3], _dense_diagonal_gait_reward=lambda a, c: torch.ones(1),
         _reset_hold_active_mask=torch.tensor([settling]), reset_terminated=torch.tensor([fall]),
         step_dt=.02,
@@ -123,6 +127,34 @@ class DeliveryRewardTests(unittest.TestCase):
                             + .25 * reward(command=command, yaw=-3.*target), parked)
             tracked = reward(command=command, yaw=target)
             self.assertGreater(tracked, reward(command=command, yaw=target*1.2))
+
+    def test_moving_duration_penalty_is_disabled_in_legacy_default(self):
+        self.assertEqual(
+            reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), contact_times=[2., 1., 1., 1.]),
+            reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), contact_times=[2., 1., 1., 1.], duration_scale=0.),
+        )
+
+    def test_moving_duration_cost_ramps_caps_and_preserves_stop(self):
+        kwargs = dict(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25)
+        below = reward(**kwargs, contact_times=[1.25, 1., 1., 1.])
+        half = reward(**kwargs, contact_times=[1.375, 1., 1., 1.])
+        capped = reward(**kwargs, contact_times=[3., 1., 1., 1.])
+        self.assertGreater(below, half)
+        self.assertGreater(half, capped)
+        self.assertAlmostEqual(capped, reward(**kwargs, contact_times=[9., 1., 1., 1.]), places=7)
+        stop = reward(support_scale=.25, duration_scale=.25, contact_times=[3., 0., 0., 0.])
+        legacy = reward(support_scale=.25, duration_scale=0., contact_times=[3., 0., 0., 0.])
+        self.assertEqual(stop, legacy)
+
+    def test_moving_duration_cost_prefers_cycle_without_step_in_place_bonus(self):
+        tracked = reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25,
+                         contact_times=[.8, .8, .8, .8])
+        planted = reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25,
+                         contact_times=[2., 2., 2., 2.])
+        self.assertGreater(tracked, planted)
+        stepping = reward(command=(.04, 0., 0.), motion=(0., 0., 0.), duration_scale=.25,
+                          contact_times=[.8, .8, .8, .8])
+        self.assertLess(stepping, tracked)
 
     def test_mixed_commands_preserve_the_same_no_rocking_rule(self):
         for command in ((.06, .04, .15), (-.06, .04, -.06), (.04, -.06, .06)):

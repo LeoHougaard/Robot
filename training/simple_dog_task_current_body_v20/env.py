@@ -166,7 +166,18 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         # also retain support from all four feet; this term is absent in motion.
         missing_support = (contact.current_contact_time.torch[:, self._feet_sensor_ids] <= 0).float().sum(-1)
         support_cost = self.cfg.stationary_contact_penalty_scale * (active_count == 0) * missing_support
-        rate = tracking + .5 * progress - .5 * shortfall - regularization + sync_rate - support_cost
+        contact_duration = contact.current_contact_time.torch[:, self._feet_sensor_ids]
+        air_duration = contact.current_air_time.torch[:, self._feet_sensor_ids]
+        duration_excess = torch.maximum(
+            (contact_duration - self.cfg.moving_foot_contact_limit_s).clamp_min(0.),
+            (air_duration - self.cfg.moving_foot_air_limit_s).clamp_min(0.),
+        )
+        duration_cost = (duration_excess / self.cfg.moving_foot_duration_ramp_s).clamp(max=1.).sum(-1)
+        moving_duration_cost = (self.cfg.moving_foot_duration_penalty_scale
+                                * (active_count > 0) * progress.clamp(0, 1)
+                                * duration_cost)
+        rate = (tracking + .5 * progress - .5 * shortfall - regularization + sync_rate
+                - support_cost - moving_duration_cost)
         active = ~self._reset_hold_active_mask
         reward = torch.where(active, rate * self.step_dt, 0.)
         # Keep an explicit fall cost; deterministic evaluation also requires

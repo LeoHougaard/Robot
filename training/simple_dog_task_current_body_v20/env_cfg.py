@@ -129,6 +129,10 @@ class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     progress_yaw_threshold = .05
     yaw_tracking_variance = .09
     stationary_contact_penalty_scale = 0.
+    moving_foot_duration_penalty_scale = 0.
+    moving_foot_contact_limit_s = 1.25
+    moving_foot_air_limit_s = 1.0
+    moving_foot_duration_ramp_s = .25
 
 
 @configclass
