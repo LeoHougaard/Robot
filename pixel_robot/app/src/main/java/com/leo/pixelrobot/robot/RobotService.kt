@@ -118,10 +118,16 @@ class RobotService : Service() {
                     "policy/policy_actor.onnx" to assets.open("policy_actor.onnx").use { it.readBytes() },
                     "policy/policy_metadata.json" to assets.open("policy_metadata.json").use { it.readBytes() },
                     "policy/policy_android_manifest.json" to assets.open("policy_android_manifest.json").use { it.readBytes() },
-                    "policy/policy_reference.json" to assets.open("policy_reference.json").use { it.readBytes() },
+                    "policy/${if (policyContract.usesStrideReference) "policy_reference_vectors.json" else "policy_reference.json"}" to
+                        assets.open(if (policyContract.usesStrideReference) "policy_reference_vectors.json" else "policy_reference.json")
+                            .use { it.readBytes() },
                     "calibration/${policyContract.profileId}.calibration.json" to
                         effectiveCalibrationJson.toByteArray(Charsets.UTF_8),
-                )
+                ).apply {
+                    if (policyContract.usesStrideReference) {
+                        put("policy/stride_reference.json", assets.open("stride_reference.json").use { it.readBytes() })
+                    }
+                }
             },
             manifestContext = {
                 JSONObject()
@@ -258,14 +264,20 @@ class RobotService : Service() {
     }
 
     fun firmwareSupportsInstalledPolicy(version: String?): Boolean =
-        if (policyContract.observationBuilder == "current_body_v20_426") {
+        if (policyContract.observationBuilder == "current_body_v22_428") {
+            FirmwareCapabilities.atLeastVersion(version, 0, 1, 15)
+        } else if (policyContract.observationBuilder == "current_body_v20_426") {
             FirmwareCapabilities.supportsStablePolicyFeedback(version)
         } else FirmwareCapabilities.supportsClockedPolicyFeedback(version)
 
     fun startPolicy() {
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
         check(firmwareSupportsInstalledPolicy(mutableStatus.value.firmwareVersion)) {
-            "ESP32 firmware ${if (policyContract.observationBuilder == "current_body_v20_426") "0.1.14" else "0.1.13"} or newer is required for this policy"
+            "ESP32 firmware ${when (policyContract.observationBuilder) {
+                "current_body_v22_428" -> "0.1.15"
+                "current_body_v20_426" -> "0.1.14"
+                else -> "0.1.13"
+            }} or newer is required for this policy"
         }
         policyController.startPolicy()
         startSessionMonitor()
@@ -380,6 +392,14 @@ class RobotService : Service() {
             .put("link_state", robot.linkState.name.lowercase())
             .put("robot_detail", robot.detail)
             .put("firmware_version", robot.firmwareVersion)
+            .put(
+                "policy_identity",
+                JSONObject()
+                    .put("epoch", policyContract.checkpointEpoch)
+                    .put("family", policyContract.observationBuilder)
+                    .put("profile_sha256", policyContract.profileSha256)
+                    .put("weights_sha256", policyContract.weightsSha256),
+            )
             .put("policy_armed", robot.policyArmed)
             .put("feedback_complete", robot.feedbackComplete)
             .put("servo_battery_voltage", robot.servoBatteryVoltage ?: JSONObject.NULL)
@@ -479,6 +499,14 @@ class RobotService : Service() {
                 JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
             )
             .put(
+                "policy_identity",
+                JSONObject()
+                    .put("epoch", policyContract.checkpointEpoch)
+                    .put("family", policyContract.observationBuilder)
+                    .put("profile_sha256", policyContract.profileSha256)
+                    .put("weights_sha256", policyContract.weightsSha256),
+            )
+            .put(
                 "policy_android_manifest",
                 JSONObject(assets.open("policy_android_manifest.json").bufferedReader().use { it.readText() }),
             )
@@ -558,6 +586,10 @@ class RobotService : Service() {
                     detail = "ESP32 ready",
                     deviceName = mutableStatus.value.deviceName,
                     firmwareVersion = message.optString("version").ifBlank { null },
+                    policyEpoch = policyContract.checkpointEpoch,
+                    policyFamily = policyContract.observationBuilder,
+                    policyProfileSha256 = policyContract.profileSha256,
+                    policyWeightsSha256 = policyContract.weightsSha256,
                     policyArmed = false,
                     servoBatteryVoltage = voltage,
                     servoBatteryLive = message.servoBatteryIsLive(voltage),
@@ -683,6 +715,10 @@ class RobotService : Service() {
             linkState = state,
             detail = detail,
             deviceName = deviceName,
+            policyEpoch = policyContract.checkpointEpoch,
+            policyFamily = policyContract.observationBuilder,
+            policyProfileSha256 = policyContract.profileSha256,
+            policyWeightsSha256 = policyContract.weightsSha256,
             selectedServoId = selectedServoId,
         )
         refreshForegroundNotification()

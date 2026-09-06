@@ -12,6 +12,7 @@ enum class LinkState {
 }
 
 object FirmwareCapabilities {
+    fun atLeastVersion(version: String?, major: Int, minor: Int, patch: Int): Boolean = atLeast(version, major, minor, patch)
     fun supportsStablePolicyFeedback(version: String?): Boolean = atLeast(version, 0, 1, 14)
     fun supportsClockedPolicyFeedback(version: String?): Boolean = atLeast(version, 0, 1, 13)
 
@@ -42,6 +43,10 @@ data class RobotStatus(
     val detail: String = "Looking for the ESP32",
     val deviceName: String? = null,
     val firmwareVersion: String? = null,
+    val policyEpoch: Int? = null,
+    val policyFamily: String? = null,
+    val policyProfileSha256: String? = null,
+    val policyWeightsSha256: String? = null,
     val policyArmed: Boolean = false,
     val lastSequence: Long? = null,
     val feedbackComplete: Boolean? = null,

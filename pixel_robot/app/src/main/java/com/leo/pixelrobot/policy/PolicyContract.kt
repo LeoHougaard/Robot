@@ -13,6 +13,8 @@ class PolicyContract private constructor(value: JSONObject) {
     val profileId: String = value.getString("profile_id")
     val profileSha256: String = value.getString("profile_sha256")
     val weightsSha256: String = value.getString("weights_sha256")
+    val checkpointEpoch: Int = value.optInt("checkpoint_epoch", -1)
+    val checkpointSha256: String? = value.optString("checkpoint_sha256", "").takeIf { it.isNotEmpty() }
     val controlHz: Int = value.getInt("control_hz")
     val controlFrameSeconds: Float = 1f / controlHz
     val controlFramePeriodNanoseconds: Long = 1_000_000_000L / controlHz
@@ -250,15 +252,37 @@ class PolicyContract private constructor(value: JSONObject) {
         return AppliedActionStep(filtered, applied)
     }
 
+    internal fun requireLiveActivationCandidate() {
+        require(usesStrideReference)
+        require(checkpointEpoch == ACCEPTED_CANDIDATE_EPOCH)
+        require(checkpointSha256.equals(ACCEPTED_CANDIDATE_CHECKPOINT_SHA256, ignoreCase = true))
+        require(profileSha256.equals(ACCEPTED_CANDIDATE_PROFILE_SHA256, ignoreCase = true))
+        require(weightsSha256.equals(ACCEPTED_CANDIDATE_WEIGHTS_SHA256, ignoreCase = true))
+        require(strideReferenceSha256.equals(ACCEPTED_CANDIDATE_REFERENCE_SHA256, ignoreCase = true))
+        require(observationBuilder == "current_body_v22_428")
+        require(jointCoordinateConvention == "cad_drives_v1")
+        require(controlHz == 50)
+        require(forwardMinimum == -0.04f && forwardMaximum == 0.04f)
+        require(lateralMinimum == -0.02f && lateralMaximum == 0.02f)
+        require(yawMinimum == -0.1f && yawMaximum == 0.1f)
+        require(postureHeightMinimum == 0f && postureHeightMaximum == 0f)
+        require(postureRollMinimum == 0f && postureRollMaximum == 0f)
+        require(posturePitchMinimum == 0f && posturePitchMaximum == 0f)
+    }
+
     companion object {
         private const val ACTION_COUNT = 12
         fun load(assets: AssetManager): PolicyContract = PolicyContract(
             JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
         ).also {
-            // The shared controller math supports offline replay. Live activation
-            // still requires an accepted bundle and transport verification.
-            require(!it.usesStrideReference) { "Stride policy deployment is not yet verified" }
+            if (it.usesStrideReference) it.requireLiveActivationCandidate()
         }
+
+        private const val ACCEPTED_CANDIDATE_EPOCH = 2750
+        private const val ACCEPTED_CANDIDATE_CHECKPOINT_SHA256 = "ed52b4f3502fb3d0fb64ad4b258c3cdc623e37d0fab96dad02e8f11a1644e940"
+        private const val ACCEPTED_CANDIDATE_PROFILE_SHA256 = "2e249f1a8efc7df0fca72dfaf2e50712a2b108874bdf7a883cbd69f02b25ca0d"
+        private const val ACCEPTED_CANDIDATE_WEIGHTS_SHA256 = "95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c"
+        private const val ACCEPTED_CANDIDATE_REFERENCE_SHA256 = "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2"
 
         fun parse(json: String): PolicyContract = PolicyContract(JSONObject(json))
     }

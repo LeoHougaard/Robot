@@ -214,6 +214,10 @@ class MainActivity : AppCompatActivity() {
         )
         binding.telemetryStatus.text = buildString {
             append("device: ${status.deviceName ?: "none"}")
+            status.policyEpoch?.let { epoch ->
+                append("\npolicy: epoch $epoch, ${status.policyFamily ?: "unknown"}")
+                status.policyWeightsSha256?.let { hash -> append("\nweights: ${hash.take(12)}…") }
+            }
             status.lastSequence?.let { append("\nsequence: $it") }
             append("\n${servoBattery.message()}")
             status.feedbackComplete?.let { append(" • feedback: ${if (it) "complete" else "INCOMPLETE"}") }

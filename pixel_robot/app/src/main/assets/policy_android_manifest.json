@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "profile_id": "assembly-four-leg-linkage-12dof",
-  "profile_sha256": "6d86906f46b6c9544631f6faa72bc89205f52a2538d6fffc76e31caa857af8bd",
-  "source_weights_sha256": "c90f76bf978d141cd08f76f582d31e39bc739fff379b1e966a6bc8c87a6e2884",
-  "onnx_sha256": "ce1e68fe1f784a913115143437facac29b04979f29c7f88b3a12f2b76df51c49",
+  "profile_sha256": "2e249f1a8efc7df0fca72dfaf2e50712a2b108874bdf7a883cbd69f02b25ca0d",
+  "source_weights_sha256": "95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c",
+  "onnx_sha256": "ba65b71719b2996a488d7d75e009a0e541cef07fb788e272050d80eb71d8ae2c",
   "parity_cases": 8,
   "parity_rtol": 1e-05,
   "parity_atol": 2e-06
