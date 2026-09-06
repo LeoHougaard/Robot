@@ -31,16 +31,13 @@ class StrideSessionTest {
         val contract = PolicyContract.parse(fixture.getJSONObject("metadata").toString())
         assertEquals(contract.jointCoordinateConvention, calibration.jointCoordinateConvention)
         contract.requireCalibration(calibration)
-        val session = StrideSession(contract, reference)
-        val builder = PolicyObservationBuilder(contract)
+        val session = PolicyFrameSession(contract, reference)
         val expected = fixture.getJSONArray("expected").let { array ->
             (0 until array.length()).associate { array.getJSONObject(it).let { row -> row.getInt("frame") to row } }
         }
         repeat(2) { restart ->
             session.reset()
-            builder.reset()
             val sensors = PolicySensors(calibration, contract.controlFrameSeconds)
-            var history: Array<FloatArray>? = null
             var command = fixture.getJSONArray("menu").getJSONArray(0).floats()
             var filtered = FloatArray(12)
             var applied = FloatArray(12)
@@ -56,14 +53,10 @@ class StrideSessionTest {
                 val target = menu.getJSONArray((index / 250) % menu.length()).floats()
                 command = FloatArray(3) { command[it] + .05f * (target[it] - command[it]) }
                 val acknowledged = maxOf(0, index - if (index % 13 == 0) 1 else 0)
-                val base = read.imu + command + read.position + FloatArray(12) { .05f * read.velocity[it] } +
-                    requireNotNull(acknowledgedActions[acknowledged])
-                val frame = builder.frame(base, read.current, read.dt / .02f)
-                history = history?.let { it.drop(1).toTypedArray() + arrayOf(frame) }
-                    ?: Array(24) { frame.copyOf() }
-                val observation = builder.observation(requireNotNull(history), FloatArray(3), session.clock())
+                val observation = session.observation(read, command, FloatArray(3),
+                    requireNotNull(acknowledgedActions[acknowledged]))
                 val residual = FloatArray(12) { ((index + 7 * it) % 41 - 20) / 10f }
-                val action = session.action(residual, command, FloatArray(3), read.imu.copyOfRange(3,6), filtered, applied)
+                val action = session.action(residual, command, FloatArray(3), read.imu.copyOfRange(3,6))
                 filtered = action.filtered
                 applied = action.applied
                 acknowledgedActions[index + 1] = applied.copyOf()
@@ -81,9 +74,36 @@ class StrideSessionTest {
                     assertArrayEquals("$label servo degrees", row.getJSONArray("servo_degrees").floats(),
                         FloatArray(12) { targets.getValue(calibration.servoIds[it]) }, .002f)
                 }
-                session.advance()
+                session.completeFrame()
             }
         }
+    }
+
+    @Test
+    fun frameClockAdvancesOnlyAfterOneObservationActionAndFreshFeedback() {
+        val metadata = JSONObject(File("src/test/resources/stride_cad_session_parity.json").readText())
+            .getJSONObject("metadata")
+        val session = PolicyFrameSession(PolicyContract.parse(metadata.toString()),
+            File("src/test/resources/stride_cad_reference.json").readBytes())
+        val input = PolicySensorFrame(floatArrayOf(0f, 0f, 0f, 0f, 0f, -1f),
+            FloatArray(12), FloatArray(12), arrayOfNulls(12), .02f)
+        fun observe() = session.observation(input, FloatArray(3), FloatArray(3), FloatArray(12))
+        fun act() = session.action(FloatArray(12), FloatArray(3), FloatArray(3), input.imu.copyOfRange(3, 6))
+        assertTrue(runCatching { session.completeFrame() }.isFailure)
+        assertTrue(runCatching { act() }.isFailure)
+        val initial = observe()
+        assertTrue(runCatching { observe() }.isFailure)
+        assertTrue(runCatching { session.completeFrame() }.isFailure)
+        act()
+        assertTrue(runCatching { act() }.isFailure)
+        assertTrue(runCatching { observe() }.isFailure)
+        assertEquals(0f, session.elapsedSeconds, 0f)
+        session.completeFrame()
+        assertEquals(.02f, session.elapsedSeconds, 0f)
+        assertTrue(runCatching { session.completeFrame() }.isFailure)
+        session.reset()
+        assertEquals(0f, session.elapsedSeconds, 0f)
+        assertArrayEquals(initial, observe(), 0f)
     }
 
     @Test

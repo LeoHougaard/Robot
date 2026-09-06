@@ -1,6 +1,6 @@
 package com.leo.pixelrobot.policy
 
-/** Offline-verified V21 clock and action processing. No transport or motor access. */
+/** V21/V22 clock and action processing. No transport or motor access. */
 class StrideSession(private val contract: PolicyContract, referenceBytes: ByteArray) {
     private val reference = StrideReference.parse(
         referenceBytes, requireNotNull(contract.strideReferenceSha256), contract.profileSha256,

@@ -92,8 +92,8 @@ the final initialization must bind the committed files before PPO.
 
 ## Remaining plan
 
-1. Review the fixed poses, matched historical retention and corrected stride.
-2. Train a bounded flat acquisition run, then compare against the corrected
+1. Completed: fixed poses, matched historical retention and corrected stride.
+2. In progress: bounded flat acquisition, then compare against the corrected
    zero actor and retained historical evidence. Review actual motion.
 3. Expand forward/lateral/yaw commands, then nominal-model variation and
    measured latency/servo uncertainty. Keep posture neutral initially.
@@ -106,3 +106,35 @@ The CAD audit cannot certify encoder signs and offsets on the assembled
 robot. The first physical check must compare an isolated small hip/servo-link
 pose with the same CAD pose while Leo observes. No agent-driven motor motion
 or unverified policy promotion is part of these checks.
+
+## Acquisition run and phone session
+
+The first V22 run is `20260906T034954Z-train-12533`, with source `41677bd`,
+128 environments, seed 42 and a total target of 500 epochs. Its initialization
+SHA is `e873845ebbcb4314b4ab58b55439c6ede524b4dd5918c581bef6a3d55b788f68`.
+`cad-final-source-preflight-v2` verifies the exact deployed Git bytes and
+reproduces every physical result and window of the reference comparison.
+`cad-500-followup` waits for normal completion, then checks zero/250/500 flat
+motion, zero/500 endurance, stationary-start commands and the epoch-500 movie.
+It cannot promote a policy or start more training. Luna monitors read-only
+at about five-minute intervals.
+
+The phone controller now uses `PolicyFrameSession` for observation history,
+stride clock, reference/residual composition, action filtering and initial
+hold. The same class runs the Torch-derived sensor replay tests. It accepts
+one observation and action before fresh feedback completes the frame. A new
+run resets all history and clock state. Derived frame records include the
+stride time used for that inference. Legacy actors retain their action path.
+
+Kotlin compilation and the affected session, sensor, action-math and operation
+tests pass. V21 and V22 each reproduce two complete 3,000-frame sessions with
+the original tolerances. Live stride asset loading stays disabled pending an
+accepted actor bundle and transport verification. The installed APK is unchanged.
+
+Evidence is in `cad-controller-session-v1`. The V22 epoch-250 actor separately
+matches portable NumPy inference in 531 cases, including 31 sensor replay
+observations, with maximum absolute error 0.000000477. The checker rejects
+a legacy-coordinate fixture even though its observation size also equals 428.
+`cad-actor-parity-v2` retains the report and the initial missing-dependency
+attempt before the standalone check received the existing portable math file.
+This is numerical parity, not a walking acceptance result or ONNX export.

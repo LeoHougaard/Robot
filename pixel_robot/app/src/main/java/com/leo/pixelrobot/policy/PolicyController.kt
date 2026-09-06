@@ -63,7 +63,9 @@ class PolicyController(
         contract.weightsSha256,
         contract.observationSize,
     )
-    private val observationBuilder = PolicyObservationBuilder(contract)
+    private val frameSession = PolicyFrameSession(contract, if (contract.usesStrideReference) {
+        assets.open("stride_reference.json").use { it.readBytes() }
+    } else null)
     private data class Received(val message: JSONObject, val receivedNs: Long)
     private var lastFeedbackReceivedNs = 0L
     private val messages = Channel<Received>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -160,11 +162,10 @@ class PolicyController(
     }
 
     private suspend fun run() {
-        observationBuilder.reset()
+        frameSession.reset()
         val startedFromHeldPose = mutableStatus.value.holdingPose
         var armAttempted = false
         val sensors = PolicySensors(calibration, contract.controlFrameSeconds)
-        var history: Array<FloatArray>? = null
         var command = floatArrayOf(request.get().forward, request.get().lateral, request.get().yawRate)
         var postureCommand = floatArrayOf(
             request.get().heightOffset, request.get().roll, request.get().pitch,
@@ -243,33 +244,14 @@ class PolicyController(
                 val stateSequence = state.getLong("seq")
                 val previousActionForObservation = requireNotNull(actionsBySequence[stateSequence]).copyOf()
                 val inputAppliedTargets = requireNotNull(targetsBySequence[stateSequence])
-                val baseFrame = sensorFrame.imu + command + joints +
-                    FloatArray(ACTION_COUNT) { 0.05f * jointVelocity[it] } +
-                    previousActionForObservation
-                val frame = observationBuilder.frame(
-                    baseFrame,
-                    sensorFrame.current,
-                    timingRatio = dt * 1000f / contract.timingReferenceMilliseconds,
-                )
-                if (history == null) {
-                    history = Array(contract.observationHistory) { frame.copyOf() }
-                }
-                else {
-                    for (index in 0 until contract.observationHistory - 1) {
-                        history[index] = history[index + 1]
-                    }
-                    history[contract.observationHistory - 1] = frame
-                }
-                val observation = observationBuilder.observation(history, postureCommand)
+                val strideElapsed = frameSession.elapsedSeconds
+                val observation = frameSession.observation(sensorFrame, command, postureCommand,
+                    previousActionForObservation)
                 val inferenceStarted = SystemClock.elapsedRealtimeNanos()
                 val requestedAction = policy.action(observation)
                 val inferenceMs = (SystemClock.elapsedRealtimeNanos() - inferenceStarted) / 1_000_000.0
-                val actionStep = contract.applyAction(
-                    requestedAction,
-                    filteredAction,
-                    appliedAction,
-                    command,
-                )
+                val actionStep = frameSession.action(requestedAction, command, postureCommand,
+                    sensorFrame.imu.copyOfRange(3, 6))
                 filteredAction = actionStep.filtered
                 appliedAction = actionStep.applied
                 val policyPosition = FloatArray(ACTION_COUNT) {
@@ -297,6 +279,7 @@ class PolicyController(
                 val feedbackTargets = requireNotNull(targetsBySequence[feedbackSequence]) {
                     "feedback referenced unknown command sequence $feedbackSequence"
                 }
+                frameSession.completeFrame()
                 val tracking = maximumTrackingError(state, feedbackTargets)
                 peakTrackingError = maxOf(peakTrackingError, tracking.second)
                 actionsBySequence.keys.removeAll { it < feedbackSequence - 2 }
@@ -309,6 +292,7 @@ class PolicyController(
                         .put("feedback_state_sequence", feedbackSequence)
                         .put("feedback_tick", state.getLong("tick"))
                         .put("firmware_sample_ms", sampleMs)
+                        .put("stride_elapsed_s", if (contract.usesStrideReference) strideElapsed else JSONObject.NULL)
                         .put("dt_s", dt)
                         .put("command_target", commandTarget.jsonArray())
                         .put("command_applied", command.jsonArray())

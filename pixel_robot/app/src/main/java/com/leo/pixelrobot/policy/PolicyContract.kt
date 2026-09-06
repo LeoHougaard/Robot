@@ -255,9 +255,9 @@ class PolicyContract private constructor(value: JSONObject) {
         fun load(assets: AssetManager): PolicyContract = PolicyContract(
             JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
         ).also {
-            // Parsing supports offline parity. Live activation needs the complete
-            // session integration and accepted deployment bundle first.
-            require(!it.usesStrideReference) { "V21 live controller integration is not yet verified" }
+            // The shared controller math supports offline replay. Live activation
+            // still requires an accepted bundle and transport verification.
+            require(!it.usesStrideReference) { "Stride policy deployment is not yet verified" }
         }
 
         fun parse(json: String): PolicyContract = PolicyContract(JSONObject(json))
