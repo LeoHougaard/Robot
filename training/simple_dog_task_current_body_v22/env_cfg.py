@@ -49,3 +49,10 @@ class CadStrideRobustCfg(CadStrideVariationCfg):
     # Activate the full documented envelope from the first robust stage step.
     difficulty_ramp_floor = 1.
     difficulty_ramp_full_step = 1
+
+
+@configclass
+class CadStrideSustainedCfg(CadStrideRobustCfg):
+    """Robust continuation with long command holds for drift exposure."""
+    episode_length_s = 70.
+    stride_command_hold_s = (4., 60.)

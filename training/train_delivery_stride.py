@@ -25,7 +25,7 @@ parser.add_argument("--video_length", type=int, default=400)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.task not in tuple(f"Isaac-Locomotion-CurrentBodyV{version}-{stage}-Simple-Dog-Direct-v0"
-                         for version in (21, 22) for stage in ("Acquire", "Commands", "Variation", "Robust")):
+                         for version in (21, 22) for stage in ("Acquire", "Commands", "Variation", "Robust", "Sustained")):
     parser.error("this entry point only supports the reviewed flat V21/V22 tasks")
 family = "current_body_v22" if "CurrentBodyV22" in args.task else "current_body_v21"
 if args.video:
