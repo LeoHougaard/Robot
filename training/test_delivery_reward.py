@@ -1,5 +1,7 @@
 """Behavioral checks for the experiment's actual reward method on CPU."""
 import ast
+import subprocess
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
@@ -11,10 +13,33 @@ method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name =
 ns = {"torch": torch}
 exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])), "delivery_reward", "exec"), ns)
 
+dense_tree = ast.parse((Path(__file__).parent / "simple_dog_task_v2/simple_dog_v2_env.py").read_text())
+dense_cls = next(n for n in dense_tree.body if isinstance(n, ast.ClassDef) and n.name == "SimpleDogV2Env")
+dense_method = next(n for n in dense_cls.body if isinstance(n, ast.FunctionDef) and n.name == "_dense_diagonal_gait_reward")
+dense_ns = {"torch": torch}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[dense_method], type_ignores=[])), "dense_reward", "exec"), dense_ns)
+
+
+def legacy_reward_method():
+    try:
+        source = subprocess.check_output(
+            ["git", "show", "41677bd:training/simple_dog_task_current_body_v20/env.py"], text=True
+        )
+    except (OSError, subprocess.CalledProcessError):
+        source = Path("/tmp/legacy_delivery_reward.py").read_text()
+    old_tree = ast.parse(textwrap.dedent(source))
+    old_cls = next((n for n in old_tree.body if isinstance(n, ast.ClassDef) and n.name == "DeliveryEnv"), None)
+    old_method = next((n for n in (old_cls.body if old_cls else old_tree.body)
+                       if isinstance(n, ast.FunctionDef) and n.name == "_get_rewards"), None)
+    old_ns = {"torch": torch}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[old_method], type_ignores=[])), "legacy_reward", "exec"), old_ns)
+    return old_ns["_get_rewards"]
+
 
 def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settling=False,
            thresholds=(.03, .05), yaw_variance=.09, support_scale=0., feet_down=4,
-           contact_times=None, air_times=None, duration_scale=0.):
+           contact_times=None, air_times=None, duration_scale=0., use_dense=True,
+           method_name="new"):
     wrapped = lambda x: NS(torch=torch.tensor(x, dtype=torch.float32))
     env = NS(
         _robot=NS(data=NS(root_lin_vel_b=wrapped([motion]), root_ang_vel_b=wrapped([[0., 0., yaw]]))),
@@ -30,7 +55,9 @@ def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settli
         _actions=torch.zeros(1, 12), _previous_actions=torch.zeros(1, 12),
         _contact_sensor=NS(data=NS(current_air_time=wrapped([air_times or [0.] * 4]),
                                   current_contact_time=wrapped([contact_times or ([1.] * feet_down + [0.] * (4-feet_down))]))),
-        _feet_sensor_ids=[0, 1, 2, 3], _dense_diagonal_gait_reward=lambda a, c: torch.ones(1),
+        _feet_sensor_ids=[0, 1, 2, 3],
+        _dense_diagonal_gait_reward=lambda a, c: dense_ns["_dense_diagonal_gait_reward"](
+            NS(cfg=NS(diagonal_gait_std=.10)), a, c) if use_dense else torch.ones(1),
         _reset_hold_active_mask=torch.tensor([settling]), reset_terminated=torch.tensor([fall]),
         step_dt=.02,
         _episode_sums={key: torch.zeros(1) for key in ("body_tracking", "body_motion_shortfall", "opposite_leg_sync")},
@@ -38,7 +65,8 @@ def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settli
     for name in ("_survival_steps", "_velocity_error_sum", "_world_forward_speed_sum", "_body_lateral_speed_sum",
                  "_heading_error_sum", "_terrain_commanded_distance", "_terrain_tracked_distance"):
         setattr(env, name, torch.zeros(1))
-    return ns["_get_rewards"](env).item()
+    method = legacy_reward_method() if method_name == "legacy" else ns["_get_rewards"]
+    return method(env).item()
 
 
 class DeliveryRewardTests(unittest.TestCase):
@@ -135,7 +163,7 @@ class DeliveryRewardTests(unittest.TestCase):
         )
 
     def test_moving_duration_cost_ramps_caps_and_preserves_stop(self):
-        kwargs = dict(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25)
+        kwargs = dict(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25, use_dense=False)
         below = reward(**kwargs, contact_times=[1.25, 1., 1., 1.])
         half = reward(**kwargs, contact_times=[1.375, 1., 1., 1.])
         capped = reward(**kwargs, contact_times=[3., 1., 1., 1.])
@@ -145,6 +173,54 @@ class DeliveryRewardTests(unittest.TestCase):
         stop = reward(support_scale=.25, duration_scale=.25, contact_times=[3., 0., 0., 0.])
         legacy = reward(support_scale=.25, duration_scale=0., contact_times=[3., 0., 0., 0.])
         self.assertEqual(stop, legacy)
+
+    def test_scale_zero_matches_preserved_legacy_reward(self):
+        cases = [
+            dict(command=(.04, 0., 0.), motion=(.04, .002, 0.), contact_times=[2., .8, .8, .8]),
+            dict(command=(0., .02, 0.), motion=(0., .016, 0.), air_times=[1.2, .2, .2, .2]),
+            dict(command=(0., 0., .1), yaw=.087, contact_times=[.8, .8, .8, .8]),
+            dict(command=(0., 0., 0.), contact_times=[3., 0., 0., 0.], support_scale=.25),
+        ]
+        for case in cases:
+            self.assertAlmostEqual(reward(**case, duration_scale=0.),
+                                   reward(**case, duration_scale=0., method_name="legacy"), places=7)
+
+    def test_actual_dense_timing_rejects_planted_and_one_pair_sequences(self):
+        diagonal_air = [.20, .0, .20, .0]
+        diagonal_contact = [.40, .0, .40, .0]
+        one_pair_air = [.20, .0, .20, .0]
+        one_pair_contact = [.40, .0, .40, .0]
+        planted_air = [.0, .0, .20, .0]
+        planted_contact = [.8, .8, .4, .8]
+        obj = NS(cfg=NS(diagonal_gait_std=.10))
+        dense = dense_ns["_dense_diagonal_gait_reward"]
+        alternating = dense(obj, torch.tensor([diagonal_air]), torch.tensor([diagonal_contact])).item()
+        one_pair = dense(obj, torch.tensor([one_pair_air]), torch.tensor([one_pair_contact])).item()
+        planted = dense(obj, torch.tensor([planted_air]), torch.tensor([planted_contact])).item()
+        self.assertGreater(alternating, planted)
+        self.assertGreater(one_pair, planted)
+
+    def test_prolonged_air_ramps_caps_and_is_suppressed_during_reset(self):
+        kwargs = dict(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25, use_dense=False)
+        below = reward(**kwargs, air_times=[1., 0., 0., 0.])
+        half = reward(**kwargs, air_times=[1.125, 0., 0., 0.])
+        capped = reward(**kwargs, air_times=[2., 0., 0., 0.])
+        self.assertGreater(below, half)
+        self.assertGreater(half, capped)
+        self.assertAlmostEqual(capped, reward(**kwargs, air_times=[9., 0., 0., 0.]), places=7)
+        self.assertEqual(reward(**kwargs, air_times=[9., 0., 0., 0.], settling=True), 0.)
+
+    def test_measured_rate_comparisons_do_not_reward_wrong_way_or_parking(self):
+        # Simplified measured command rates from the preserved 250/750 screens.
+        for command, measured in [((.04, 0., 0.), .042), ((0., .02, 0.), .016), ((0., 0., .1), .087)]:
+            tracked = reward(command=command, motion=(measured if command[0] else 0., measured if command[1] else 0., 0.),
+                             yaw=measured if command[2] else 0., duration_scale=.25,
+                             contact_times=[.8, .8, .8, .8])
+            parked = reward(command=command, duration_scale=.25, contact_times=[2., 2., 2., 2.])
+            wrong = reward(command=command, motion=(-command[0], -command[1], 0.), yaw=-command[2],
+                           duration_scale=.25, contact_times=[2., 2., 2., 2.])
+            self.assertGreater(tracked, parked)
+            self.assertGreater(parked, wrong)
 
     def test_moving_duration_cost_prefers_cycle_without_step_in_place_bonus(self):
         tracked = reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25,
