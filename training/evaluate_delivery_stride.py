@@ -14,11 +14,15 @@ parser.add_argument("--num-envs", type=int, default=8)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--seconds", type=int, default=20,
                     help="20-second matched comparison or longer flat endurance check (up to 120 s)")
+parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
+parser.add_argument("--command-index", type=int, help="Select one slow command for a single-robot video")
 parser.add_argument("--video-folder", type=Path)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if not 20 <= args.seconds <= 120:
     parser.error("seconds must be between 20 and 120")
+if args.command_index is not None and (not args.commands or not 0 <= args.command_index < 8):
+    parser.error("command-index requires --commands and an index from 0 through 7")
 if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
 if "quadruped_current_body_v21_" not in str(args.checkpoint):
@@ -37,10 +41,17 @@ import simple_dog_task_current_body_v21  # noqa: F401
 def evaluate():
     from verify_delivery_terrain import verify
     terrain_verification = verify()
-    task = "Isaac-Locomotion-CurrentBodyV21-Acquire-Simple-Dog-Direct-v0"
+    stage = "Commands" if args.commands else "Acquire"
+    task = f"Isaac-Locomotion-CurrentBodyV21-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     cfg.seed = args.seed
     cfg.episode_length_s = args.seconds + 10.
+    if args.commands:
+        cfg.stride_evaluate_commands = True
+        if args.command_index is not None:
+            cfg.stride_command_menu = (cfg.stride_command_menu[args.command_index],)
+        elif args.num_envs % len(cfg.stride_command_menu):
+            raise ValueError("command screen requires complete eight-environment groups or --command-index")
     assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
     env = gym.make(task, cfg=cfg, render_mode="rgb_array" if args.video_folder else None)
     if args.video_folder:
@@ -61,6 +72,7 @@ def evaluate():
         air_streak = torch.zeros_like(air)
         max_air_streak = torch.zeros_like(air)
         yaw_sum = torch.zeros(args.num_envs, device=base.device)
+        command_sums = torch.zeros(args.num_envs, 5, device=base.device)
         max_tilt = torch.zeros_like(yaw_sum)
         min_height = torch.full_like(yaw_sum, float("inf"))
         windows = []
@@ -68,10 +80,14 @@ def evaluate():
         window_steps = 0
         total_steps = args.seconds * 50
         measured_steps = total_steps - 300
+        expected_command = base._commands.clone()
+        fixed_command = torch.tensor([cfg.stride_command_menu[i % len(cfg.stride_command_menu)]
+                                      for i in range(args.num_envs)], device=base.device) if args.commands else None
         with torch.inference_mode():
             for step in range(total_steps):
                 assert obs["policy"].shape == (args.num_envs, 428)
                 assert obs["critic"].shape == (args.num_envs, 438)
+                assert torch.equal(obs["policy"][:, 420:423], base._commands)
                 if not torch.isfinite(obs["policy"]).all():
                     raise RuntimeError("nonfinite actor observation")
                 residual = actor(dict(is_train=False, prev_actions=None,
@@ -80,6 +96,14 @@ def evaluate():
                     raise RuntimeError("nonfinite residual")
                 obs, reward, terminated, truncated, _ = env.step(residual.clamp(-1., 1.))
                 resets += terminated | truncated
+                if args.commands and not resets.any():
+                    if base._posture_commands.any() or base._posture_targets.any():
+                        raise RuntimeError("motion-only stage emitted a posture request")
+                    if step >= round(cfg.stride_initial_forward_s / base.step_dt) - 1:
+                        alpha = min(1., base.step_dt / cfg.command_smoothing_time_s)
+                        expected_command += alpha * (fixed_command - expected_command)
+                    if not torch.allclose(base._commands, expected_command, atol=1e-7, rtol=0):
+                        raise RuntimeError(f"command timing/smoothing mismatch at step {step}")
                 contact = base._contact_sensor.data.current_contact_time.torch[:, base._feet_sensor_ids] > 0
                 if step >= 300:
                     motion = base._semantic_vector_b(base._robot.data.root_lin_vel_b.torch)
@@ -90,7 +114,11 @@ def evaluate():
                     sums += values
                     window_sum += values
                     window_steps += 1
-                    yaw_sum += base._semantic_vector_b(base._robot.data.root_ang_vel_b.torch)[:, 2].abs()
+                    yaw_rate = base._semantic_vector_b(base._robot.data.root_ang_vel_b.torch)[:, 2]
+                    yaw_sum += yaw_rate.abs()
+                    command_sums += torch.stack((motion[:, 1], yaw_rate, motion[:, 0].abs(),
+                        torch.linalg.vector_norm(motion[:, :2] - base._commands[:, :2], dim=-1),
+                        (yaw_rate-base._commands[:, 2]).abs()), dim=-1)
                     max_tilt = torch.maximum(max_tilt, tilt)
                     min_height = torch.minimum(min_height, height)
                     air_streak = torch.where(contact, 0., air_streak + 1.)
@@ -113,6 +141,11 @@ def evaluate():
                        max_continuous_air_s_frflbrbl=(max_air_streak[i] / 50).cpu().tolist(),
                        mean_abs_yaw_rate_rad_s=float(yaw_sum[i] / measured_steps),
                        max_tilt_rad=float(max_tilt[i]), min_height_m=float(min_height[i]))
+            row.update(zip(("mean_signed_lateral_m_s", "mean_signed_yaw_rate_rad_s", "mean_abs_forward_m_s",
+                            "mean_planar_error_m_s", "mean_abs_yaw_error_rad_s"),
+                           (command_sums[i] / measured_steps).cpu().tolist()))
+            row["command"] = list(cfg.stride_command_menu[i % len(cfg.stride_command_menu)]
+                                  if args.commands else cfg.stride_command)
             rows.append(row)
         return dict(completed=True, checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
                     source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -121,8 +154,10 @@ def evaluate():
                     window_columns=["mean_forward_m_s", "mean_abs_lateral_m_s", "mean_tilt_rad",
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
-                    terrain="plane", terrain_verification=terrain_verification, command=[.04, 0., 0.], results=rows,
-                    limitation="acquisition comparison only; no turning, stopping, terrain or deployment acceptance")
+                    terrain="plane", terrain_verification=terrain_verification, stage=stage,
+                    command=None if args.commands else [.04, 0., 0.], results=rows,
+                    limitation=("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
+                                if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance"))
     finally:
         env.close()
 

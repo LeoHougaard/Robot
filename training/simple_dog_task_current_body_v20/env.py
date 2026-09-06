@@ -138,10 +138,10 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         speed = torch.linalg.vector_norm(self._commands[:, :2], dim=-1)
         aligned = (motion[:, :2] * self._commands[:, :2]).sum(-1) / speed.clamp_min(1e-6)
         # Cap credit for overspeed, but do not erase faster backward motion.
-        planar_progress = (aligned / speed.clamp_min(.03)).clamp(max=1.)
-        yaw_progress = (gyro[:, 2] * self._commands[:, 2].sign() / self._commands[:, 2].abs().clamp_min(.05)).clamp(max=1.)
-        linear_active = speed > .03
-        yaw_active = self._commands[:, 2].abs() > .05
+        planar_progress = (aligned / speed.clamp_min(self.cfg.progress_planar_threshold)).clamp(max=1.)
+        yaw_progress = (gyro[:, 2] * self._commands[:, 2].sign() / self._commands[:, 2].abs().clamp_min(self.cfg.progress_yaw_threshold)).clamp(max=1.)
+        linear_active = speed > self.cfg.progress_planar_threshold
+        yaw_active = self._commands[:, 2].abs() > self.cfg.progress_yaw_threshold
         active_count = linear_active.float() + yaw_active.float()
         progress = (planar_progress * linear_active + yaw_progress * yaw_active) / active_count.clamp_min(1)
         shortfall = (active_count > 0) * (1 - progress).clamp_min(0.)

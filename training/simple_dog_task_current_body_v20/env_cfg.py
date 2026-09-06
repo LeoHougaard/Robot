@@ -122,6 +122,8 @@ class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     joint_position_noise = .0015
     accelerometer_noise_mg = 10.
     opposite_leg_sync_reward_scale = .25
+    progress_planar_threshold = .03
+    progress_yaw_threshold = .05
 
 
 @configclass

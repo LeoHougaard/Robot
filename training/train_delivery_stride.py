@@ -22,8 +22,9 @@ parser.add_argument("--video_interval", type=int, default=5000)
 parser.add_argument("--video_length", type=int, default=400)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
-if args.task != "Isaac-Locomotion-CurrentBodyV21-Acquire-Simple-Dog-Direct-v0":
-    parser.error("this entry point only supports the reviewed V21 acquisition task")
+if args.task not in ("Isaac-Locomotion-CurrentBodyV21-Acquire-Simple-Dog-Direct-v0",
+                     "Isaac-Locomotion-CurrentBodyV21-Commands-Simple-Dog-Direct-v0"):
+    parser.error("this entry point only supports the reviewed flat V21 tasks")
 if args.video:
     args.enable_cameras = True
 app = AppLauncher(args).app

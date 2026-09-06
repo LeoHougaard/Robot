@@ -112,6 +112,56 @@ lands at least 32 times. The inspected video shows steadier travel. This
 supports preparing the slow-command stage, while retaining the plane and
 the original delivery gates. Rough training is not enabled yet.
 
+## Slow-command stage
+
+`CurrentBodyV21Commands` preserves the plane, reference, residual bound,
+physical model and PPO settings. Each 20-second episode begins with four
+seconds forward, including startup. Subsequent targets hold for four to six
+seconds and select forward/reverse 0.04 m/s, lateral +/-0.02 m/s, yaw
++/-0.1 rad/s or stop. Forward appears twice in the eight-entry menu to retain
+the acquired behavior. Posture requests remain neutral throughout actions,
+rewards and observations; the inherited independent posture timer is disabled.
+
+Commands smooth once before the observation is built, so the actor and
+reference see the same command, matching Pixel's ordering. The evaluator
+checks the expected 20 ms command schedule and exponential smoothing against
+the actual environment. It also verifies the unchanged acquisition task
+against the preserved epoch-500 result before command comparisons.
+
+The old 0.03 m/s progress threshold excludes a 0.02 m/s lateral command.
+This stage uses thresholds 0.005 m/s and 0.01 rad/s; credit still caps at
+requested speed. All other reward weights and the progress-gated diagonal
+prior remain. Seven tests of the actual reward method pass, including slow
+tracking beating overspeed, parking and zero-net rocking. Earlier task
+defaults remain 0.03 and 0.05, and acquisition metrics reproduce exactly.
+
+The first command preflight compared the zero actor and epoch 500. Both
+survived all cases and stopped with every foot down. Epoch 500 tracked slow
+forward/reverse but strafed at only +0.0129/-0.0091 m/s for +/-0.02 requested.
+Its positive turn achieved the desired yaw while two feet never lifted.
+That is a failed moving-foot check. The zero actor and epoch 500 are both
+retained as command baselines; forward-only learning is not command mastery.
+A second preflight repeats the comparison after explicitly disabling the
+inherited posture timer. It completed with exact acquisition retention and
+the same main command failures: right strafe reaches only -0.0098 m/s and
+positive turning leaves two feet continuously planted. It also measures
+about +0.032 rad/s signed yaw drift during forward travel. Both baselines
+are preserved under `stride-commands-preflight-v2`; command PPO is the next
+step. The inherited current-model mixture is sampled per environment even
+with nominal physical dynamics, so compare actors under the same command
+task and seed rather than mixing command-stage and acquisition samples.
+
+Planned first continuation: preserve epoch 500 and train to 1,000 total
+epochs, seed 42, 128 environments. Compare on the same isolated-command
+screen, retain a minute-long acquisition check and inspect turn/stride
+video. Moving cases must retain every-foot lifting/landing, zero falls,
+at least 65% signed commanded speed, the existing tracking/posture limits
+and low sideways sway. Stop must settle with all feet down. The acquisition
+check must retain the epoch-500 forward improvement. Repeat promising cases
+with additional seeds before moving to physical-model variation. These are
+intermediate gates; original delivery speeds, wider commands and hardware
+acceptance remain outstanding.
+
 ## Terrain progression
 
 1. Acquire and improve the stride entirely on a plane.
@@ -138,7 +188,7 @@ attempt used an unavailable top-level Isaac function import and failed
 before creating the robot; that evidence is preserved and the import was
 corrected to the installed height-field module.
 
-Only acquisition has a launchable training task at this point. The later
-terrain factory is implemented; automatic promotion and later command-stage
-tasks are not enabled. No V21 export or Pixel deployment is authorized by a
-passing acquisition comparison alone.
+Acquisition and slow commands have separate flat training tasks. The later
+terrain factory is implemented; automatic promotion and rough-stage training
+are not enabled. No V21 export or Pixel deployment is authorized by a passing
+acquisition comparison alone.

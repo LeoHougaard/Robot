@@ -388,7 +388,7 @@ start_training() {
      "$terrain" == currentbodyv13hard || "$terrain" == currentbodyv14hard ||
      "$terrain" == currentbodyv15hard || "$terrain" == currentbodyv16hard ||
      "$terrain" == currentbodyv17hard || "$terrain" == currentbodyv18hard ||
-     "$terrain" == currentbodyv19hard || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire ]] ||
+     "$terrain" == currentbodyv19hard || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands ]] ||
     { printf 'Invalid terrain: %s\n' "$terrain" >&2; exit 2; }
   [[ "$terrain" != v2robust && "$terrain" != v2goal &&
      ( "$terrain" != currentv3* || "$terrain" == currentv3core ||
@@ -400,7 +400,7 @@ start_training() {
   [[ -x "${ROOT}/run_simple_dog.sh" ]] ||
     { printf 'Training launcher is missing: %s\n' "${ROOT}/run_simple_dog.sh" >&2; exit 1; }
   if [[ -n "$checkpoint" ]]; then
-    if [[ "$terrain" == currentbodyv21acquire ]]; then
+    if [[ "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands ]]; then
       [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || return 2
     else
       [[ "$checkpoint" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || return 2
@@ -468,7 +468,7 @@ start_training() {
         "$terrain" == currentbodyv13hard || "$terrain" == currentbodyv14hard ||
         "$terrain" == currentbodyv15hard || "$terrain" == currentbodyv16hard ||
         "$terrain" == currentbodyv17hard || "$terrain" == currentbodyv18hard ||
-        "$terrain" == currentbodyv19hard || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire ]]; then
+        "$terrain" == currentbodyv19hard || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands ]]; then
     [[ "$simulation_fit" == /workspace/projects/training/fits/*.json ]] ||
       { printf 'Current-aware simulation fit is outside the training fits directory.\n' >&2; exit 2; }
     docker exec "$CONTAINER" test -f "$simulation_fit" ||

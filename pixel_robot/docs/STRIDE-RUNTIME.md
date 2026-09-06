@@ -52,13 +52,12 @@ operation, session restart, gravity disturbances and actual recorded sensor
 frames. Check both combined targets and post-filter servo degrees, in
 addition to ONNX output parity.
 
-Before a variable-command V21 stage, align when commands are smoothed and
-observed. Acquisition uses one fixed command, so it does not test this.
-Currently Pixel smooths before building the observation; the inherited
-training path smooths during `_pre_physics_step`, after the actor has seen
-its observation. V21 also computes the reference before calling that parent
-method. A command-stage implementation must give the actor and reference
-the same declared command and verify transitions against the runtime.
+The variable-command V21 stage now smooths before building the observation,
+matching Pixel. Its inherited pre-physics smoothing call is disabled so the
+command advances exactly once. The actor and reference see the same command;
+the command evaluator checks the expected schedule and smoothing at every
+step. Acquisition uses one fixed command, so it does not test transitions.
+Complete sensor/command/action parity with the phone remains required.
 
 The initial interface remains forward/lateral velocity plus yaw rate, with
 posture requests neutral. These three controls do not replace IMU and joint

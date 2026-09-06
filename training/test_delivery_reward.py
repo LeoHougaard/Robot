@@ -12,14 +12,16 @@ ns = {"torch": torch}
 exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])), "delivery_reward", "exec"), ns)
 
 
-def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settling=False):
+def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settling=False,
+           thresholds=(.03, .05)):
     wrapped = lambda x: NS(torch=torch.tensor(x, dtype=torch.float32))
     env = NS(
         _robot=NS(data=NS(root_lin_vel_b=wrapped([motion]), root_ang_vel_b=wrapped([[0., 0., yaw]]))),
         _semantic_vector_b=lambda v: v,
         _commands=torch.tensor([command]), _posture_commands=torch.zeros(1, 3),
         _body_posture=lambda: (torch.tensor([.135]), torch.zeros(1), torch.zeros(1)),
-        cfg=NS(nominal_support_height_m=.135, opposite_leg_sync_reward_scale=.25),
+        cfg=NS(nominal_support_height_m=.135, opposite_leg_sync_reward_scale=.25,
+               progress_planar_threshold=thresholds[0], progress_yaw_threshold=thresholds[1]),
         _actions=torch.zeros(1, 12), _previous_actions=torch.zeros(1, 12),
         _contact_sensor=NS(data=NS(current_air_time=wrapped([[0.] * 4]), current_contact_time=wrapped([[1.] * 4]))),
         _feet_sensor_ids=[0, 1, 2, 3], _dense_diagonal_gait_reward=lambda a, c: torch.ones(1),
@@ -34,6 +36,19 @@ def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settli
 
 
 class DeliveryRewardTests(unittest.TestCase):
+    def test_slow_command_stage_rewards_tracking_without_buying_overspeed_or_rocking(self):
+        for axis, targets in ((0, (-.04, -.01, .01, .04)), (1, (-.02, -.01, .01, .02)),
+                              (2, (-.1, -.02, .02, .1))):
+            for target in targets:
+                command = [0., 0., 0.]
+                command[axis] = target
+                def rate(scale):
+                    return reward(command=command, motion=(scale*command[0], scale*command[1], 0.),
+                                  yaw=scale*command[2], thresholds=(.005, .01))
+                self.assertGreater(rate(1.), rate(0.), (axis, target))
+                self.assertGreater(rate(1.), rate(1.2), (axis, target))
+                self.assertLess(.5*(rate(1.)+rate(-1.)), rate(0.), (axis, target))
+
     def test_stand_is_positive_and_tracks_every_zero_axis(self):
         self.assertGreater(reward(), 0.)
         self.assertGreater(reward(), reward(motion=(.1, 0., 0.)))
