@@ -2,6 +2,7 @@ package com.leo.pixelrobot.policy
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.security.MessageDigest
 import kotlin.math.abs
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -28,9 +29,22 @@ class CandidateEpoch2750AssetSmokeTest {
         assertEquals("cad_drives_v1", metadata.getString("joint_coordinate_convention"))
         assertEquals(metadata.getString("profile_sha256"), manifest.getString("profile_sha256"))
         assertEquals(metadata.getString("weights_sha256"), manifest.getString("source_weights_sha256"))
-        assertEquals(metadata.getString("weights_sha256"), vectors.getString("checkpoint_sha256"))
+        assertEquals(metadata.getString("checkpoint_sha256"), vectors.getString("checkpoint_sha256"))
         assertEquals(metadata.getString("profile_sha256"), reference.getString("profile_sha256"))
         assertEquals(metadata.getString("reference_sha256"), "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2")
+        val contract = PolicyContract.parse(text("policy_metadata.json"))
+        assertEquals(428, contract.observationSize)
+        assertEquals("cad_drives_v1", contract.jointCoordinateConvention)
+        val calibrationBytes = assets.open("$prefix/assembly-four-leg-linkage-12dof.calibration.json").use { it.readBytes() }
+        val calibrationSha = MessageDigest.getInstance("SHA-256").digest(calibrationBytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        assertEquals("60fae8876f2df1a7f225b20c9ca542824c1390ea2f9ae7017e348d32f87705b6", calibrationSha)
+        val calibration = RobotCalibration.parse(calibrationBytes.toString(Charsets.UTF_8))
+        contract.requireCalibration(calibration)
+        val referenceBytes = assets.open("$prefix/stride-reference-cad-20260906.json").use { it.readBytes() }
+        val session = PolicyFrameSession(contract, referenceBytes)
+        session.reset()
+        assertEquals(0f, session.elapsedSeconds)
         val cases = vectors.getJSONArray("cases")
         OnnxPolicy(assets, metadata.getString("profile_id"), metadata.getString("profile_sha256"), metadata.getString("weights_sha256"), 428, prefix).use { policy ->
             for (i in 0 until cases.length()) {
