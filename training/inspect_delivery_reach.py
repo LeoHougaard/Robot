@@ -31,36 +31,11 @@ print("STRIDE_SIM_READY", flush=True)
 import gymnasium as gym
 import numpy as np
 import torch
-from pxr import Gf, Usd, UsdGeom, UsdPhysics
+from pxr import Gf, UsdGeom, UsdPhysics
 from isaaclab.utils.math import quat_apply, quat_apply_inverse
 from isaaclab_tasks.utils import parse_env_cfg
 import simple_dog_task_current_body_v20  # noqa: F401
-
-
-def sole_points(asset, body_names, up_axis):
-    stage = Usd.Stage.Open(asset)
-    root = stage.GetDefaultPrim()
-    cache = UsdGeom.XformCache()
-    result = []
-    for name in body_names:
-        link = stage.GetPrimAtPath(root.GetPath().AppendPath("links/" + name))
-        if not link:
-            raise ValueError(f"missing foot link {name}")
-        coordinates, heights = [], []
-        for prim in Usd.PrimRange(link):
-            if not prim.IsA(UsdGeom.Mesh) or "/collisions/" not in str(prim.GetPath()):
-                continue
-            points = np.asarray(UsdGeom.Mesh(prim).GetPointsAttr().Get(), dtype=float)
-            points = np.column_stack((points, np.ones(len(points))))
-            in_link = points @ np.asarray(cache.ComputeRelativeTransform(prim, link)[0])
-            in_root = points @ np.asarray(cache.ComputeRelativeTransform(prim, root)[0])
-            coordinates.append(in_link[:, :3])
-            heights.append(in_root[:, :3] @ up_axis)
-        if not coordinates:
-            raise ValueError(f"no collision mesh points for {name}")
-        coordinates, heights = np.concatenate(coordinates), np.concatenate(heights)
-        result.append(coordinates[heights <= heights.min() + .0005].mean(axis=0))
-    return np.asarray(result)
+from delivery_sole_geometry import sole_points
 
 
 def inspect():

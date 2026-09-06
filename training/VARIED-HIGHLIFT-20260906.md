@@ -39,7 +39,7 @@ normalization, and optimizer state are inherited with recorded provenance.
 The reference and task must match the checkpoint contract before execution.
 
 Requested Cartesian lift is not proof of achieved lift. The evaluator records
-each foot body's peak vertical rise since its last stance during completed
+each sole material point's peak vertical rise since its last stance during completed
 swings. This is a displacement measurement, not direct terrain clearance.
 Use flat ground to compare lift without a changing support surface. On
 terrain, retain the distinction between a commanded trajectory, observed
@@ -49,3 +49,9 @@ Promotion requires retained walking behavior and measured improvement.
 Neither a higher configured lift nor completing PPO is sufficient. In
 particular, check the known slow-turn and stopped-support failures and
 the one-environment stair cases that exposed fragility to hardware variation.
+
+The first preflight used link origins for foot rise, which is invalid for
+this linkage. Those foot-rise values are superseded. The corrected diagnostic
+extracts the neutral sole point from the CAD collision mesh and transforms
+it with the live link pose; body and contact-sensor ordering is checked.
+The earlier runs remain useful for balance, progress, resets, and visuals.

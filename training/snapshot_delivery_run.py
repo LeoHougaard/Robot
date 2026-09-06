@@ -19,7 +19,7 @@ def snapshot(root, run):
                     "simple_dog_task_current_body_v4", "simple_dog_task_current_body_v20"):
         files += [p.relative_to(root).as_posix() for p in (root / package).rglob("*") if p.suffix in (".py", ".yaml")]
     if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") in ("current_body_v21", "current_body_v22"):
-        files += ["delivery_gait.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py",
+        files += ["delivery_gait.py", "delivery_sole_geometry.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py",
                   "verify_delivery_terrain.py", "train_delivery_stride.py", "fits/stride-reference-20260905.json"]
         files += [p.relative_to(root).as_posix() for p in (root / "simple_dog_task_current_body_v21").rglob("*")
                   if p.suffix in (".py", ".yaml")]

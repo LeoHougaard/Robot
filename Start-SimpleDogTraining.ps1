@@ -453,7 +453,7 @@ if ($isV20Terrain -or $isV21Terrain -or $isV22Terrain) {
 
 
 if ($isV21Terrain -or $isV22Terrain) {
-    foreach ($name in @("delivery_gait.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py", "verify_delivery_terrain.py", "train_delivery_stride.py")) {
+    foreach ($name in @("delivery_gait.py", "delivery_sole_geometry.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py", "verify_delivery_terrain.py", "train_delivery_stride.py")) {
         $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
     }
     $copies += @{ Local = Join-Path $localTraining "verify_delivery_stairs.py"; Remote = $remoteTraining }

@@ -158,7 +158,9 @@ import gymnasium as gym
 import torch
 import numpy as np
 from isaaclab_tasks.utils import parse_env_cfg
+from isaaclab.utils.math import quat_apply
 from initialize_delivery_stride import build_actor
+from delivery_sole_geometry import sole_points
 importlib.import_module("simple_dog_task_current_body_" + args.family)
 
 
@@ -299,6 +301,29 @@ def evaluate():
         actor.load_state_dict(state["model"], strict=True)
         actor.to(base.device).eval()
         obs, _ = env.reset()
+        if not hasattr(base._robot.data, "body_link_pos_w") or not hasattr(base._robot.data, "body_link_quat_w"):
+            raise RuntimeError("sole diagnostic requires body_link_pos_w and body_link_quat_w; COM fallback is invalid")
+        from robot_control_profile import load_control_profile
+        geometry_profile = training_profile or load_control_profile()
+        feet = list(base._feet_body_ids)
+        foot_names = [base._robot.body_names[i] for i in feet]
+        sensor_ids = list(base._feet_sensor_ids)
+        if len(feet) != 4 or len(sensor_ids) != 4:
+            raise RuntimeError("sole diagnostic requires four ordered body and contact-sensor feet")
+        sensor_names = getattr(base._contact_sensor, "body_names", None)
+        if sensor_names is not None:
+            selected_sensor_names = [sensor_names[i] for i in sensor_ids]
+            if selected_sensor_names != foot_names:
+                raise RuntimeError(f"contact sensor/body foot order mismatch: {selected_sensor_names} != {foot_names}")
+        sole_local = torch.tensor(sole_points(geometry_profile["robot"]["asset_usd"], foot_names,
+                                              geometry_profile["robot"]["up_axis"]),
+                                  device=base.device, dtype=torch.float32)
+        if sole_local.shape != (4, 3):
+            raise RuntimeError("sole point extraction did not return four ordered foot points")
+        def sole_world_z():
+            pos = base._robot.data.body_link_pos_w.torch[:, feet]
+            quat = base._robot.data.body_link_quat_w.torch[:, feet]
+            return (pos + quat_apply(quat, sole_local.expand(args.num_envs, -1, -1)))[..., 2]
         if args.stage == "rough":
             rough_provenance["initial_spawn_origins_m"] = base.scene.env_origins.detach().cpu().tolist()
             initial_height, initial_roll, initial_pitch = base._body_posture()
@@ -347,9 +372,7 @@ def evaluate():
         expected_command = base._commands.clone()
         fixed_command = torch.tensor([cfg.stride_command_menu[i % len(cfg.stride_command_menu)]
                                       for i in range(args.num_envs)], device=base.device) if args.commands else None
-        foot_position_field = "body_link_pos_w" if hasattr(base._robot.data, "body_link_pos_w") else "body_com_pos_w"
-        foot_position = getattr(base._robot.data, foot_position_field)
-        initial_foot_z = foot_position.torch[:, base._feet_body_ids, 2]
+        initial_foot_z = sole_world_z()
         previous_foot_z = initial_foot_z.clone()
         swing_baseline_z.copy_(initial_foot_z)
         swing_peak_z.copy_(initial_foot_z)
@@ -381,8 +404,7 @@ def evaluate():
                     if not torch.allclose(base._commands, expected_command, atol=1e-7, rtol=0):
                         raise RuntimeError(f"command timing/smoothing mismatch at step {step}")
                 contact = base._contact_sensor.data.current_contact_time.torch[:, base._feet_sensor_ids] > 0
-                foot_position = getattr(base._robot.data, foot_position_field)
-                foot_z = foot_position.torch[:, base._feet_body_ids, 2]
+                foot_z = sole_world_z()
                 liftoff = previous_contact & ~contact
                 swing_baseline_z = torch.where(liftoff, previous_foot_z, swing_baseline_z)
                 swing_peak_z = torch.where(liftoff, torch.maximum(previous_foot_z, foot_z),
@@ -474,6 +496,8 @@ def evaluate():
                     joint_coordinate_convention=cfg.joint_coordinate_convention,
                     checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
                     source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                    sole_geometry_source_sha256=hashlib.sha256(
+                        (Path(__file__).parent / "delivery_sole_geometry.py").read_bytes()).hexdigest(),
                     gait_profile=args.gait_profile,
                     stride_reference_filename=cfg.stride_reference_filename,
                     seed=args.seed, control_hz=50, simulation_seconds=args.seconds,
@@ -489,7 +513,13 @@ def evaluate():
                         [list(command) for command in cfg.stride_command_menu] if args.commands else None), results=rows,
                     foot_lift_measurement=("per-foot world-Z rise from liftoff to completed landing; "
                                            "measured over complete swings after the 6 s warmup; "
-                                           "not terrain clearance; selected point=" + foot_position_field),
+                                           "not terrain clearance; selected point=lowest collision-sole material point; "
+                                           "transformed by body_link_pos_w/body_link_quat_w"),
+                    sole_point_body_names=foot_names,
+                    sole_point_sensor_ids=sensor_ids,
+                    sole_point_sensor_names=(selected_sensor_names if sensor_names is not None else None),
+                    sole_points_in_link_frame=sole_local.cpu().tolist(),
+                    sole_point_identity="lowest collision-mesh material point within 0.5 mm of profile up_axis minimum",
                     variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
                     timing_assessment=bool(args.timing_assessment),
                     variation_config=(dict(domain_randomization_enabled=cfg.domain_randomization_enabled,
