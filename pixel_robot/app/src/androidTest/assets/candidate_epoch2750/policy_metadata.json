@@ -7,7 +7,7 @@
   "weights_sha256": "95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c",
   "checkpoint_epoch": 2750,
   "observation_size": 428,
-  "observation_history": 6,
+  "observation_history": 24,
   "observation_builder": "current_body_v22_428",
   "action_size": 12,
   "activation": "elu",
@@ -102,16 +102,16 @@
   },
   "validated_command_limits": {
     "forward_m_s": [
-      -0.08,
-      0.08
+      -0.04,
+      0.04
     ],
     "lateral_m_s": [
-      -0.06,
-      0.06
+      -0.02,
+      0.02
     ],
     "yaw_rate_rad_s": [
-      -0.2,
-      0.2
+      -0.1,
+      0.1
     ]
   },
   "action_contract": {

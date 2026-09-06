@@ -26,6 +26,7 @@ class CandidateEpoch2750AssetSmokeTest {
         assertEquals("6a126d6", metadata.getString("source_commit"))
         assertEquals("2026-09-06_10-33-19", metadata.getString("source_run"))
         assertEquals(428, metadata.getInt("observation_size"))
+        assertEquals(24, metadata.getInt("observation_history"))
         assertEquals("cad_drives_v1", metadata.getString("joint_coordinate_convention"))
         assertEquals(metadata.getString("profile_sha256"), manifest.getString("profile_sha256"))
         assertEquals(metadata.getString("weights_sha256"), manifest.getString("source_weights_sha256"))
