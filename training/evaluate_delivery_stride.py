@@ -59,6 +59,61 @@ if f"quadruped_current_body_{args.family}_" not in str(args.checkpoint):
     parser.error("checkpoint must belong to the explicitly selected policy family")
 if args.video_folder:
     args.enable_cameras = True
+
+
+def fidelity_provenance(profile):
+    if args.fidelity_asset is None:
+        return None
+    active_asset = Path(profile["robot"]["asset_usd"]).resolve()
+    selected_asset = args.fidelity_asset.resolve()
+    manifest_path = active_asset.with_suffix(".manifest.json")
+    if not manifest_path.is_file():
+        raise ValueError("fidelity requires the active asset conversion manifest")
+    manifest = json.loads(manifest_path.read_text())
+    manifest_output = Path(manifest.get("output", "")).resolve()
+    manifest_source = Path(manifest.get("source", "")).resolve()
+    if active_asset != manifest_output or selected_asset != manifest_source:
+        raise ValueError("fidelity asset pair does not match the conversion manifest")
+    if manifest.get("unchanged_attribute_check") is not True:
+        raise ValueError("conversion manifest did not preserve unchanged attributes")
+    layer_hashes = manifest.get("source_layers", {})
+    if not layer_hashes or any(
+        hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest
+        for path, digest in layer_hashes.items()
+    ):
+        raise ValueError("conversion manifest source layer hashes no longer match")
+    output_sha256 = hashlib.sha256(active_asset.read_bytes()).hexdigest()
+    if output_sha256 != manifest.get("output_sha256"):
+        raise ValueError("conversion manifest output hash no longer matches")
+    alternate = json.loads(json.dumps(profile))
+    alternate["robot"]["asset_usd"] = str(selected_asset)
+    differences = []
+
+    def compare(left, right, path=""):
+        if isinstance(left, dict) and isinstance(right, dict):
+            for key in sorted(set(left) | set(right)):
+                compare(left.get(key), right.get(key), path + "." + key)
+        elif left != right:
+            differences.append(path)
+
+    compare(profile, alternate)
+    if differences != [".robot.asset_usd"]:
+        raise ValueError("fidelity profile must differ from training profile only by asset_usd")
+    from robot_control_profile import canonical_hash
+    return dict(
+        training_profile_sha256=canonical_hash(profile),
+        fidelity_profile_sha256=canonical_hash(alternate),
+        profile_differences=differences,
+        active_asset=str(active_asset),
+        active_asset_sha256=output_sha256,
+        fidelity_asset=str(selected_asset),
+        fidelity_asset_sha256=hashlib.sha256(selected_asset.read_bytes()).hexdigest(),
+        conversion_manifest=str(manifest_path),
+        conversion_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        conversion_source_sha256=layer_hashes[str(manifest_source)],
+        conversion_output_sha256=manifest.get("output_sha256"),
+        unchanged_attribute_check=True,
+    )
 print("STRIDE_SIM_START", flush=True)
 app = AppLauncher(args).app
 faulthandler.cancel_dump_traceback_later()
@@ -113,7 +168,9 @@ def evaluate():
             from robot_control_profile import load_control_profile
             from verify_delivery_coordinates import verify
             root = Path(__file__).parent
-            verify(load_control_profile(), root / "fits" / cfg.stride_reference_filename,
+            training_profile = load_control_profile()
+            fidelity = fidelity_provenance(training_profile)
+            verify(training_profile, root / "fits" / cfg.stride_reference_filename,
                    root / "fits/servo-response-20260829.json", params["config"]["delivery_policy_contract"])
         state = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
         if params["config"].get("delivery_policy_contract") != state.get("delivery_policy_contract"):
@@ -221,6 +278,7 @@ def evaluate():
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
                     terrain="plane", terrain_verification=terrain_verification, stage=stage,
+                    fidelity_provenance=fidelity if args.family == "v22" else None,
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,
                     command=None if args.commands else [.04, 0., 0.], results=rows,
                     variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
