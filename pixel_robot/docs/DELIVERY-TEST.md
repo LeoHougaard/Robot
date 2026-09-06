@@ -60,6 +60,37 @@ A 25-second passing test is an initial rate check, not a long thermal/endurance
 test. Camera operation is outside this diagnostic; leave it off for the initial
 walking test and evaluate it separately before enabling it during control.
 
+## Candidate epoch2750 diagnostic (test APK only)
+
+The installed production app remains bound to its existing policy bundle. The test-only
+`CandidateEpoch2750MotorDisabledTransportTest` binds the explicit `candidate_epoch2750`
+asset bundle: 428-input CAD V22 actor, production `PolicyFrameSession`, exact CAD stride
+reference, profile, calibration bytes, portable weights and ONNX manifest. It requires
+`policy_candidate=epoch2750` and `robot_hardware=torque_off`; it never enables torque or
+writes motor targets. The bundle is candidate evidence and has no deployment approval.
+
+Build the debug app and instrumentation APK in the laptop checkout:
+
+```powershell
+cd C:\Users\leo\Code Projects\Robot-sim-to-real\pixel_robot
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:ANDROID_HOME = "C:\Users\leo\AppData\Local\Android\Sdk"
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+```
+
+After Leo has identified the board, confirmed torque off, and installed the test APKs, run
+this diagnostic explicitly; the normal app policy is not replaced:
+
+```powershell
+adb -s PHONE_ADDRESS shell am force-stop com.leo.pixelrobot
+adb -s PHONE_ADDRESS shell am instrument -w -e robot_hardware torque_off -e policy_candidate epoch2750 -e class com.leo.pixelrobot.policy.CandidateEpoch2750MotorDisabledTransportTest com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Before any physical use, Leo must confirm the candidate bundle hash, board calibration
+against `candidate_epoch2750/assembly-four-leg-linkage-12dof.calibration.json`, loaded
+reference hash, and measured 20 ms feedback timing. The existing production live stride
+guard remains in force; SDF fidelity and physical calibration are still required.
+
 ## Before Leo starts walking
 
 Check the displayed app/firmware versions, calibration source and exact policy

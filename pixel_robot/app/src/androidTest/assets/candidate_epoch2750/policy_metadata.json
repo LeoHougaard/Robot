@@ -1,0 +1,166 @@
+{
+  "schema_version": 2,
+  "deployment_tier": "restricted_robust_test_candidate_unpromoted",
+  "profile_id": "assembly-four-leg-linkage-12dof",
+  "profile_sha256": "2e249f1a8efc7df0fca72dfaf2e50712a2b108874bdf7a883cbd69f02b25ca0d",
+  "checkpoint_sha256": "ed52b4f3502fb3d0fb64ad4b258c3cdc623e37d0fab96dad02e8f11a1644e940",
+  "weights_sha256": "95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c",
+  "checkpoint_epoch": 2750,
+  "observation_size": 428,
+  "observation_history": 6,
+  "observation_builder": "current_body_v22_428",
+  "action_size": 12,
+  "activation": "elu",
+  "normalization_clip": [
+    -5.0,
+    5.0
+  ],
+  "normalization_epsilon": 1e-05,
+  "joint_coordinate_convention": "cad_drives_v1",
+  "reference_sha256": "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2",
+  "source_run": "20260906T062323Z-train-21373",
+  "source_commit": "02b91094a9d7f76f8296cf751e722788aa36ad99",
+  "promoted": false,
+  "physical_transport_verified": false,
+  "control_hz": 50,
+  "command_smoothing_time_s": 0.4,
+  "history_selection": {
+    "frame_size": 70,
+    "indices": [
+      0,
+      10,
+      20,
+      21,
+      22,
+      23
+    ],
+    "timing_reference_ms": 20.0
+  },
+  "current_observation_contract": {
+    "units": "mA",
+    "absolute": true,
+    "current_step_ma": 6.5,
+    "normalization_bias_ma": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "normalization_scale_ma": [
+      58.5,
+      331.5,
+      130.0,
+      130.0,
+      182.0,
+      331.5,
+      91.0,
+      169.0,
+      325.0,
+      45.5,
+      227.5,
+      403.0
+    ],
+    "clip_normalized": [
+      4.444444444444445,
+      3.0784313725490198,
+      3.4,
+      4.55,
+      3.857142857142857,
+      2.803921568627451,
+      6.285714285714286,
+      5.076923076923077,
+      3.14,
+      4.571428571428571,
+      2.942857142857143,
+      2.4838709677419355
+    ],
+    "missing_behavior": "hold_last_finite_and_validity_zero"
+  },
+  "posture_command_contract": {
+    "height_offset_m": [
+      0.0,
+      0.0
+    ],
+    "roll_rad": [
+      0.0,
+      0.0
+    ],
+    "pitch_rad": [
+      0.0,
+      0.0
+    ],
+    "smoothing_time_s": 0.5,
+    "layout": "append_after_selected_history"
+  },
+  "validated_command_limits": {
+    "forward_m_s": [
+      -0.08,
+      0.08
+    ],
+    "lateral_m_s": [
+      -0.06,
+      0.06
+    ],
+    "yaw_rate_rad_s": [
+      -0.2,
+      0.2
+    ]
+  },
+  "action_contract": {
+    "actor_output_clip": [
+      -1.0,
+      1.0
+    ],
+    "applied_normalized_clip_by_joint": [
+      0.4,
+      1.0,
+      1.0,
+      0.4,
+      1.0,
+      1.0,
+      0.4,
+      1.0,
+      1.0,
+      0.4,
+      1.0,
+      1.0
+    ],
+    "low_pass_alpha": 0.2,
+    "applied_normalized_slew_limit": 0.2,
+    "position_target_scale_rad": 0.3
+  },
+  "stationary_action_contract": {
+    "behavior": "policy_stabilization",
+    "normalized_stance_action": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "planar_command_deadband_m_s": 0.0,
+    "yaw_command_deadband_rad_s": 0.0
+  },
+  "action_semantics": "stride_reference_plus_residual",
+  "stride_reference_contract": {
+    "asset": "stride_reference.json",
+    "sha256": "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2",
+    "clock": "float32_20ms_per_fresh_feedback",
+    "initial_hold_frames": 50
+  }
+}

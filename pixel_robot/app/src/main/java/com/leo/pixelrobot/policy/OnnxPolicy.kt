@@ -16,6 +16,7 @@ class OnnxPolicy(
     expectedProfileSha256: String,
     expectedWeightsSha256: String,
     private val observationSize: Int,
+    private val assetPrefix: String = "",
 ) : Closeable {
     private val environment = OrtEnvironment.getEnvironment("pixel-robot")
     private val options = OrtSession.SessionOptions().apply {
@@ -34,9 +35,10 @@ class OnnxPolicy(
         } catch (_: Throwable) {
             "default CPU"
         }
-        val model = assets.open("policy_actor.onnx").use { it.readBytes() }
+        fun asset(name: String) = if (assetPrefix.isEmpty()) name else assetPrefix + "/" + name
+        val model = assets.open(asset("policy_actor.onnx")).use { it.readBytes() }
         val manifest = JSONObject(
-            assets.open("policy_android_manifest.json").bufferedReader().use { it.readText() },
+            assets.open(asset("policy_android_manifest.json")).bufferedReader().use { it.readText() },
         )
         require(manifest.getString("profile_id") == expectedProfileId) {
             "ONNX actor profile does not match policy metadata"
