@@ -57,6 +57,8 @@ if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
 if f"quadruped_current_body_{args.family}_" not in str(args.checkpoint):
     parser.error("checkpoint must belong to the explicitly selected policy family")
+if args.fidelity_asset is not None and args.family != "v22":
+    parser.error("--fidelity-asset is supported only for V22 contract-bound evidence")
 if args.video_folder:
     args.enable_cameras = True
 
@@ -127,19 +129,19 @@ importlib.import_module("simple_dog_task_current_body_" + args.family)
 
 
 def evaluate():
+    training_profile = None
+    fidelity = None
+    if args.fidelity_asset is not None:
+        from robot_control_profile import load_control_profile
+        training_profile = load_control_profile()
+        fidelity = fidelity_provenance(training_profile)
     from verify_delivery_terrain import verify
     terrain_verification = verify()
     stage = "Variation" if args.variation != "nominal" else ("Commands" if args.commands else "Acquire")
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
-    if args.fidelity_asset is not None:
-        allowed = Path("/workspace/projects/assets/onshape").resolve()
-        asset = args.fidelity_asset.resolve()
-        if not asset.is_file() or allowed not in asset.parents:
-            raise ValueError(
-                "fidelity asset must be an existing file below approved Onshape asset root"
-            )
-        cfg.robot.spawn.usd_path = str(asset)
+    if fidelity is not None:
+        cfg.robot.spawn.usd_path = fidelity["fidelity_asset"]
     cfg.seed = args.seed
     if args.timing_assessment:
         # These are the existing V4 training bounds, selected from the
@@ -168,8 +170,7 @@ def evaluate():
             from robot_control_profile import load_control_profile
             from verify_delivery_coordinates import verify
             root = Path(__file__).parent
-            training_profile = load_control_profile()
-            fidelity = fidelity_provenance(training_profile)
+            training_profile = training_profile or load_control_profile()
             verify(training_profile, root / "fits" / cfg.stride_reference_filename,
                    root / "fits/servo-response-20260829.json", params["config"]["delivery_policy_contract"])
         state = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
