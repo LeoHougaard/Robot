@@ -138,3 +138,35 @@ a legacy-coordinate fixture even though its observation size also equals 428.
 `cad-actor-parity-v2` retains the report and the initial missing-dependency
 attempt before the standalone check received the existing portable math file.
 This is numerical parity, not a walking acceptance result or ONNX export.
+
+## Retained acquisition and rejected command continuation
+
+Acquisition epoch 250 is the retained baseline. Its minute-long flat check
+has forward speed 0.04182 m/s, absolute lateral speed 0.01510 m/s, mean tilt
+0.02062 rad and no resets. Flat seeds 43 and 44 also pass the intermediate
+screen. Every foot cycles in the inspected video. Acquisition epoch 500
+has similar speed but substantially higher tilt, about 0.055 rad.
+Evidence: `cad-250-followup-v1` and `cad-500-followup-v2`.
+
+The command continuation `20260906T045448Z-train-15985` resumed epoch 250
+and completed epoch 750 with checkpoint SHA
+`cc31cce64ef3b3e25e64956694f81dbf46fdc21ef19ad1f5a2840582caee8be4`.
+It improves lateral and yaw tracking but is rejected for increased tilt
+and missing foot cycles. The eight-environment command screen leaves FR
+planted during positive strafe, and FL/BR scarcely lifting during negative
+yaw. Stop keeps all four feet down. The separate one-environment turn movie
+also shows the planted BR failure. Individual movie and batch rows need not
+match because current-model assignment depends on the environment layout.
+
+The same continuation's intermediate epoch 500 also regresses flat tilt,
+to about 0.061 rad. Its command evaluation hit a startup timeout and is
+inconclusive; the flat failure is sufficient to reject it as the fallback.
+Evidence: `cad-750-followup-v2` and `cad-750-command-review-v1`.
+
+The [moving-foot reward experiment](CAD-REWARD-20260906.md) addresses an
+active-reward omission. V22 resolves to V20's reward override; the older
+V2/V4 level, complete-cycle and prolonged-air terms are not used. The first
+`.25` cost passed physical replay parity but did not reverse the preference
+for the measured poor negative turn. Source `02b9109` tests `.4`, with valid
+contact cycles and exact legacy source binding. Final replay and a matched
+retraining run remain pending. No V22 policy has been promoted or deployed.
