@@ -5,7 +5,9 @@ It uses a material point on each neutral sole, not the lower-leg COM. The
 linear speed calculation omits acceleration, contact and loaded tracking loss.
 """
 import argparse
+import faulthandler
 import json
+import math
 import os
 from pathlib import Path
 import traceback
@@ -14,11 +16,17 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--cad-drives", action="store_true", help="Use direct CAD motor coordinates, as in V22")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.output.exists():
     parser.error("refusing to overwrite existing diagnostic evidence")
+faulthandler.enable()
+faulthandler.dump_traceback_later(120, exit=True)
+print("STRIDE_SIM_START", flush=True)
 app = AppLauncher(args).app
+faulthandler.cancel_dump_traceback_later()
+print("STRIDE_SIM_READY", flush=True)
 
 import gymnasium as gym
 import numpy as np
@@ -59,6 +67,8 @@ def inspect():
     profile = json.loads(Path(os.environ["SIMPLE_DOG_CONTROL_PROFILE"]).read_text())
     task = "Isaac-Locomotion-CurrentBodyV20-Flat-Eval-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=49)
+    if args.cad_drives:
+        cfg.joint_coordinate_convention = "cad_drives_v1"
     cfg.evaluation_segments = ()
     cfg.print_play_metrics = False
     cfg.robot.init_state.pos = (0., 0., .45)
@@ -103,7 +113,7 @@ def inspect():
             extent = cfg.action_scale * cfg.action_limit_by_joint[joint]
             targets[25 + 2 * joint, joint] = extent
             targets[26 + 2 * joint, joint] = -extent
-        samples, positions = [], []
+        samples, positions, sensor_errors = [], [], []
         initial_root = robot.data.root_pos_w.torch.clone()
         with torch.inference_mode():
             for step in range(250):
@@ -119,6 +129,8 @@ def inspect():
                                                   tip - robot.data.root_pos_w.torch[:, None, :])
                     samples.append((relative @ axes.T).cpu())
                     positions.append(base._get_policy_joint_state()[0].cpu())
+                    if args.cad_drives:
+                        sensor_errors.append((base._encoder_previous - base._get_policy_joint_state()[0]).abs().max().item())
         tip = torch.stack(samples).mean(0).numpy()
         q = torch.stack(positions).mean(0).numpy()
         target_error = float(np.max(np.abs(q - targets.cpu().numpy())))
@@ -128,7 +140,10 @@ def inspect():
         if target_error > .025:
             raise RuntimeError(f"unloaded joint targets not reached: maximum error {target_error} rad")
         records = []
-        inverse_coupling = np.array([[1., 0., 0.], [0., 1., 0.], [0., -1., 1.]])
+        inverse_coupling = (np.eye(3) if args.cad_drives else
+                            np.array([[1., 0., 0.], [0., 1., 0.], [0., -1., 1.]]))
+        if args.cad_drives and max(sensor_errors) > math.pi / 4095 + 1e-6:
+            raise RuntimeError("CAD drive feedback differs by more than half an encoder count")
         speed = base._servo_trajectory.speed_nominal.cpu().numpy()
         for leg, name in enumerate(names):
             ids = range(3 * leg, 3 * leg + 3)
@@ -142,7 +157,9 @@ def inspect():
                                 speed_utilization=float(np.max(np.abs(rates) / speed[3*leg:3*leg+3])),
                                 positive_axis_tip_positions=tip[[25+2*j for j in ids], leg].tolist(),
                                 negative_axis_tip_positions=tip[[26+2*j for j in ids], leg].tolist()))
-        return dict(passed=True, maximum_joint_target_error_rad=target_error, root_drift_m=root_drift,
+        return dict(passed=True, joint_coordinate_convention=cfg.joint_coordinate_convention,
+                    maximum_encoder_error_rad=max(sensor_errors, default=0.),
+                    maximum_joint_target_error_rad=target_error, root_drift_m=root_drift,
                     sole_points_in_link_frame=local.cpu().tolist(), feet=records,
                     limitation="unloaded local linear kinematics; no claim of gait feasibility or real-world speed")
     finally:

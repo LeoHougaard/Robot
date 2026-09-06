@@ -16,8 +16,21 @@ class StrideSessionTest {
     )
 
     @Test
+    fun cadDriveSessionMatchesTorchWithoutRepeatingTheKneeTransmission() {
+        verifySession(JSONObject(File("src/test/resources/stride_cad_session_parity.json").readText()),
+            File("src/test/resources/stride_cad_reference.json").readBytes(),
+            RobotCalibration.parse(File("src/test/resources/stride_cad_calibration.json").readText()))
+    }
+
+    @Test
     fun minuteOfRawFeedbackMatchesTorchThroughHoldCommandsAcknowledgmentLagAndRestart() {
+        verifySession(fixture, reference, calibration)
+    }
+
+    private fun verifySession(fixture: JSONObject, reference: ByteArray, calibration: RobotCalibration) {
         val contract = PolicyContract.parse(fixture.getJSONObject("metadata").toString())
+        assertEquals(contract.jointCoordinateConvention, calibration.jointCoordinateConvention)
+        contract.requireCalibration(calibration)
         val session = StrideSession(contract, reference)
         val builder = PolicyObservationBuilder(contract)
         val expected = fixture.getJSONArray("expected").let { array ->
@@ -71,6 +84,31 @@ class StrideSessionTest {
                 session.advance()
             }
         }
+    }
+
+    @Test
+    fun cadDriveCalibrationKeepsHipAndKneeMotorCommandsIndependent() {
+        val cad = RobotCalibration.parse(File("src/test/resources/stride_cad_calibration.json").readText())
+        val metadata = JSONObject(File("src/test/resources/stride_cad_session_parity.json").readText()).getJSONObject("metadata")
+        val cadContract = PolicyContract.parse(metadata.toString())
+        cadContract.requireCalibration(cad)
+        assertTrue(runCatching { cadContract.requireCalibration(calibration) }.isFailure)
+        assertTrue(runCatching { PolicyContract.parse(fixture.getJSONObject("metadata").toString()).requireCalibration(cad) }.isFailure)
+        for (leg in 0..3) {
+            val hip = 3 * leg + 1
+            val knee = hip + 1
+            val positions = FloatArray(12).also { it[hip] = .1f }
+            val targets = cad.servoTargets(positions)
+            assertEquals(cad.zeros[knee], targets.getValue(cad.servoIds[knee]), 0f)
+            assertArrayEquals(positions, cad.policyPositions(targets), 1e-6f)
+        }
+        assertTrue(runCatching {
+            PolicyContract.parse(JSONObject(metadata.toString()).put("joint_coordinate_convention", "legacy_relative_knee").toString())
+        }.isFailure)
+        val invalidCalibration = JSONObject(File("src/test/resources/stride_cad_calibration.json").readText())
+        invalidCalibration.getJSONArray("joints").getJSONObject(2).put("linkage", JSONObject()
+            .put("type", "four_bar_follow").put("parent_policy_index", 1).put("parent_ratio", 1.0))
+        assertTrue(runCatching { RobotCalibration.parse(invalidCalibration.toString()) }.isFailure)
     }
 
     @Test

@@ -11,7 +11,11 @@ from .env_cfg import SERVO_FIT
 class DeliveryEnv(SimpleDogCurrentBodyV4Env):
     def __init__(self, cfg, render_mode=None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-        self._servo_trajectory = ServoTrajectory(SERVO_FIT, self.num_envs, self.device, self.step_dt)
+        if cfg.joint_coordinate_convention not in ("legacy_relative_knee", "cad_drives_v1"):
+            raise ValueError("unknown joint coordinate convention")
+        self._coupled_knees = cfg.joint_coordinate_convention == "legacy_relative_knee"
+        self._servo_trajectory = ServoTrajectory(SERVO_FIT, self.num_envs, self.device, self.step_dt,
+                                                 coupled_knees=self._coupled_knees)
         self._encoder_previous = torch.zeros(self.num_envs, 12, device=self.device)
         self._gravity_previous = torch.zeros(self.num_envs, 3, device=self.device)
         self._world_velocity_previous = self._robot.data.root_lin_vel_w.torch.clone()
@@ -66,13 +70,13 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         data = self._robot.data
         fresh = ~self._sensor_ready
         q, _ = self._get_policy_joint_state()
-        encoder = self._encoder_zeros + self._encoder_signs * policy_to_motor(q)
+        encoder = self._encoder_zeros + self._encoder_signs * policy_to_motor(q, self._coupled_knees)
         if self.cfg.observation_noise_enabled:
             encoder = encoder + torch.empty_like(encoder).uniform_(-self.cfg.joint_position_noise, self.cfg.joint_position_noise)
         # Match firmware's angleToBusPosition/busPositionToMeasuredAngle
         # reported-degree convention (0..4095 maps to 0..360 degrees).
         encoder = torch.round(encoder * (4095 / (2 * math.pi))) * (2 * math.pi / 4095)
-        position = motor_to_policy((encoder - self._encoder_zeros) * self._encoder_signs)
+        position = motor_to_policy((encoder - self._encoder_zeros) * self._encoder_signs, self._coupled_knees)
         velocity = torch.where(fresh[:, None], 0., (position - self._encoder_previous) / self.step_dt)
         self._encoder_previous.copy_(position)
 

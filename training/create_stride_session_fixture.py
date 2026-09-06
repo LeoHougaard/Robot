@@ -25,6 +25,10 @@ def create(sensor_path, reference_path, calibration_path, output):
     sensor = json.loads(sensor_path.read_text())
     spec = json.loads(reference_path.read_text())
     calibration = json.loads(calibration_path.read_text())
+    convention = spec.get('joint_coordinate_convention', 'legacy_relative_knee')
+    assert calibration.get('joint_coordinate_convention', 'legacy_relative_knee') == convention
+    coupled = convention == 'legacy_relative_knee'
+    assert convention in ('legacy_relative_knee', 'cad_drives_v1')
     joints = sorted(calibration['joints'], key=lambda j: j['policy_index'])
     zeros = torch.tensor([j['zero_deg'] for j in joints])
     scales = torch.tensor([j['servo_degrees_per_policy_radian'] for j in joints])
@@ -35,6 +39,9 @@ def create(sensor_path, reference_path, calibration_path, output):
                     profile_sha256=spec['profile_sha256'], action_semantics='stride_reference_plus_residual',
                     stride_reference_contract=dict(asset='stride_reference.json', sha256=sha(reference_path),
                         clock='float32_20ms_per_fresh_feedback', initial_hold_frames=50))
+    if not coupled:
+        assert all('linkage' not in joint for joint in joints)
+        metadata.update(observation_builder='current_body_v22_428', joint_coordinate_convention=convention)
     posture_contract = metadata['posture_command_contract']
     for name in ('height_offset_m', 'roll_rad', 'pitch_rad'):
         posture_contract[name] = [0., 0.]
@@ -63,7 +70,7 @@ def create(sensor_path, reference_path, calibration_path, output):
         dt = interval / 1000.
         order = [raw['ids'].index(j['servo_id']) for j in joints]
         encoder = torch.tensor([raw['angles_deg'][i] for i in order])
-        position = motor_to_policy((encoder-zeros)/scales)
+        position = motor_to_policy((encoder-zeros)/scales, coupled)
         velocity = torch.zeros_like(position) if previous_position is None else (position-previous_position)/dt
         previous_position = position
         gyro = matrix @ (torch.tensor(raw['gyro_dps'])-bias) * (math.pi/180)
@@ -96,7 +103,7 @@ def create(sensor_path, reference_path, calibration_path, output):
             next_applied.zero_()
         applied = next_applied
         applied_by_sequence[index+1] = applied.clone()
-        degrees = zeros + scales*policy_to_motor(.3*applied[0])
+        degrees = zeros + scales*policy_to_motor(.3*applied[0], coupled)
         assert torch.isfinite(observation).all() and torch.isfinite(degrees).all()
         if index in checkpoints:
             expected.append(dict(frame=index, elapsed_seconds=elapsed.item(), observation=observation.tolist(),

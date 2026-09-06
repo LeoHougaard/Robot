@@ -47,7 +47,7 @@ class PolicyObservationBuilder(private val contract: PolicyContract) {
         require(strideClock.all(Float::isFinite))
         val observation = when (contract.observationBuilder) {
             "current_v3_279" -> history.flatMap { it.asIterable() }.toFloatArray() + posture
-            "current_body_v14_426", "current_body_v20_426", "current_body_v21_428" -> {
+            "current_body_v14_426", "current_body_v20_426", "current_body_v21_428", "current_body_v22_428" -> {
                 require(history.all { it.size == 70 })
                 val selected = contract.selectedHistoryIndices.flatMap { history[it].asIterable() }.toFloatArray()
                 val latestCommand = history.last().copyOfRange(6, 9)

@@ -1,16 +1,19 @@
 """Learn small feedback corrections around a persistent physical stride."""
 import math
+import json
+from pathlib import Path
 
 import torch
 
 from delivery_gait import combine_stride
 from simple_dog_task_current_body_v20.env import DeliveryEnv
 from simple_dog_task_v2.simple_dog_v2_env import SimpleDogV2Env
-from .env_cfg import STRIDE_SPEC
 
 
 class StrideEnv(DeliveryEnv):
     def __init__(self, cfg, render_mode=None, **kwargs):
+        self._stride_spec = json.loads((Path(__file__).resolve().parents[1] / "fits" /
+                                       cfg.stride_reference_filename).read_text())
         super().__init__(cfg, render_mode, **kwargs)
         self._stride_elapsed = torch.zeros(self.num_envs, device=self.device)
 
@@ -24,14 +27,14 @@ class StrideEnv(DeliveryEnv):
 
     def _pre_physics_step(self, residual):
         targets = combine_stride(residual, self._commands, self._posture_commands,
-                                 self._gravity_previous, self._stride_elapsed, STRIDE_SPEC)
+                                 self._gravity_previous, self._stride_elapsed, self._stride_spec)
         super()._pre_physics_step(targets)
         self._stride_elapsed += self.step_dt
 
     def _get_observations(self):
         observation = super()._get_observations()["policy"]
-        active_time = (self._stride_elapsed - STRIDE_SPEC["settle_seconds"]).clamp_min(0.)
-        angle = 2 * math.pi * STRIDE_SPEC["frequency_hz"] * active_time
+        active_time = (self._stride_elapsed - self._stride_spec["settle_seconds"]).clamp_min(0.)
+        angle = 2 * math.pi * self._stride_spec["frequency_hz"] * active_time
         clock = torch.stack((torch.sin(angle), torch.cos(angle)), dim=-1)
         observation = torch.cat((observation, clock), dim=-1)
         return {"policy": observation, "critic": self._critic_observation(observation)}

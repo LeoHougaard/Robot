@@ -3,16 +3,23 @@ import argparse
 import faulthandler
 import hashlib
 import json
+import os
 from pathlib import Path
 import traceback
+import importlib
 
 faulthandler.enable()
-faulthandler.dump_traceback_later(120, repeat=True)
+startup_timeout = int(os.environ.get("SIMPLE_DOG_STARTUP_TIMEOUT_S", "0"))
+if startup_timeout != 0 and not 30 <= startup_timeout <= 600:
+    raise ValueError("startup timeout must be zero or 30..600 seconds")
+faulthandler.dump_traceback_later(startup_timeout or 120,
+                               repeat=not bool(startup_timeout), exit=bool(startup_timeout))
 print("STRIDE_EVALUATOR_IMPORT", flush=True)
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--checkpoint", type=Path, required=True)
+parser.add_argument("--family", choices=("v21", "v22"), default="v21")
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--num-envs", type=int, default=8)
 parser.add_argument("--seed", type=int, default=42)
@@ -33,8 +40,8 @@ if args.start_stationary and not args.commands:
     parser.error("start-stationary requires --commands")
 if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
-if "quadruped_current_body_v21_" not in str(args.checkpoint):
-    parser.error("requires an isolated V21 checkpoint")
+if f"quadruped_current_body_{args.family}_" not in str(args.checkpoint):
+    parser.error("checkpoint must belong to the explicitly selected policy family")
 if args.video_folder:
     args.enable_cameras = True
 print("STRIDE_SIM_START", flush=True)
@@ -46,14 +53,14 @@ import gymnasium as gym
 import torch
 from isaaclab_tasks.utils import parse_env_cfg
 from initialize_delivery_stride import build_actor
-import simple_dog_task_current_body_v21  # noqa: F401
+importlib.import_module("simple_dog_task_current_body_" + args.family)
 
 
 def evaluate():
     from verify_delivery_terrain import verify
     terrain_verification = verify()
     stage = "Commands" if args.commands else "Acquire"
-    task = f"Isaac-Locomotion-CurrentBodyV21-{stage}-Simple-Dog-Direct-v0"
+    task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     cfg.seed = args.seed
     cfg.episode_length_s = args.seconds + 10.
@@ -72,8 +79,16 @@ def evaluate():
                                       step_trigger=lambda s: s == 0, video_length=args.seconds * 50, disable_logger=True)
     base = env.unwrapped
     try:
-        _, actor = build_actor(Path(__file__).parent / "simple_dog_task_current_body_v21/agents/rl_games_ppo_cfg.yaml")
+        params, actor = build_actor(Path(__file__).parent / f"simple_dog_task_current_body_{args.family}/agents/rl_games_ppo_cfg.yaml")
+        if args.family == "v22":
+            from robot_control_profile import load_control_profile
+            from verify_delivery_coordinates import verify
+            root = Path(__file__).parent
+            verify(load_control_profile(), root / "fits" / cfg.stride_reference_filename,
+                   root / "fits/servo-response-20260829.json", params["config"]["delivery_policy_contract"])
         state = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        if params["config"].get("delivery_policy_contract") != state.get("delivery_policy_contract"):
+            raise ValueError("checkpoint coordinate/reference contract does not match the evaluation")
         actor.load_state_dict(state["model"], strict=True)
         actor.to(base.device).eval()
         obs, _ = env.reset()
@@ -160,7 +175,9 @@ def evaluate():
             row["command"] = list(cfg.stride_command_menu[i % len(cfg.stride_command_menu)]
                                   if args.commands else cfg.stride_command)
             rows.append(row)
-        return dict(completed=True, checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
+        return dict(completed=True, policy_family="current_body_" + args.family,
+                    joint_coordinate_convention=cfg.joint_coordinate_convention,
+                    checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
                     source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                     seed=args.seed, control_hz=50, simulation_seconds=args.seconds,
                     measured_seconds=measured_steps / 50,

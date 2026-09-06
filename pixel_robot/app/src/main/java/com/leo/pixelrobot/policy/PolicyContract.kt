@@ -20,7 +20,10 @@ class PolicyContract private constructor(value: JSONObject) {
     val observationSize: Int = value.getInt("observation_size")
     val observationHistory: Int = value.getInt("observation_history")
     val observationBuilder: String = value.optString("observation_builder", "v2_180")
-    val usesStrideReference = observationBuilder == "current_body_v21_428"
+    val usesStrideReference = observationBuilder in setOf("current_body_v21_428", "current_body_v22_428")
+    val jointCoordinateConvention = if (observationBuilder == "current_body_v22_428") {
+        value.getString("joint_coordinate_convention").also { require(it == "cad_drives_v1") }
+    } else value.optString("joint_coordinate_convention", "legacy_relative_knee").also { require(it == "legacy_relative_knee") }
     val usesSelectedHistory = usesStrideReference || observationBuilder in setOf("current_body_v14_426", "current_body_v20_426")
     val strideReferenceSha256: String?
     val selectedHistoryIndices: IntArray
@@ -53,6 +56,12 @@ class PolicyContract private constructor(value: JSONObject) {
     val stationaryStanceAction: FloatArray
     val stationaryOverrideEnabled: Boolean
 
+    fun requireCalibration(calibration: RobotCalibration) {
+        require(calibration.robotId == profileId && calibration.jointCoordinateConvention == jointCoordinateConvention) {
+            "calibration does not match the policy's robot and joint coordinates"
+        }
+    }
+
     init {
         require(profileId.matches(Regex("[a-z0-9][a-z0-9-]{0,63}"))) { "invalid policy profile id" }
         require(profileSha256.matches(Regex("[A-Fa-f0-9]{64}"))) { "invalid policy profile hash" }
@@ -60,7 +69,7 @@ class PolicyContract private constructor(value: JSONObject) {
         require(controlHz in 10..100 && 1000 % controlHz == 0) {
             "policy control rate must divide 1000 Hz and be within 10..100 Hz"
         }
-        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426", "current_body_v20_426", "current_body_v21_428"))
+        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426", "current_body_v20_426", "current_body_v21_428", "current_body_v22_428"))
         require(
             (observationBuilder == "v2_180" && observationHistory == 4 && observationSize == 180) ||
                 (observationBuilder == "current_v3_279" && observationHistory == 4 && observationSize == 279) ||

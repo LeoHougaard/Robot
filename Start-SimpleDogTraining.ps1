@@ -9,7 +9,7 @@ param(
     [ValidateRange(0, 2147483647)]
     [Nullable[int]]$Seed = $null,
 
-    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard", "CurrentBodyV12Hard", "CurrentBodyV13Hard", "CurrentBodyV14Hard", "CurrentBodyV15Hard", "CurrentBodyV16Hard", "CurrentBodyV17Hard", "CurrentBodyV18Hard", "CurrentBodyV19Hard", "CurrentBodyV20Train", "CurrentBodyV21Acquire", "CurrentBodyV21Commands")]
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard", "CurrentBodyV12Hard", "CurrentBodyV13Hard", "CurrentBodyV14Hard", "CurrentBodyV15Hard", "CurrentBodyV16Hard", "CurrentBodyV17Hard", "CurrentBodyV18Hard", "CurrentBodyV19Hard", "CurrentBodyV20Train", "CurrentBodyV21Acquire", "CurrentBodyV21Commands", "CurrentBodyV22Acquire", "CurrentBodyV22Commands")]
     [string]$Terrain = "Flat",
 
     [string]$Checkpoint = "",
@@ -121,6 +121,11 @@ $v19Terrains = @("CurrentBodyV19Hard")
 $isV19Terrain = $Terrain -in $v19Terrains
 $v20Terrains = @("CurrentBodyV20Train")
 $isV20Terrain = $Terrain -in $v20Terrains
+$v22Terrains = @("CurrentBodyV22Acquire", "CurrentBodyV22Commands")
+$isV22Terrain = $Terrain -in $v22Terrains
+if ($Checkpoint -and (($isV22Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v22_"))) {
+    throw "CAD-drive checkpoints require a CurrentBodyV22 terrain; angle conventions differ from earlier families."
+}
 $v21Terrains = @("CurrentBodyV21Acquire", "CurrentBodyV21Commands")
 $isV21Terrain = $Terrain -in $v21Terrains
 if ($Checkpoint -and (($isV21Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v21_"))) {
@@ -129,7 +134,7 @@ if ($Checkpoint -and (($isV21Terrain) -ne ($Checkpoint -match "/quadruped_curren
 if ($Checkpoint -and (($isV20Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v20_"))) {
     throw "Delivery checkpoints require CurrentBodyV20Train and cannot initialize another policy family."
 }
-$currentBodyTerrains = $v4Terrains + $v5Terrains + $v6Terrains + $v7Terrains + $v8Terrains + $v9Terrains + $v10Terrains + $v11Terrains + $v12Terrains + $v13Terrains + $v14Terrains + $v15Terrains + $v16Terrains + $v17Terrains + $v18Terrains + $v19Terrains + $v20Terrains + $v21Terrains
+$currentBodyTerrains = $v4Terrains + $v5Terrains + $v6Terrains + $v7Terrains + $v8Terrains + $v9Terrains + $v10Terrains + $v11Terrains + $v12Terrains + $v13Terrains + $v14Terrains + $v15Terrains + $v16Terrains + $v17Terrains + $v18Terrains + $v19Terrains + $v20Terrains + $v21Terrains + $v22Terrains
 if (($isV4Terrain -or $isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain -or $isV12Terrain -or $isV13Terrain -or $isV14Terrain -or $isV15Terrain -or $isV16Terrain -or $isV17Terrain -or $isV18Terrain -or $isV19Terrain) -and $Checkpoint) {
     throw "$Terrain requires a random actor and optimizer start; checkpoints are forbidden."
 }
@@ -295,6 +300,8 @@ $remoteDirectories = @(
     "$remoteTraining/simple_dog_task_current_body_v19/agents",
     "$remoteTraining/simple_dog_task_current_body_v20",
     "$remoteTraining/simple_dog_task_current_body_v20/agents",
+    "$remoteTraining/simple_dog_task_current_body_v22",
+    "$remoteTraining/simple_dog_task_current_body_v22/agents",
     "$remoteTraining/simple_dog_task_current_body_v21",
     "$remoteTraining/simple_dog_task_current_body_v21/agents",
     "$remoteTraining/control_profiles",
@@ -430,7 +437,7 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v19/agents" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v19/agents" }
 )
-if ($isV20Terrain -or $isV21Terrain) {
+if ($isV20Terrain -or $isV21Terrain -or $isV22Terrain) {
     foreach ($name in @("deployable_dynamics.py", "delivery_contract.py", "delivery_checkpointing.py", "snapshot_delivery_run.py")) {
         $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
     }
@@ -442,7 +449,7 @@ if ($isV20Terrain -or $isV21Terrain) {
 }
 
 
-if ($isV21Terrain) {
+if ($isV21Terrain -or $isV22Terrain) {
     foreach ($name in @("delivery_gait.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py", "verify_delivery_terrain.py", "train_delivery_stride.py")) {
         $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
     }
@@ -450,6 +457,15 @@ if ($isV21Terrain) {
     foreach ($name in @("__init__.py", "env.py", "env_cfg.py", "agents\__init__.py", "agents\rl_games_ppo_cfg.yaml")) {
         $subdir = if ($name.StartsWith("agents")) { "/agents" } else { "" }
         $copies += @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v21\$name"; Remote = "$remoteTraining/simple_dog_task_current_body_v21$subdir" }
+    }
+}
+
+if ($isV22Terrain) {
+    $copies += @{ Local = Join-Path $localTraining "verify_delivery_coordinates.py"; Remote = $remoteTraining }
+    $copies += @{ Local = Join-Path $localTraining "fits\stride-reference-cad-20260906.json"; Remote = "$remoteTraining/fits" }
+    foreach ($name in @("__init__.py", "env_cfg.py", "agents\__init__.py", "agents\rl_games_ppo_cfg.yaml")) {
+        $subdir = if ($name.StartsWith("agents")) { "/agents" } else { "" }
+        $copies += @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v22\$name"; Remote = "$remoteTraining/simple_dog_task_current_body_v22$subdir" }
     }
 }
 
@@ -522,6 +538,8 @@ if ($ControlProfile) {
             "CurrentBodyV18Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV19Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV20Train" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Commands" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Acquire" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentBodyV21Commands" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentBodyV21Acquire" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             default { throw "Control profiles require a V2, CurrentV3, or CurrentBody training stage." }

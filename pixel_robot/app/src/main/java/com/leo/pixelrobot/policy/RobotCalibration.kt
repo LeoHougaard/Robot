@@ -7,6 +7,7 @@ import org.json.JSONObject
 class RobotCalibration private constructor(value: JSONObject) {
     private val source = JSONObject(value.toString())
     val robotId: String = value.getString("robot")
+    val jointCoordinateConvention = value.optString("joint_coordinate_convention", "legacy_relative_knee")
     val servoIds = IntArray(JOINT_COUNT)
     val zeros = FloatArray(JOINT_COUNT)
     val degreesPerRadian = FloatArray(JOINT_COUNT)
@@ -18,6 +19,7 @@ class RobotCalibration private constructor(value: JSONObject) {
     val gravitySign: Float
 
     init {
+        require(jointCoordinateConvention in setOf("legacy_relative_knee", "cad_drives_v1"))
         require(value.getBoolean("calibrated")) { "joint calibration is not approved" }
         val jointsJson = value.getJSONArray("joints")
         require(jointsJson.length() == JOINT_COUNT)
@@ -40,7 +42,8 @@ class RobotCalibration private constructor(value: JSONObject) {
             }
         }
         require(servoIds.contentEquals(EXPECTED_SERVO_IDS)) { "physical servo mapping changed" }
-        require(parentIndex.contentEquals(EXPECTED_PARENTS)) { "four-bar mapping changed" }
+        val expectedParents = if (jointCoordinateConvention == "cad_drives_v1") IntArray(JOINT_COUNT) { -1 } else EXPECTED_PARENTS
+        require(parentIndex.contentEquals(expectedParents)) { "calibration does not match its joint coordinate convention" }
 
         val imu = value.getJSONObject("imu")
         require(imu.getBoolean("calibrated")) { "IMU calibration is not approved" }
@@ -235,6 +238,7 @@ class RobotCalibration private constructor(value: JSONObject) {
             assets: AssetManager,
             profileId: String,
             overrideJson: String? = null,
+            expectedCoordinateConvention: String = "legacy_relative_knee",
         ): RobotCalibration {
             require(profileId.matches(Regex("[a-z0-9][a-z0-9-]{0,63}")))
             return RobotCalibration(
@@ -242,7 +246,10 @@ class RobotCalibration private constructor(value: JSONObject) {
                     overrideJson
                         ?: assets.open("$profileId.calibration.json").bufferedReader().use { it.readText() },
                 ),
-            ).also { require(it.robotId == profileId) { "physical calibration does not match policy profile" } }
+            ).also {
+                require(it.robotId == profileId) { "physical calibration does not match policy profile" }
+                require(it.jointCoordinateConvention == expectedCoordinateConvention) { "calibration joint coordinates do not match the policy" }
+            }
         }
 
         fun parse(json: String): RobotCalibration = RobotCalibration(JSONObject(json))

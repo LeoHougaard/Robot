@@ -24,6 +24,7 @@ def freeze_exploration(model):
 
 class DeliveryA2CAgent(A2CAgent):
     def __init__(self, base_name, params):
+        self._delivery_policy_contract = params["config"].get("delivery_policy_contract")
         super().__init__(base_name, params)
         self._freeze_delivery_sigma = bool(params["config"].get("freeze_exploration_std", False))
         if self._freeze_delivery_sigma:
@@ -32,6 +33,8 @@ class DeliveryA2CAgent(A2CAgent):
     def get_full_state_weights(self):
         weights = super().get_full_state_weights()
         weights["delivery_actor_schedule"] = dict(last_lr=self.last_lr, entropy_coef=self.entropy_coef)
+        if self._delivery_policy_contract is not None:
+            weights["delivery_policy_contract"] = self._delivery_policy_contract
         if self.has_central_value:
             value = self.central_value_net
             weights["delivery_central_training"] = dict(
@@ -40,6 +43,8 @@ class DeliveryA2CAgent(A2CAgent):
         return weights
 
     def set_full_state_weights(self, weights, set_epoch=True):
+        if self._delivery_policy_contract != weights.get("delivery_policy_contract"):
+            raise ValueError("checkpoint coordinate/reference contract does not match the task")
         super().set_full_state_weights(weights, set_epoch=set_epoch)
         if getattr(self, "_freeze_delivery_sigma", False):
             std = freeze_exploration(self.model)

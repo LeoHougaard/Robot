@@ -7,6 +7,24 @@ from deployable_dynamics import ServoTrajectory, gravity_estimate, motor_to_poli
 
 
 class DeployableDynamicsTests(unittest.TestCase):
+    def test_cad_hip_command_does_not_command_the_knee_motor(self):
+        fit = json.loads((Path(__file__).parent / "fits/servo-response-20260829.json").read_text())
+        servo = ServoTrajectory(fit, 2, "cpu", coupled_knees=False)
+        q = torch.zeros(2, 12)
+        q[0, (1, 4, 7, 10)] = .1
+        q[1, (2, 5, 8, 11)] = -.1
+        servo.reset(torch.arange(2), torch.zeros_like(q))
+        for _ in range(150):
+            servo.command(q)
+            for _ in range(4):
+                applied = servo.step(.005)
+                torch.testing.assert_close(applied[0, (2, 5, 8, 11)], torch.zeros(4), rtol=0, atol=0)
+                torch.testing.assert_close(applied[1, (1, 4, 7, 10)], torch.zeros(4), rtol=0, atol=0)
+        torch.testing.assert_close(applied, q, rtol=0, atol=.002)
+        # The legacy conversion would ask the physical knee servo for an
+        # additional 0.1 rad even though the selected CAD knee drive is zero.
+        self.assertTrue(torch.all(policy_to_motor(q)[0, (2, 5, 8, 11)] == .1))
+
     def test_coordinates_match_documented_encoder_parent_transform(self):
         q = torch.arange(12, dtype=torch.float32).reshape(1, 12) / 10
         motor = policy_to_motor(q)

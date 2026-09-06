@@ -54,7 +54,8 @@ class PolicyController(
     private val send: (ByteArray) -> Unit,
 ) : Closeable {
     private val contract = PolicyContract.load(assets)
-    private var calibration = RobotCalibration.load(assets, contract.profileId, calibrationOverrideJson)
+    private var calibration = RobotCalibration.load(assets, contract.profileId, calibrationOverrideJson,
+        contract.jointCoordinateConvention).also(contract::requireCalibration)
     private val policy = OnnxPolicy(
         assets,
         contract.profileId,

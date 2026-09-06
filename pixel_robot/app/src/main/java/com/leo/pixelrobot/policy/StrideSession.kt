@@ -12,6 +12,7 @@ class StrideSession(private val contract: PolicyContract, referenceBytes: ByteAr
     init {
         require(contract.usesStrideReference)
         require(reference.positionScale == contract.positionTargetScaleRadians)
+        require(reference.jointCoordinateConvention == contract.jointCoordinateConvention) { "reference joint coordinates do not match the policy" }
     }
 
     fun reset() { elapsedSeconds = 0f; frames = 0L }

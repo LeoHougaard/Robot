@@ -10,7 +10,7 @@ import sys
 
 faulthandler.register(signal.SIGUSR1, all_threads=True)
 
-if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v21":
+if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") in ("current_body_v21", "current_body_v22"):
     from pathlib import Path
     runpy.run_path(str(Path(__file__).with_name("train_delivery_stride.py")), run_name="__main__")
     raise SystemExit(0)

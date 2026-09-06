@@ -13,6 +13,7 @@ STRIDE_SPEC = json.loads((Path(__file__).resolve().parents[1] /
 @configclass
 class StrideAcquireCfg(DeliveryFlatEvalCfg):
     policy_family = "current_body_v21"
+    stride_reference_filename = "stride-reference-20260905.json"
     # Same physical sensor history, plus the controller's sine/cosine clock.
     observation_space = 428
     state_space = 438

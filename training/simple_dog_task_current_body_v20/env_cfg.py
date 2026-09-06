@@ -39,6 +39,9 @@ _terrain.terrain_generator = TerrainGeneratorCfg(
 @configclass
 class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     policy_family = "current_body_v20"
+    # Historical V20/V21 behavior is preserved for matched comparisons.
+    # New CAD-drive policies must select their separate coordinate contract.
+    joint_coordinate_convention = "legacy_relative_knee"
     # Last four frames are consecutive, allowing exact initialization from
     # the recorded V2 actor while retaining longer context and current input.
     selected_history_indices = HISTORY_INDICES

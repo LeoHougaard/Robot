@@ -1,5 +1,13 @@
 # V21 runtime contract before export
 
+**V21 is retained for historical comparison and is not a deployment candidate.**
+The [CAD coordinate audit](../../training/CAD-COORDINATES-20260906.md) found
+that its inherited coupled-knee runtime convention differs from the detailed
+model's selected actuator angles. The instructions below describe V21 only.
+V22 uses explicit `cad_drives_v1` coordinates and no extra hip-to-knee term.
+Its offline contract rejects a legacy calibration or reference. Both stride
+families remain blocked by live asset loading pending acceptance/integration.
+
 V21 is not supported by the installed app. Keep its current policy and strict
 metadata rejection until a complete V21 bundle and matching runtime pass
 simulation acceptance and motor-disabled tests. The acquisition comparison

@@ -27,6 +27,7 @@ class StrideReference private constructor(spec: JSONObject) {
     private val settleSeconds = spec.finite("settle_seconds")
     private val residualScale = spec.finite("residual_scale")
     val positionScale = spec.finite("position_target_scale_rad")
+    val jointCoordinateConvention = spec.optString("joint_coordinate_convention", "legacy_relative_knee")
 
     init {
         require(frequency > 0f && angularFrequency.isFinite() && duty > 0f && duty < 1f)
@@ -104,7 +105,12 @@ class StrideReference private constructor(spec: JSONObject) {
                 .joinToString("") { "%02x".format(it) }
             require(actual == expectedSha256) { "stride reference hash mismatch" }
             val spec = JSONObject(bytes.toString(Charsets.UTF_8))
-            require(spec.getInt("schema_version") == 1 && spec.getString("kind") == "stride_reference_v1")
+            require(spec.getInt("schema_version") == 1)
+            when (spec.getString("kind")) {
+                "stride_reference_v1" -> require(spec.optString("joint_coordinate_convention", "legacy_relative_knee") == "legacy_relative_knee")
+                "stride_reference_cad_v1" -> require(spec.getString("joint_coordinate_convention") == "cad_drives_v1")
+                else -> error("unknown stride reference kind")
+            }
             require(spec.getString("profile_sha256") == expectedProfileSha256) { "stride profile mismatch" }
             return StrideReference(spec)
         }

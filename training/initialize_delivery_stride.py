@@ -48,6 +48,10 @@ def initialize(config, output):
                       delivery_central_training=dict(optimizer=critic.optimizer.state_dict(),
                                                      epoch=critic.epoch_num, frame=critic.frame, lr=critic.lr),
                       policy_family="current_body_v21", action_contract="stride_reference_v1")
+    contract = params["config"].get("delivery_policy_contract")
+    if contract is not None:
+        checkpoint.update(delivery_policy_contract=contract,
+                          policy_family=contract["policy_family"], action_contract="stride_reference_cad_v1")
     output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(checkpoint, output)
     saved = torch.load(output, weights_only=False, map_location="cpu")

@@ -21,6 +21,7 @@ def make_agent():
     # Exercise the production save/restore methods without constructing a GPU
     # environment. Only the unrelated actor is a small CPU stand-in.
     agent = DeliveryA2CAgent.__new__(DeliveryA2CAgent)
+    agent._delivery_policy_contract = None
     agent.model = torch.nn.Linear(426, 12)
     agent.optimizer = torch.optim.Adam(agent.model.parameters(), lr=.0002)
     agent.central_value_net = value
@@ -45,6 +46,19 @@ def update(value, observations):
 
 
 class CheckpointTest(unittest.TestCase):
+    def test_coordinate_contract_rejects_equal_shape_wrong_meaning(self):
+        original = make_agent()
+        weights = copy.deepcopy(original.get_full_state_weights())
+        restored = make_agent()
+        restored._delivery_policy_contract = {"policy_family": "current_body_v22", "joint_coordinate_convention": "cad_drives_v1"}
+        with self.assertRaisesRegex(ValueError, "coordinate/reference contract"):
+            restored.set_full_state_weights(weights)
+        weights["delivery_policy_contract"] = restored._delivery_policy_contract
+        restored.set_full_state_weights(weights)
+        self.assertEqual(restored.get_full_state_weights()["delivery_policy_contract"], weights["delivery_policy_contract"])
+        with self.assertRaisesRegex(ValueError, "coordinate/reference contract"):
+            original.set_full_state_weights(weights)
+
     def setUp(self):
         torch.manual_seed(42)
         torch.set_num_threads(1)

@@ -1,7 +1,8 @@
 """Tensor implementations of the recorded servo and Pixel sensor contracts.
 
-No Isaac imports: these transformations are testable on CPU. Policy joints are
-logical radians; the calibrated knee encoder measures knee plus parent hip.
+No Isaac imports: these transformations are testable on CPU. Legacy policy
+coordinates use a relative knee plus parent hip conversion. V22's detailed
+CAD coordinates are already motor angles and explicitly disable that mapping.
 """
 import math
 import torch
@@ -10,15 +11,17 @@ import torch
 PARENTS = (-1, -1, 1, -1, -1, 4, -1, -1, 7, -1, -1, 10)
 
 
-def policy_to_motor(position):
+def policy_to_motor(position, coupled_knees=True):
     result = position.clone()
-    result[..., (2, 5, 8, 11)] += position[..., (1, 4, 7, 10)]
+    if coupled_knees:
+        result[..., (2, 5, 8, 11)] += position[..., (1, 4, 7, 10)]
     return result
 
 
-def motor_to_policy(position):
+def motor_to_policy(position, coupled_knees=True):
     result = position.clone()
-    result[..., (2, 5, 8, 11)] -= position[..., (1, 4, 7, 10)]
+    if coupled_knees:
+        result[..., (2, 5, 8, 11)] -= position[..., (1, 4, 7, 10)]
     return result
 
 
@@ -42,7 +45,8 @@ class ServoTrajectory:
     simulator's force-limited servo drive still resolves load/contact response.
     It must not be combined with the older fitted first-order gait lag.
     """
-    def __init__(self, fit, count, device, control_dt=.02):
+    def __init__(self, fit, count, device, control_dt=.02, *, coupled_knees=True):
+        self.coupled_knees = coupled_knees
         joints = sorted(fit["joints"], key=lambda x: x["policy_index"])
         assert [j["policy_index"] for j in joints] == list(range(12))
         if any(j["model"]["kind"] != "acceleration_limited" for j in joints):
@@ -62,7 +66,7 @@ class ServoTrajectory:
         self.requested = torch.zeros_like(self.position)
 
     def reset(self, env_ids, policy_position, randomize=False):
-        motor = policy_to_motor(policy_position)
+        motor = policy_to_motor(policy_position, self.coupled_knees)
         self.position[env_ids] = motor
         self.velocity[env_ids] = 0
         self.commands[env_ids] = motor[:, None, :]
@@ -80,7 +84,7 @@ class ServoTrajectory:
 
     def command(self, policy_position):
         self.commands = torch.roll(self.commands, -1, dims=1)
-        self.commands[:, -1] = policy_to_motor(policy_position)
+        self.commands[:, -1] = policy_to_motor(policy_position, self.coupled_knees)
         index = (self.commands.shape[1] - 1 - self.delay).unsqueeze(1)
         self.requested = self.commands.gather(1, index).squeeze(1)
 
@@ -89,4 +93,4 @@ class ServoTrajectory:
         desired = error.sign() * torch.minimum(self.speed, (2 * self.acceleration * error.abs()).sqrt())
         self.velocity += (desired - self.velocity).clamp(-self.acceleration * dt, self.acceleration * dt)
         self.position += self.velocity * dt
-        return motor_to_policy(self.position)
+        return motor_to_policy(self.position, self.coupled_knees)
