@@ -40,3 +40,8 @@ class StrideCommandsCfg(StrideAcquireCfg):
     # command. Use a smaller deadband; credit still caps at requested speed.
     progress_planar_threshold = .005
     progress_yaw_threshold = .01
+    # Epoch 1000 tracks speed but still curves and can stop on two feet.
+    # The yaw prior budget uses the same variance, preserving its no-rocking
+    # bound. The stop term does not reward lifting or stepping in place.
+    yaw_tracking_variance = .01
+    stationary_contact_penalty_scale = .25

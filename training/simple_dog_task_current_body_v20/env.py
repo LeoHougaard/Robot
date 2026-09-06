@@ -132,7 +132,7 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         # rocking cycle. Keep the same optimum and scale, but use convex
         # velocity losses: zero-net oscillation must pay for its variance.
         tracking = (3. * (1. - planar_error.square() / .01)
-                    + 1. - yaw_error.square() / .09
+                    + 1. - yaw_error.square() / self.cfg.yaw_tracking_variance
                     + .5 * torch.exp(-height_error.square() / .0004)
                     + .5 * torch.exp(-attitude_error / .02))
         speed = torch.linalg.vector_norm(self._commands[:, :2], dim=-1)
@@ -155,9 +155,14 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         # buying gait reward at a lower cost than its tracking error.
         sync_budget = torch.full_like(speed, self.cfg.opposite_leg_sync_reward_scale)
         sync_budget = torch.where(linear_active, torch.minimum(sync_budget, 3. * speed.square() / .01), sync_budget)
-        sync_budget = torch.where(yaw_active, torch.minimum(sync_budget, self._commands[:, 2].square() / .09), sync_budget)
+        sync_budget = torch.where(yaw_active, torch.minimum(sync_budget,
+            self._commands[:, 2].square() / self.cfg.yaw_tracking_variance), sync_budget)
         sync_rate = sync_budget * progress.clamp(0, 1).square() * sync
-        rate = tracking + .5 * progress - .5 * shortfall - regularization + sync_rate
+        # Body stillness alone admits balancing on two feet. Zero motion must
+        # also retain support from all four feet; this term is absent in motion.
+        missing_support = (contact.current_contact_time.torch[:, self._feet_sensor_ids] <= 0).float().sum(-1)
+        support_cost = self.cfg.stationary_contact_penalty_scale * (active_count == 0) * missing_support
+        rate = tracking + .5 * progress - .5 * shortfall - regularization + sync_rate - support_cost
         active = ~self._reset_hold_active_mask
         reward = torch.where(active, rate * self.step_dt, 0.)
         # Keep an explicit fall cost; deterministic evaluation also requires

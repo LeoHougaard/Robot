@@ -1,10 +1,14 @@
 """Fixed-command V21 acquisition comparison. This cannot promote a delivery policy."""
 import argparse
+import faulthandler
 import hashlib
 import json
 from pathlib import Path
 import traceback
 
+faulthandler.enable()
+faulthandler.dump_traceback_later(120, repeat=True)
+print("STRIDE_EVALUATOR_IMPORT", flush=True)
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -33,7 +37,10 @@ if "quadruped_current_body_v21_" not in str(args.checkpoint):
     parser.error("requires an isolated V21 checkpoint")
 if args.video_folder:
     args.enable_cameras = True
+print("STRIDE_SIM_START", flush=True)
 app = AppLauncher(args).app
+faulthandler.cancel_dump_traceback_later()
+print("STRIDE_SIM_READY", flush=True)
 
 import gymnasium as gym
 import torch

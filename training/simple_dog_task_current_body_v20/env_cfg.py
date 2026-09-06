@@ -124,6 +124,8 @@ class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     opposite_leg_sync_reward_scale = .25
     progress_planar_threshold = .03
     progress_yaw_threshold = .05
+    yaw_tracking_variance = .09
+    stationary_contact_penalty_scale = 0.
 
 
 @configclass

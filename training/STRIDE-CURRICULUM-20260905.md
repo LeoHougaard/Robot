@@ -167,6 +167,38 @@ with additional seeds before moving to physical-model variation. These are
 intermediate gates; original delivery speeds, wider commands and hardware
 acceptance remain outstanding.
 
+### Epoch 1000: command gains, rejected for promotion
+
+The original command screen has zero resets and reaches +0.01598/-0.01766
+m/s sideways for +/-0.02 requested. Yaw rates reach +0.10879/-0.10284 rad/s
+for +/-0.1 requested. Positive turning now lifts every foot, but the negative
+turn has only three BL landings in 14 seconds. Forward signed yaw remains
+about +0.030 rad/s. Stop is almost motionless and level while FR and BL stay
+airborne throughout the measured interval. Those are failed gates, not an
+accepted gait. The minute-long forward check retains travel but has more tilt
+than epoch 500 (0.06359 versus 0.05126 rad) and slightly more lateral sway
+(0.01584 versus 0.01477 m/s). Keep both checkpoints and the earlier baseline.
+
+The next reward revision addresses two directly measured deficiencies. Yaw
+error variance changes from 0.09 to 0.01, making the same heading error nine
+times more costly. The progress-gated diagonal prior retains its bounded
+budget using this same variance, so rocking cannot buy excessive gait credit.
+At a stationary command only, each unsupported foot costs 0.25 reward units
+per second. Previously, body stillness and posture alone allowed two-foot
+balance to score well. This support cost does not affect moving commands or
+reward stepping in place. The reference, residual bounds, sensor history,
+physical model, command menu, PPO settings and plane remain fixed.
+
+Nine tests of the actual reward method pass, including support comparisons,
+stronger yaw tracking, and the existing no-rocking/overspeed checks. A first
+test used a ratio of small float32 reward differences and failed due to
+rounding; the corrected assertion compares the costs directly at 1e-7
+tolerance. Both test logs are retained. Before PPO, require exact acquisition
+retention and identical epoch-1000 command motion/contacts with only reward
+values changed. The planned bounded continuation is epoch 1000 to 1500;
+it has not started. Repeat both standard and stationary-start command screens,
+forward endurance and failure-specific video before accepting any improvement.
+
 ## Terrain progression
 
 1. Acquire and improve the stride entirely on a plane.

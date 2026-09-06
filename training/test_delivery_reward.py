@@ -13,7 +13,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]
 
 
 def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settling=False,
-           thresholds=(.03, .05)):
+           thresholds=(.03, .05), yaw_variance=.09, support_scale=0., feet_down=4):
     wrapped = lambda x: NS(torch=torch.tensor(x, dtype=torch.float32))
     env = NS(
         _robot=NS(data=NS(root_lin_vel_b=wrapped([motion]), root_ang_vel_b=wrapped([[0., 0., yaw]]))),
@@ -21,9 +21,11 @@ def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settli
         _commands=torch.tensor([command]), _posture_commands=torch.zeros(1, 3),
         _body_posture=lambda: (torch.tensor([.135]), torch.zeros(1), torch.zeros(1)),
         cfg=NS(nominal_support_height_m=.135, opposite_leg_sync_reward_scale=.25,
-               progress_planar_threshold=thresholds[0], progress_yaw_threshold=thresholds[1]),
+               progress_planar_threshold=thresholds[0], progress_yaw_threshold=thresholds[1],
+               yaw_tracking_variance=yaw_variance, stationary_contact_penalty_scale=support_scale),
         _actions=torch.zeros(1, 12), _previous_actions=torch.zeros(1, 12),
-        _contact_sensor=NS(data=NS(current_air_time=wrapped([[0.] * 4]), current_contact_time=wrapped([[1.] * 4]))),
+        _contact_sensor=NS(data=NS(current_air_time=wrapped([[0.] * 4]),
+                                  current_contact_time=wrapped([[1.] * feet_down + [0.] * (4-feet_down)]))),
         _feet_sensor_ids=[0, 1, 2, 3], _dense_diagonal_gait_reward=lambda a, c: torch.ones(1),
         _reset_hold_active_mask=torch.tensor([settling]), reset_terminated=torch.tensor([fall]),
         step_dt=.02,
@@ -36,6 +38,29 @@ def reward(command=(0., 0., 0.), motion=(0., 0., 0.), yaw=0., fall=False, settli
 
 
 class DeliveryRewardTests(unittest.TestCase):
+    def test_stationary_support_distinguishes_all_four_feet_without_rewarding_motion(self):
+        stood = reward(support_scale=.25)
+        for down in range(4):
+            self.assertAlmostEqual(stood-reward(support_scale=.25,feet_down=down), .02*.25*(4-down), places=7)
+        self.assertEqual(reward(command=(.04,0.,0.),motion=(.04,0.,0.),support_scale=.25,feet_down=2),
+                         reward(command=(.04,0.,0.),motion=(.04,0.,0.),support_scale=0.,feet_down=2))
+        self.assertGreater(stood, reward(support_scale=.25, motion=(.03,0.,0.)))
+
+    def test_stronger_heading_tracking_keeps_the_progress_prior_no_rocking_bound(self):
+        for target in (-.1,-.02,.02,.1):
+            def rate(scale):
+                return reward(command=(0.,0.,target),yaw=target*scale,thresholds=(.005,.01),
+                              yaw_variance=.01,support_scale=.25)
+            self.assertGreater(rate(1.),rate(0.))
+            self.assertGreater(rate(1.),rate(1.2))
+            for amplitude in (.05,.25,.5,1.,2.):
+                self.assertLess(.5*(rate(amplitude)+rate(-amplitude)),rate(0.))
+        def forward(yaw, variance):
+            return reward(command=(.04,0.,0.),motion=(.04,0.,0.),yaw=yaw,yaw_variance=variance)
+        old_cost=forward(0.,.09)-forward(.03,.09)
+        new_cost=forward(0.,.01)-forward(.03,.01)
+        self.assertAlmostEqual(new_cost,9.*old_cost,delta=1e-7)
+
     def test_slow_command_stage_rewards_tracking_without_buying_overspeed_or_rocking(self):
         for axis, targets in ((0, (-.04, -.01, .01, .04)), (1, (-.02, -.01, .01, .02)),
                               (2, (-.1, -.02, .02, .1))):
