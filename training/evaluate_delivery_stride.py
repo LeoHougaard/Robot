@@ -33,6 +33,11 @@ parser.add_argument("--timing-assessment", action="store_true",
 parser.add_argument("--start-stationary", action="store_true",
                     help="Command-screen variant: stand for the first four seconds before requesting motion")
 parser.add_argument("--command-index", type=int, help="Select one slow command for a single-robot video")
+parser.add_argument(
+    "--fidelity-asset",
+    type=Path,
+    help="evidence-only asset swap; training profile and checkpoint contract remain authoritative",
+)
 parser.add_argument("--video-folder", type=Path)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
@@ -72,6 +77,14 @@ def evaluate():
     stage = "Variation" if args.variation != "nominal" else ("Commands" if args.commands else "Acquire")
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
+    if args.fidelity_asset is not None:
+        allowed = Path("/workspace/projects/assets/onshape").resolve()
+        asset = args.fidelity_asset.resolve()
+        if not asset.is_file() or allowed not in asset.parents:
+            raise ValueError(
+                "fidelity asset must be an existing file below approved Onshape asset root"
+            )
+        cfg.robot.spawn.usd_path = str(asset)
     cfg.seed = args.seed
     if args.timing_assessment:
         # These are the existing V4 training bounds, selected from the
