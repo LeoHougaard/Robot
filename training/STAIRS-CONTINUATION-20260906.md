@@ -52,3 +52,23 @@ height transition. A robot turning on the central flat platform has not
 demonstrated stair turning. Record exposure per environment and distinguish
 mesh presence from actual terrain contact. These intermediate simulator
 screens do not establish physical readiness or complete stair coverage.
+
+## Baseline measured before PPO
+
+The frozen evaluator from commit `53d26f3` completed all four 14-environment,
+20-second screens without resets or invalid terrain rays. At the 0.06 m/s
+forward command, epoch 3750 averaged 0.0349 m/s ascending 6 mm steps and
+0.0010 m/s ascending 20 mm steps. Descending speeds were 0.0657 and 0.0552 m/s.
+The 20 mm descent had the worst balance, reaching 0.411 rad tilt in one case.
+The separate 20 mm ascent video confirms sustained stepping in place at the
+first riser. These are training targets, not a passing stair baseline.
+
+Evidence is preserved in GB10 `training/reviews/stairs6-20-20260906`.
+The source snapshot includes all 60 dependencies and the unchanged stride
+checker. Post-training comparisons use this same snapshot and random seeds.
+
+Run `20260906T212745Z-train-66797` started from the preserved checkpoint
+under source commit `53d26f3`, with 128 environments and total target 4250.
+The frozen manifest verifies the parent checkpoint SHA256, actor/critic
+contract, and unchanged robot/profile/fit. Actual advancement beyond epoch
+3750 was verified before handing routine supervision to Luna.
