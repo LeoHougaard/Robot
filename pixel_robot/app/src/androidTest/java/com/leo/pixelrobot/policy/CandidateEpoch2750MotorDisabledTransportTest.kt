@@ -15,6 +15,8 @@ import java.security.MessageDigest
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
@@ -53,6 +55,8 @@ class CandidateEpoch2750MotorDisabledTransportTest {
         check(sha256(calibrationBytes) == "6d5cccade24a54c8ff98e7e194f41af676c9f6268be15e44d9293b649090bfa6")
         val calibration = RobotCalibration.parse(calibrationBytes.toString(Charsets.UTF_8))
         val failure = AtomicReference<Throwable?>()
+        val helloReceived = AtomicBoolean(false)
+        val startupFragments = AtomicInteger(0)
         val queue = ArrayBlockingQueue<Pair<JSONObject, Long>>(8)
         val decoder = JsonLineDecoder()
         val recorder = RunSessionRecorder(File(context.filesDir, "transport_diagnostics"), {
@@ -64,7 +68,14 @@ class CandidateEpoch2750MotorDisabledTransportTest {
             val receivedNs = SystemClock.elapsedRealtimeNanos()
             runCatching {
                 decoder.accept(bytes).forEach { line ->
-                    val message = JSONObject(line)
+                    val message = try { JSONObject(line) } catch (error: Exception) {
+                        // Opening an already-streaming UART can start midway
+                        // through a line. Only tolerate this before handshake.
+                        if (helloReceived.get()) throw error
+                        startupFragments.incrementAndGet()
+                        return@forEach
+                    }
+                    if (message.optString("type") == "hello") helloReceived.set(true)
                     recorder.recordRobotRx(message)
                     if (message.optString("type") in setOf("hello", "ok", "error", "policy_monitor_state", "policy_monitor_stopped")) {
                         check(queue.offer(message to receivedNs)) { "hardware feedback queue overflow" }
@@ -79,8 +90,13 @@ class CandidateEpoch2750MotorDisabledTransportTest {
         }
         fun receive(type: String): Pair<JSONObject, Long> {
             val until = SystemClock.elapsedRealtime() + 2000
+            var retryHelloAt = SystemClock.elapsedRealtime() + 250
             while (SystemClock.elapsedRealtime() < until) {
                 failure.get()?.let { throw it }
+                if (type == "hello" && SystemClock.elapsedRealtime() >= retryHelloAt) {
+                    send(JSONObject().put("cmd", "hello"))
+                    retryHelloAt = SystemClock.elapsedRealtime() + 250
+                }
                 val item = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
                 check(item.first.optString("type") != "error") { item.first.toString() }
                 if (item.first.optString("type") == type) return item
@@ -153,6 +169,7 @@ class CandidateEpoch2750MotorDisabledTransportTest {
             }
             fun percentile(values: List<Double>, fraction: Double) = values.sorted()[((values.size - 1) * fraction).toInt()]
             val report = JSONObject().put("firmware", hello.getString("version"))
+                .put("startup_partial_lines", startupFragments.get())
                 .put("weights_sha256", contract.weightsSha256).put("measured_frames", sampleIntervals.size)
                 .put("firmware_hz", 1000 / sampleIntervals.average()).put("host_hz", 1000 / hostIntervals.average())
                 .put("sample_p99_ms", percentile(sampleIntervals, .99)).put("sample_max_ms", sampleIntervals.max())
