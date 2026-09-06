@@ -28,6 +28,8 @@ parser.add_argument("--seconds", type=int, default=20,
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
 parser.add_argument("--variation", choices=("nominal", "v20-train-envelope"), default="nominal",
                     help="Enable the documented V20 physical/sensor randomization envelope")
+parser.add_argument("--timing-assessment", action="store_true",
+                    help="Use the existing 18..39 ms V4 timing/sensor-age assessment bounds")
 parser.add_argument("--start-stationary", action="store_true",
                     help="Command-screen variant: stand for the first four seconds before requesting motion")
 parser.add_argument("--command-index", type=int, help="Select one slow command for a single-robot video")
@@ -42,6 +44,10 @@ if args.start_stationary and not args.commands:
     parser.error("start-stationary requires --commands")
 if args.variation != "nominal" and not args.commands:
     parser.error("variation requires --commands")
+if args.variation != "nominal" and args.family != "v22":
+    parser.error("variation is registered only for V22")
+if args.timing_assessment and (args.variation == "nominal" or args.family != "v22"):
+    parser.error("timing-assessment requires V22 variation")
 if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
 if f"quadruped_current_body_{args.family}_" not in str(args.checkpoint):
@@ -67,6 +73,11 @@ def evaluate():
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     cfg.seed = args.seed
+    if args.timing_assessment:
+        # These are the existing V4 training bounds, selected from the
+        # Aug-29 feedback timing (median 23 ms, p95 31 ms, max 39 ms).
+        cfg.timing_interval_ms = (18., 39.)
+        cfg.action_delay_steps = (0, 1)
     cfg.episode_length_s = args.seconds + 10.
     if args.commands:
         cfg.stride_evaluate_commands = True
@@ -97,6 +108,12 @@ def evaluate():
         actor.load_state_dict(state["model"], strict=True)
         actor.to(base.device).eval()
         obs, _ = env.reset()
+        if args.variation != "nominal":
+            # V4 ramps current randomization during training.  Evaluation
+            # starts at step zero, so sample the configured envelope explicitly
+            # after reset and record the realized values.
+            base._current_effort_scale.uniform_(*cfg.current_effort_scale_randomization)
+            base._current_dropout_probability.uniform_(0., cfg.current_dropout_probability_max)
         variation_after_reset = base.variation_snapshot() if args.variation != "nominal" else None
         sums = torch.zeros(args.num_envs, 6, device=base.device)
         resets = torch.zeros(args.num_envs, device=base.device)
@@ -194,6 +211,7 @@ def evaluate():
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,
                     command=None if args.commands else [.04, 0., 0.], results=rows,
                     variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
+                    timing_assessment=bool(args.timing_assessment),
                     variation_config=(dict(domain_randomization_enabled=cfg.domain_randomization_enabled,
                                            observation_noise_enabled=cfg.observation_noise_enabled,
                                            action_delay_steps=list(cfg.action_delay_steps),
@@ -220,7 +238,8 @@ def evaluate():
                                       if args.variation != "nominal" else None),
                     realized_snapshots=(dict(initial=variation_initial, after_reset=variation_after_reset)
                                         if args.variation != "nominal" else None),
-                    limitation=("slow isolated command screen; flat physical/sensor variation only; no timing interval variation because V20Train documents (20,20), no deployment acceptance"
+                    limitation=(("timing assessment uses existing V4 bounds (18..39 ms) and one-frame action delay; timing input is sensor age only, physics remains 20 ms"
+                                 if args.timing_assessment else "slow isolated command screen; flat physical/sensor variation only; no timing interval variation because V20Train documents (20,20), no deployment acceptance")
                                 if args.variation != "nominal" else ("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
                                 if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance")))
     finally:
