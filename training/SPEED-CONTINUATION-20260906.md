@@ -62,7 +62,7 @@ verified at 2783 and 3044; Luna subsequently checked epoch 3084.
 successful training completion and an otherwise idle evaluation backend, then
 runs matched baseline/candidate slow and speed screens. It uses the frozen
 source, run profile and simulation fit. Evidence goes to
-`training/reviews/20260906-speed/20260906T170329Z-train-51934` on the GB10.
+`training/reviews/20260906-speed/20260906T170329Z-train-51934-eval-v3` on the GB10.
 The original waiting supervisor had invalid container paths and runtime
 arguments; it was stopped before evaluation and corrected without touching
 PPO. The replacement's Bash syntax and container-visible inputs were checked.
@@ -70,3 +70,17 @@ PPO. The replacement's Bash syntax and container-visible inputs were checked.
 Monitor training with `Get-SimpleDogTrainingStatus.ps1`; monitor evaluation
 through that review directory's `status`, `supervisor.log`, per-case logs and
 gate JSON files. A process launch is not evidence that the evaluation passed.
+
+PPO completed all 500 additional epochs in 1508.33 seconds. The periodic epoch
+3250 checkpoint SHA256 is
+`744024c2f692f8d4778d81c487e759426fd2820cc2214f067a4146aa51937668`.
+RL-Games also wrote a differently named final archive with identical actor
+tensors, epoch 3250 and frame 26624000. Evaluation pins the periodic archive.
+
+Early evaluation attempts stopped on setup problems: duplicate final checkpoint
+names, then the profile loader's approved-directory restriction. Their evidence
+is retained separately. The v3 supervisor uses approved profile/fit paths and
+requires their bytes to match the frozen run copies. It also requires a complete
+result with the expected number of command rows before applying behavior gates.
+The first valid baseline rollout completed under v3; candidate decisions and
+visual review are pending.
