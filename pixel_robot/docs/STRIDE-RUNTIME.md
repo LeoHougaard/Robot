@@ -10,8 +10,25 @@ clock features. It is not connected to policy loading, inference or motors.
 Its unit tests compare 157 vectors produced by the actual training module,
 including startup, phase boundaries, one minute, varied commands and body
 attitudes, zero motion and residual saturation. Combined targets and clock
-features agree within 0.00003. Complete observation/action/servo parity and
-physical timing remain unverified.
+features agree within 0.00003.
+
+`StrideSession` adds the exact float32 frame clock, 50-frame startup hold,
+reference/residual composition and existing action processing. The observation
+builder can append the two clock values for offline tests. V21 metadata parsing
+requires the reference hash, clock convention, startup hold, neutral posture
+and reviewed action limits. Asset loading still explicitly rejects V21 until
+the live session integration and deployment bundle are verified.
+
+A second Torch-generated fixture runs 3,000 synthetic raw feedback frames,
+including clock wrap, 19/20/21 ms sensor intervals, missing currents, delayed
+acknowledgments, changing commands and saturated residuals. Kotlin independently
+runs all frames twice with a full restart. At 31 stored checkpoints, its
+428-value observations and filtered/applied actions agree within 0.00003;
+calibrated coupled-joint targets agree within 0.002 degrees. The first 50
+applied and filtered actions are exactly zero. These are deterministic
+cross-language tests, not real USB timing or neural actor parity. Real recorded
+feedback replay, accepted-actor ONNX parity, live integration and physical
+timing remain outstanding.
 
 V21 has a 428-value actor: V20's 426 physical observations followed by the
 sine and cosine of the reference clock. Its 438-value critic is training
@@ -33,7 +50,8 @@ For each accepted 20 ms control frame:
    Its reference and actor clock use the same elapsed value. The inherited
    reset path additionally forces the initial stance and zero action/filter
    history for the first second, before the reference ramp begins. Mirror
-   that hold explicitly; the current phone loop has no equivalent V21 hold.
+   that hold explicitly; the offline session now does so, but the live phone
+   loop does not yet use it.
    Begin from the reviewed stance, not an arbitrary pose. Reset sensor
    history, action filters and clock together at a new control session.
 3. Run the actor, clamp each residual to [-1, 1], multiply by 0.15 and add

@@ -26,7 +26,7 @@ class StrideReference private constructor(spec: JSONObject) {
     private val rampSeconds = spec.finite("ramp_seconds")
     private val settleSeconds = spec.finite("settle_seconds")
     private val residualScale = spec.finite("residual_scale")
-    private val positionScale = spec.finite("position_target_scale_rad")
+    val positionScale = spec.finite("position_target_scale_rad")
 
     init {
         require(frequency > 0f && angularFrequency.isFinite() && duty > 0f && duty < 1f)

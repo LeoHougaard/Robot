@@ -20,7 +20,9 @@ class PolicyContract private constructor(value: JSONObject) {
     val observationSize: Int = value.getInt("observation_size")
     val observationHistory: Int = value.getInt("observation_history")
     val observationBuilder: String = value.optString("observation_builder", "v2_180")
-    val usesSelectedHistory = observationBuilder in setOf("current_body_v14_426", "current_body_v20_426")
+    val usesStrideReference = observationBuilder == "current_body_v21_428"
+    val usesSelectedHistory = usesStrideReference || observationBuilder in setOf("current_body_v14_426", "current_body_v20_426")
+    val strideReferenceSha256: String?
     val selectedHistoryIndices: IntArray
     val timingReferenceMilliseconds: Float
     val currentBiasMilliamps: FloatArray
@@ -58,17 +60,17 @@ class PolicyContract private constructor(value: JSONObject) {
         require(controlHz in 10..100 && 1000 % controlHz == 0) {
             "policy control rate must divide 1000 Hz and be within 10..100 Hz"
         }
-        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426", "current_body_v20_426"))
+        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426", "current_body_v20_426", "current_body_v21_428"))
         require(
             (observationBuilder == "v2_180" && observationHistory == 4 && observationSize == 180) ||
                 (observationBuilder == "current_v3_279" && observationHistory == 4 && observationSize == 279) ||
-                (usesSelectedHistory && observationHistory == 24 && observationSize == 426)
+                (usesSelectedHistory && observationHistory == 24 && observationSize == if (usesStrideReference) 428 else 426)
         ) { "observation builder and size do not match" }
         if (usesSelectedHistory) {
             val selection = value.getJSONObject("history_selection")
             require(selection.getInt("frame_size") == 70)
             selectedHistoryIndices = selection.getJSONArray("indices").ints(6)
-            val expectedSelection = if (observationBuilder == "current_body_v20_426") {
+            val expectedSelection = if (observationBuilder == "current_body_v20_426" || usesStrideReference) {
                 require(controlHz == 50)
                 intArrayOf(0, 10, 20, 21, 22, 23)
             } else intArrayOf(0, 5, 10, 15, 20, 23)
@@ -165,7 +167,7 @@ class PolicyContract private constructor(value: JSONObject) {
             actionSlewLimit = action.getDouble("applied_normalized_slew_limit").toFloat()
             positionTargetScaleRadians = action.getDouble("position_target_scale_rad").toFloat()
             val stationary = value.getJSONObject("stationary_action_contract")
-            val activeStabilization = observationBuilder == "current_body_v20_426"
+            val activeStabilization = observationBuilder == "current_body_v20_426" || usesStrideReference
             require(stationary.getString("behavior") == if (activeStabilization) {
                 "policy_stabilization"
             } else "slew_to_validated_four_foot_stance_action")
@@ -182,6 +184,22 @@ class PolicyContract private constructor(value: JSONObject) {
         require(stationaryPlanarDeadband in 0f..0.25f)
         require(stationaryYawDeadband in 0f..0.3f)
         require(stationaryStanceAction.all { it in -1f..1f })
+        strideReferenceSha256 = if (usesStrideReference) {
+            require(value.getString("action_semantics") == "stride_reference_plus_residual")
+            val stride = value.getJSONObject("stride_reference_contract")
+            require(stride.getString("asset") == "stride_reference.json")
+            require(stride.getString("clock") == "float32_20ms_per_fresh_feedback")
+            require(stride.getInt("initial_hold_frames") == 50)
+            require(timingReferenceMilliseconds == 20f && actionFilterAlpha == .2f && actionSlewLimit == .2f)
+            require(positionTargetScaleRadians == .3f && !stationaryOverrideEnabled)
+            require(actionLimits.contentEquals(FloatArray(12) { if (it % 3 == 0) .4f else 1f }))
+            require(listOf(postureHeightMinimum, postureHeightMaximum, postureRollMinimum,
+                postureRollMaximum, posturePitchMinimum, posturePitchMaximum).all { it == 0f })
+            stride.getString("sha256").also { require(it.matches(Regex("[a-f0-9]{64}"))) }
+        } else {
+            require(!value.has("stride_reference_contract")) { "stride reference requires the V21 observation builder" }
+            null
+        }
     }
 
     fun requireRequest(forward: Float, lateral: Float, yawRate: Float) {
@@ -227,7 +245,11 @@ class PolicyContract private constructor(value: JSONObject) {
         private const val ACTION_COUNT = 12
         fun load(assets: AssetManager): PolicyContract = PolicyContract(
             JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
-        )
+        ).also {
+            // Parsing supports offline parity. Live activation needs the complete
+            // session integration and accepted deployment bundle first.
+            require(!it.usesStrideReference) { "V21 live controller integration is not yet verified" }
+        }
 
         fun parse(json: String): PolicyContract = PolicyContract(JSONObject(json))
     }

@@ -39,16 +39,19 @@ class PolicyObservationBuilder(private val contract: PolicyContract) {
         }
     }
 
-    fun observation(history: Array<FloatArray>, posture: FloatArray): FloatArray {
+    fun observation(history: Array<FloatArray>, posture: FloatArray, strideClock: FloatArray = FloatArray(0)): FloatArray {
         require(history.size == contract.observationHistory)
         require(history.all { frame -> frame.all(Float::isFinite) })
         require(posture.size == 3 && posture.all(Float::isFinite))
+        require(strideClock.size == if (contract.usesStrideReference) 2 else 0)
+        require(strideClock.all(Float::isFinite))
         val observation = when (contract.observationBuilder) {
             "current_v3_279" -> history.flatMap { it.asIterable() }.toFloatArray() + posture
-            "current_body_v14_426", "current_body_v20_426" -> {
+            "current_body_v14_426", "current_body_v20_426", "current_body_v21_428" -> {
+                require(history.all { it.size == 70 })
                 val selected = contract.selectedHistoryIndices.flatMap { history[it].asIterable() }.toFloatArray()
                 val latestCommand = history.last().copyOfRange(6, 9)
-                selected + latestCommand + posture
+                selected + latestCommand + posture + strideClock
             }
             else -> history.flatMap { it.asIterable() }.toFloatArray()
         }
