@@ -124,3 +124,18 @@ Keep logs and video together. Stop and inspect sustained tracking error,
 wrong-direction travel, dragging feet or an unexpected lean before increasing
 duration or terrain difficulty. Carpet and small uneven surfaces follow stable
 floor trials; outdoor slopes and steps remain later work.
+
+## Actual board flash, September 6
+
+Firmware 0.1.15 was written to the connected ESP32-D0WD-V3 on COM3,
+active app0 at 0x10000. Its SHA256 is
+`9c01e6b931c2a1dc01ef8724da5d1a5a4082e14895930e8697adc00061556971`.
+Device-side MD5 and complete host readback matched the firmware. The partition
+map, NVS calibration and OTA selection were byte-for-byte unchanged. The old
+application and settings are backed up privately outside Git.
+
+Bulk readback had intermittent checksum errors at 460800 and 230400 baud;
+16 KiB reads at 115200 completed without retries. The runtime hello at 2 Mbps
+was not received after software reset. Verify startup after reconnecting to the
+Pixel before the candidate torque-off transport test. Firmware flashing is
+complete; physical 50 Hz and walking remain unverified.
