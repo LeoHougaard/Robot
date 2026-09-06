@@ -82,6 +82,7 @@ def evaluate():
         env = gym.wrappers.RecordVideo(env, video_folder=str(args.video_folder),
                                       step_trigger=lambda s: s == 0, video_length=args.seconds * 50, disable_logger=True)
     base = env.unwrapped
+    variation_initial = base.variation_snapshot() if args.variation != "nominal" else None
     try:
         params, actor = build_actor(Path(__file__).parent / f"simple_dog_task_current_body_{args.family}/agents/rl_games_ppo_cfg.yaml")
         if args.family == "v22":
@@ -96,6 +97,7 @@ def evaluate():
         actor.load_state_dict(state["model"], strict=True)
         actor.to(base.device).eval()
         obs, _ = env.reset()
+        variation_after_reset = base.variation_snapshot() if args.variation != "nominal" else None
         sums = torch.zeros(args.num_envs, 6, device=base.device)
         resets = torch.zeros(args.num_envs, device=base.device)
         air = torch.zeros(args.num_envs, 4, device=base.device)
@@ -216,6 +218,8 @@ def evaluate():
                                            actuator_delay_steps_min=int(base._servo_trajectory.delay.min().item()),
                                            actuator_delay_steps_max=int(base._servo_trajectory.delay.max().item()))
                                       if args.variation != "nominal" else None),
+                    realized_snapshots=(dict(initial=variation_initial, after_reset=variation_after_reset)
+                                        if args.variation != "nominal" else None),
                     limitation=("slow isolated command screen; flat physical/sensor variation only; no timing interval variation because V20Train documents (20,20), no deployment acceptance"
                                 if args.variation != "nominal" else ("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
                                 if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance")))

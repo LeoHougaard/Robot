@@ -33,6 +33,27 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         self._servo_trajectory.reset(ids, q, cfg.domain_randomization_enabled)
         self._episode_sums["opposite_leg_sync"] = torch.zeros(self.num_envs, device=self.device)
 
+    def variation_snapshot(self):
+        """Return realized startup/current samples for variation evidence."""
+        def bounds(value):
+            if value is None:
+                return None
+            value = value.detach()
+            return {"min": float(value.amin().item()), "max": float(value.amax().item())}
+        return {
+            "current_effort_scale": bounds(getattr(self, "_current_effort_scale", None)),
+            "current_dropout_probability": bounds(getattr(self, "_current_dropout_probability", None)),
+            "current_delay_steps": bounds(getattr(self, "_current_delay", None)),
+            "servo_delay_steps": bounds(getattr(getattr(self, "_servo_trajectory", None), "delay", None)),
+            "startup_base_mass_kg": bounds(getattr(self, "_startup_base_mass", None)),
+            "startup_base_mass_delta_kg": bounds(getattr(self, "_startup_base_mass_delta", None)),
+            "startup_base_com_offset_semantic_m": bounds(getattr(self, "_startup_base_com_offset_semantic", None)),
+            "body_mass_kg": bounds(self._robot.data.body_mass.torch),
+            "body_inertia": bounds(self._robot.data.body_inertia.torch),
+            "joint_effort_limit": bounds(self._robot.data.joint_effort_limits.torch),
+            "joint_velocity_limit": bounds(self._robot.data.joint_vel_limits.torch),
+        }
+
     def _place_resets_on_scheduled_terrain(self, env_ids):
         # Fixed mild distribution for this experiment. A continuation changes
         # terrain only after measured acceptance, never because time passed.
