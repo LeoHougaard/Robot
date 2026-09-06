@@ -72,3 +72,52 @@ under source commit `53d26f3`, with 128 environments and total target 4250.
 The frozen manifest verifies the parent checkpoint SHA256, actor/critic
 contract, and unchanged robot/profile/fit. Actual advancement beyond epoch
 3750 was verified before handing routine supervision to Luna.
+
+The run completed epoch 4250 in 1599.59 seconds of PPO without a traceback.
+Its periodic checkpoint is
+`logs/rl_games/quadruped_current_body_v22_assembly_four_leg_linkage_12dof/2026-09-06_21-28-01/nn/last_quadruped_current_body_v22_assembly_four_leg_linkage_12dof_ep_4250_rew_258.2219.pth`,
+SHA256 `8c451c8c3590be3d8291348a1e9d1a9cb69b0d580cb8144d443c4f0af0d382b2`.
+Post-PPO evidence goes in `training/reviews/stairs6-20-20260906-postppo`.
+The candidate is not promoted. The preserved epoch 3750 remains the preferred
+general walking checkpoint, and the physical app remains unchanged.
+
+## Matched results
+
+Both checkpoints used the same frozen evaluator, seed, commands, and physical
+variation. Each stair screen ran 14 environments for 20 seconds. No resets
+occurred. The table uses command index 8, requesting 0.06 m/s forward.
+
+| Terrain | Epoch 3750 speed | Epoch 4250 speed |
+| --- | ---: | ---: |
+| 6 mm ascent | 0.0349 m/s | 0.0569 m/s |
+| 6 mm descent | 0.0657 m/s | 0.0656 m/s |
+| 20 mm ascent | 0.0010 m/s | 0.0022 m/s |
+| 20 mm descent | 0.0552 m/s | 0.0550 m/s |
+
+Mean tilt across the 14 descent cases improved from 0.0500 to 0.0446 rad on
+6 mm stairs, and from 0.1125 to 0.1006 rad on 20 mm stairs. The separate
+20 mm forward video still averages only 0.0024 m/s and fails progress.
+The candidate learned useful smaller-step traversal, but it did not solve
+the 20 mm ascent.
+
+Both candidates pass the separate 2.5 to 6 mm bump-forward check. Epoch 3750
+also passes both 60-second flat screens. Epoch 4250 fails stopped support
+for feet 1 and 2 in the nominal screen, and foot 3 landing/lift checks during
+slow negative yaw in the timing-variation screen. Those regressions prevent
+replacing the saved general walking policy. The full stair screens still
+fail intermediate progress, balance, or foot-contact checks as well.
+
+Before a further continuation, investigate actual swing clearance and
+available residual correction at the first 20 mm riser, and address the
+stop/turn regressions. The data does not justify assuming that additional
+epochs alone will solve them. Keep the candidate and all failed evidence
+for comparison; do not change the physical policy on the strength of the
+improved 6 mm forward result.
+
+Visual review of the separate one-environment video found a further limit:
+with its different sampled hardware variation, the candidate also stalls
+on 6 mm ascents, averaging 0.0028 m/s despite repeated foot landings. Its
+20 mm video averages 0.0024 m/s. Both clips were inspected through their
+full contact sheets. The multi-environment 6 mm improvement therefore does
+not establish robust smaller-stair walking. Preserve both views of the
+result rather than selecting only the favorable hardware sample.
