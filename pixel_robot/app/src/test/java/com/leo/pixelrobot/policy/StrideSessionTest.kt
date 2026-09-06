@@ -12,7 +12,7 @@ class StrideSessionTest {
     private val reference = JSONObject(File("src/test/resources/stride_reference_v1_parity.json").readText())
         .getString("reference_utf8").toByteArray(Charsets.UTF_8)
     private val calibration = RobotCalibration.parse(
-        File("src/main/assets/assembly-four-leg-linkage-12dof.calibration.json").readText(),
+        File("src/test/resources/legacy-assembly-four-leg-linkage-12dof.calibration.json").readText(),
     )
 
     @Test
