@@ -28,12 +28,17 @@ parser.add_argument("--seconds", type=int, default=20,
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
 parser.add_argument("--stage", choices=("commands", "speed", "rough"), default="commands",
                     help="V22 command configuration or fixed rough exploratory screen")
-parser.add_argument("--terrain-profile", choices=("compressed", "bumps25"), default="compressed",
-                    help="Rough terrain profile; bumps25 raises only uniform bumps to 2.5--6 mm")
-parser.add_argument("--terrain-kind", choices=("mixture", "uniform", "up", "down"), default="mixture",
-                     help="Rough screen terrain kind; mixture is the fixed training distribution")
+parser.add_argument("--terrain-profile", choices=("compressed", "bumps25", "stairs"), default="compressed",
+                    help="Rough terrain profile; stairs uses fixed true-riser mesh terrain")
+parser.add_argument("--terrain-kind", choices=("mixture", "uniform", "up", "down",
+                                                "stairs_ascend", "stairs_descend"), default="mixture",
+                     help="Rough screen terrain kind; stairs names the physical outward direction")
 parser.add_argument("--terrain-height-fraction", type=float, choices=(.125, .25, .5, .75, 1.0), default=.125,
                      help="Reviewed fixed terrain height fraction for rough screens")
+parser.add_argument("--stair-height-mm", type=int, choices=(6, 10, 15, 20), default=6,
+                    help="Stair riser height for a held-out stair screen")
+parser.add_argument("--stair-tread-mm", type=int, choices=(150, 175, 200, 225, 250), default=200,
+                    help="Stair tread width for a held-out stair screen")
 parser.add_argument("--variation", choices=("nominal", "v20-train-envelope"), default="nominal",
                     help="Enable the documented V20 physical/sensor randomization envelope")
 parser.add_argument("--timing-assessment", action="store_true",
@@ -61,10 +66,14 @@ if args.stage == "rough" and args.variation != "v20-train-envelope":
     parser.error("rough screens require the documented V20 training envelope")
 if args.stage == "rough" and args.terrain_kind == "mixture":
     parser.error("rough screen requires an explicit held-out terrain kind")
-if args.terrain_profile == "bumps25" and args.stage != "rough":
-    parser.error("bumps25 is valid only for rough screens")
+if args.terrain_profile in ("bumps25", "stairs") and args.stage != "rough":
+    parser.error(f"{args.terrain_profile} is valid only for rough screens")
 if args.terrain_profile == "bumps25" and args.terrain_height_fraction != .125:
     parser.error("bumps25 requires terrain height fraction .125 for independently scaled slopes")
+if args.terrain_profile == "stairs" and args.terrain_kind not in ("stairs_ascend", "stairs_descend"):
+    parser.error("stairs requires --terrain-kind stairs_ascend or stairs_descend")
+if args.terrain_profile != "stairs" and args.terrain_kind in ("stairs_ascend", "stairs_descend"):
+    parser.error("stair terrain kinds require --terrain-profile stairs")
 if args.variation != "nominal" and not args.commands:
     parser.error("variation requires --commands")
 if args.variation != "nominal" and args.family != "v22":
@@ -159,18 +168,34 @@ def evaluate():
     if args.stage == "rough" and args.terrain_profile == "bumps25":
         terrain_verification = dict(compressed_reference=terrain_verification,
                                     bumps25=verify_bumps25())
-    stage = (("RoughBumps25" if args.terrain_profile == "bumps25" else "Rough125")
+    elif args.stage == "rough" and args.terrain_profile == "stairs":
+        from verify_delivery_stairs import verify as verify_stairs
+        terrain_verification = dict(compressed_reference=terrain_verification,
+                                    stairs=verify_stairs())
+    stage = (("Stairs" if args.terrain_profile == "stairs"
+              else ("RoughBumps25" if args.terrain_profile == "bumps25" else "Rough125"))
              if args.stage == "rough" else ("Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire"))))
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     if args.stage == "rough":
-        from delivery_terrain import terrain_for_height, terrain_with_2p5mm_bumps
+        from delivery_terrain import (terrain_for_height, terrain_for_stairs,
+                                      terrain_with_2p5mm_bumps)
         cfg.terrain = (terrain_with_2p5mm_bumps(args.terrain_kind, tile_size=8.0)
                        if args.terrain_profile == "bumps25"
-                       else terrain_for_height(args.terrain_height_fraction, args.terrain_kind, tile_size=8.0))
-        cfg.terrain_height_fraction = args.terrain_height_fraction
+                       else (terrain_for_stairs(args.terrain_kind, args.stair_height_mm,
+                                                args.stair_tread_mm, tile_size=8.0)
+                             if args.terrain_profile == "stairs"
+                             else terrain_for_height(args.terrain_height_fraction,
+                                                      args.terrain_kind, tile_size=8.0)))
+        cfg.terrain_height_fraction = (None if args.terrain_profile == "stairs"
+                                       else args.terrain_height_fraction)
         cfg.terrain_kind = args.terrain_kind
         cfg.terrain_profile = args.terrain_profile
+        if args.terrain_profile == "stairs":
+            cfg.stair_height_mm = args.stair_height_mm
+            cfg.stair_tread_mm = args.stair_tread_mm
+            cfg.terrain_height_range_m = (.006, .020)
+            cfg.terrain_step_width_range_m = (.15, .25)
         if args.terrain_profile == "bumps25":
             cfg.bump_height_range_m = (.0025, .006)
         from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
@@ -208,8 +233,13 @@ def evaluate():
                                 vertical_scale_m=generator.vertical_scale,
                                 difficulty_range=list(generator.difficulty_range),
                                 terrain_kind=args.terrain_kind,
-                                terrain_height_fraction=args.terrain_height_fraction,
+                                terrain_height_fraction=(None if args.terrain_profile == "stairs"
+                                                         else args.terrain_height_fraction),
                                 terrain_profile=args.terrain_profile,
+                                stair_height_mm=(args.stair_height_mm if args.terrain_profile == "stairs" else None),
+                                stair_tread_mm=(args.stair_tread_mm if args.terrain_profile == "stairs" else None),
+                                stair_direction=(args.terrain_kind if args.terrain_profile == "stairs" else None),
+                                generator_curriculum=bool(generator.curriculum),
                                 bump_height_range_m=([.0025, .006] if args.terrain_profile == "bumps25" else None),
                                 terrain_relative_height_metric="_body_posture height minus terrain ray hits",
                                 sub_terrains=sorted(generator.sub_terrains))
@@ -222,7 +252,7 @@ def evaluate():
             sub_cfg.horizontal_scale = generator.horizontal_scale
             sub_cfg.vertical_scale = generator.vertical_scale
             np.random.seed(generator.seed)
-            meshes, origin = sub_cfg.function(1., sub_cfg)
+            meshes, origin = sub_cfg.function(0. if args.terrain_profile == "stairs" else 1., sub_cfg)
             z = np.concatenate([mesh.vertices[:, 2] for mesh in meshes])
             mesh_stats[name] = dict(z_min_m=float(z.min()), z_max_m=float(z.max()),
                                     spawn_origin_m=np.asarray(origin, dtype=float).tolist())
@@ -258,6 +288,13 @@ def evaluate():
             hits = base._height_scanner.data.ray_hits_w.torch[..., 2]
             rough_provenance["initial_ray_z_range_m"] = [float(hits.min()), float(hits.max())]
             rough_provenance["observed_ray_z_range_m"] = [float(hits.min()), float(hits.max())]
+            if args.terrain_profile == "stairs":
+                stair_ray_min = hits.amin(dim=1)
+                stair_ray_max = hits.amax(dim=1)
+                stair_ray_steps = torch.ones(args.num_envs, device=base.device)
+                rough_provenance["per_environment_ray_exposure"] = (
+                    "min/max world ray-hit Z and max-min span across all observed steps; "
+                    "zero span means the run did not leave the central platform")
         if args.variation != "nominal":
             # V4 ramps current randomization during training.  Evaluation
             # starts at step zero, so sample the configured envelope explicitly
@@ -297,6 +334,11 @@ def evaluate():
                     raise RuntimeError("nonfinite residual")
                 obs, reward, terminated, truncated, _ = env.step(residual.clamp(-1., 1.))
                 resets += terminated | truncated
+                if args.stage == "rough" and args.terrain_profile == "stairs":
+                    hits = base._height_scanner.data.ray_hits_w.torch[..., 2]
+                    stair_ray_min = torch.minimum(stair_ray_min, hits.amin(dim=1))
+                    stair_ray_max = torch.maximum(stair_ray_max, hits.amax(dim=1))
+                    stair_ray_steps += 1.
                 if args.commands and not resets.any():
                     if base._posture_commands.any() or base._posture_targets.any():
                         raise RuntimeError("motion-only stage emitted a posture request")
@@ -347,6 +389,14 @@ def evaluate():
                        max_continuous_air_s_frflbrbl=(max_air_streak[i] / 50).cpu().tolist(),
                        mean_abs_yaw_rate_rad_s=float(yaw_sum[i] / measured_steps),
                        max_tilt_rad=float(max_tilt[i]), min_height_m=float(min_height[i]))
+            if args.stage == "rough" and args.terrain_profile == "stairs":
+                row.update(terrain_ray_z_min_m=float(stair_ray_min[i]),
+                           terrain_ray_z_max_m=float(stair_ray_max[i]),
+                           terrain_ray_exposure_m=float(stair_ray_max[i] - stair_ray_min[i]),
+                           terrain_ray_observed_steps=int(stair_ray_steps[i]),
+                           terrain_height_transition_observed=bool(
+                               stair_ray_max[i] - stair_ray_min[i]
+                               >= .5 * args.stair_height_mm / 1000.))
             row.update(zip(("mean_signed_lateral_m_s", "mean_signed_yaw_rate_rad_s", "mean_abs_forward_m_s",
                             "mean_planar_error_m_s", "mean_abs_yaw_error_rad_s"),
                            (command_sums[i] / measured_steps).cpu().tolist()))
@@ -362,7 +412,7 @@ def evaluate():
                     window_columns=["mean_forward_m_s", "mean_abs_lateral_m_s", "mean_tilt_rad",
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
-                    terrain=(args.terrain_kind if args.stage == "rough" else "plane"), terrain_profile=(args.terrain_profile if args.stage == "rough" else "flat"), bump_height_range_m=([.0025, .006] if args.terrain_profile == "bumps25" else None), rough_terrain_provenance=rough_provenance, terrain_height_fraction=(args.terrain_height_fraction if args.stage == "rough" else 0.), terrain_tile_size_m=(8.0 if args.stage == "rough" else None), terrain_verification=terrain_verification, stage=stage,
+                    terrain=(args.terrain_kind if args.stage == "rough" else "plane"), terrain_profile=(args.terrain_profile if args.stage == "rough" else "flat"), bump_height_range_m=([.0025, .006] if args.terrain_profile == "bumps25" else None), rough_terrain_provenance=rough_provenance, terrain_height_fraction=(None if args.terrain_profile == "stairs" else (args.terrain_height_fraction if args.stage == "rough" else 0.)), terrain_tile_size_m=(8.0 if args.stage == "rough" else None), terrain_verification=terrain_verification, stage=stage,
                     command_stage=args.stage,
                     fidelity_provenance=fidelity if args.family == "v22" else None,
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,

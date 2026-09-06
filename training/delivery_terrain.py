@@ -11,6 +11,10 @@ import numpy as np
 
 HEIGHT_FRACTIONS = (0., .125, .25, .5, .75, 1.)
 BUMP_HEIGHT_RANGE_M = (.0025, .006)
+STAIR_HEIGHTS_MM = (6, 10, 15, 20)
+STAIR_TREAD_WIDTHS_MM = (150, 200, 250)
+STAIR_EVAL_TREAD_WIDTHS_MM = (175, 225)
+STAIR_PLATFORM_WIDTH_M = .6
 
 
 def compress_meshes(meshes, origin, fraction):
@@ -104,4 +108,73 @@ def terrain_with_2p5mm_bumps(terrain_kind="mixture", tile_size=8.0):
         uniform.noise_range = tuple(2. * height for height in BUMP_HEIGHT_RANGE_M)
         uniform.noise_step = .001
         uniform.height_fraction = .5
+    return terrain
+
+
+def _stair_cfg(kind, height_mm, tread_width_mm, tile_size, proportion=1.):
+    import isaaclab.terrains as terrain_gen
+
+    if kind not in ("stairs_ascend", "stairs_descend"):
+        raise ValueError("stair kind must be stairs_ascend or stairs_descend")
+    step_width = tread_width_mm / 1000.
+    step_height = height_mm / 1000.
+    if tile_size <= STAIR_PLATFORM_WIDTH_M + 2. * step_width:
+        raise ValueError("stair tile is too small for the requested tread")
+    steps = math.floor((tile_size - STAIR_PLATFORM_WIDTH_M - 2. * step_width)
+                       / (2. * step_width))
+    if steps < 1:
+        raise ValueError("stair tile has no complete riser")
+    inner = STAIR_PLATFORM_WIDTH_M + 2. * steps * step_width
+    border = (tile_size - inner) / 2.
+    # Mesh generator computes floor((size - 2*border - platform)/(2*step))+1.
+    # The epsilon keeps this at exactly `steps` despite floating point ties.
+    platform = STAIR_PLATFORM_WIDTH_M + 1e-6
+    cls = (terrain_gen.MeshInvertedPyramidStairsTerrainCfg
+           if kind == "stairs_ascend" else terrain_gen.MeshPyramidStairsTerrainCfg)
+    return cls(size=(tile_size, tile_size), proportion=proportion,
+               step_height_range=(step_height, step_height),
+               step_width=step_width, platform_width=platform,
+               border_width=border, holes=False)
+
+
+def terrain_for_stairs(kind="mixture", step_height_mm=6, step_width_mm=200,
+                       tile_size=8.0):
+    """Create the fixed 32-column stair mixture or one held-out stair kind."""
+    import copy
+    import isaaclab.terrains as terrain_gen
+    from simple_dog_task_current_body_v20.env_cfg import _terrain
+
+    if kind not in ("mixture", "stairs_ascend", "stairs_descend"):
+        raise ValueError("stair kind must be mixture, stairs_ascend, or stairs_descend")
+    if tile_size != 8.0:
+        raise ValueError("stairs are reviewed only on 8 m tiles")
+    if step_height_mm not in STAIR_HEIGHTS_MM:
+        raise ValueError("stair height is not in the reviewed set")
+    widths = STAIR_TREAD_WIDTHS_MM if kind == "mixture" else (step_width_mm,)
+    if any(width not in STAIR_TREAD_WIDTHS_MM + STAIR_EVAL_TREAD_WIDTHS_MM for width in widths):
+        raise ValueError("stair tread is not in the reviewed set")
+
+    terrain = copy.deepcopy(_terrain)
+    generator = terrain.terrain_generator
+    generator.size = (tile_size, tile_size)
+    generator.num_rows = 1
+    generator.difficulty_range = (0., 0.)
+    # Isaac's non-curriculum path samples columns randomly and can omit rare
+    # stair cases. One row with fixed difficulty uses curriculum ordering only
+    # to make the 32-column distribution deterministic, not to advance height.
+    generator.curriculum = True
+    if kind == "mixture":
+        sub_terrains = {"floor": terrain_gen.MeshPlaneTerrainCfg(proportion=.25)}
+        for direction in ("stairs_ascend", "stairs_descend"):
+            for height in STAIR_HEIGHTS_MM:
+                for width in STAIR_TREAD_WIDTHS_MM:
+                    name = f"{direction}_{height}mm_{width}mm"
+                    sub_terrains[name] = _stair_cfg(direction, height, width, tile_size,
+                                                    proportion=1. / 32.)
+        generator.num_cols = 32
+    else:
+        sub_terrains = {f"{kind}_{step_height_mm}mm_{step_width_mm}mm":
+                        _stair_cfg(kind, step_height_mm, step_width_mm, tile_size)}
+        generator.num_cols = 1
+    generator.sub_terrains = sub_terrains
     return terrain

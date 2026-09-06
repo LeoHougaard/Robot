@@ -25,8 +25,8 @@ parser.add_argument("--video_length", type=int, default=400)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.task not in tuple(f"Isaac-Locomotion-CurrentBodyV{version}-{stage}-Simple-Dog-Direct-v0"
-                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125", "RoughBumps25")
-                         if version == 22 or stage not in ("Speed", "Rough125", "RoughBumps25")):
+                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125", "RoughBumps25", "Stairs")
+                         if version == 22 or stage not in ("Speed", "Rough125", "RoughBumps25", "Stairs")):
     parser.error("this entry point only supports the reviewed V21/V22 tasks")
 family = "current_body_v22" if "CurrentBodyV22" in args.task else "current_body_v21"
 if args.video:
@@ -65,7 +65,22 @@ def train():
     cfg.seed = agent["params"]["seed"]
     rough_stage = ("RoughBumps25" if "-RoughBumps25-" in args.task
                    else ("Rough125" if "-Rough125-" in args.task else ""))
-    if rough_stage:
+    stairs_stage = "-Stairs-" in args.task
+    if stairs_stage:
+        assert cfg.terrain.terrain_type == "generator"
+        assert cfg.terrain.terrain_generator is not None
+        assert cfg.terrain_curriculum is False
+        assert cfg.terrain_profile == "stairs"
+        assert tuple(cfg.terrain_height_range_m) == (.006, .020)
+        assert tuple(cfg.terrain_step_width_range_m) == (.15, .25)
+        assert cfg.terrain.terrain_generator.size == (8.0, 8.0)
+        assert cfg.terrain.terrain_generator.num_cols == 32
+        assert cfg.terrain.terrain_generator.num_rows == 1
+        assert cfg.terrain.terrain_generator.curriculum is True
+        assert len(cfg.terrain.terrain_generator.sub_terrains) == 25
+        assert len(cfg.stride_command_menu) == 14
+        assert cfg.observation_space == 428 and cfg.state_space == 438
+    elif rough_stage:
         assert cfg.terrain.terrain_type == "generator"
         assert cfg.terrain.terrain_generator is not None
         assert cfg.terrain_curriculum is False

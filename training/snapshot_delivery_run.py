@@ -24,7 +24,8 @@ def snapshot(root, run):
         files += [p.relative_to(root).as_posix() for p in (root / "simple_dog_task_current_body_v21").rglob("*")
                   if p.suffix in (".py", ".yaml")]
     if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v22":
-        files += ["verify_delivery_coordinates.py", "fits/stride-reference-cad-20260906.json"]
+        files += ["verify_delivery_coordinates.py", "verify_delivery_stairs.py",
+                  "fits/stride-reference-cad-20260906.json"]
         files += [p.relative_to(root).as_posix() for p in (root / "simple_dog_task_current_body_v22").rglob("*")
                   if p.suffix in (".py", ".yaml")]
     hashes = {}
