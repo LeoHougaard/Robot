@@ -216,3 +216,46 @@ exact candidate actor/runtime parity, then deployment preparation. Combined
 commands, broader speeds, rough terrain and physical walking remain unverified.
 The motor-disabled transport and observed calibration checks still require the
 ESP32 and Leo. Live stride loading remains disabled pending accepted evidence.
+
+## Robustness and sustained-command investigation
+
+Robust continuation through epoch 2250 and sustained-command continuation
+through epoch 3250 are preserved in `cad-duration-robust-1250`,
+`cad-duration-robust-2250` and `cad-duration-sustained-3250`. The latter uses
+70-second episodes and command holds from 4 to 60 seconds. Epoch 2750,
+SHA `ed52b4f3502fb3d0fb64ad4b258c3cdc623e37d0fab96dad02e8f11a1644e940`,
+passes nominal and varied 20-second commands, including seeds 45 and 46.
+The initial batch endurance failures repeatedly involved stopped environment 6
+and forward-moving environment 7. Separate single-robot endurance videos pass.
+
+The subsequent paired collision diagnostic changes only scene spacing, keeping
+eight environments, seed 42, the same actor and commands, and 60 seconds:
+
+- At 1.5 m spacing, environments 6 and 7 approach within about 0.30 m. The
+  stopped robot loses foot support and the moving robot leans and slows.
+- At 8 m spacing, all exact intermediate checks pass. Late forward speed is
+  about 0.045 m/s and tilt is 0.024 to 0.027 rad.
+
+The installed Isaac Lab cloning path requires explicit collision filtering;
+the project's scene setup only calls that filter for CPU simulation. These
+results support interference between neighboring simulated robots, rather than
+an isolated-policy endurance failure. The next verification fixes GPU collision
+isolation and repeats the original 1.5 m tests, retaining ground contact and
+the original gates. The wide-spacing diagnostic alone does not promote a policy.
+Long training runs may also have encountered neighboring robots; every retained
+candidate needs evaluation in the corrected scene before selection.
+
+Evidence: `collision-diagnostic/collision-diagnostic-report.json`, SHA
+`08cd482bd9d0767c96dee60921ac2a01429e7345a98af0dea6baafe4e878415d`.
+Earlier endurance reports remain available as evidence from the interfering
+scene. Their claims about policy failure are superseded by this diagnosis.
+The exact gate is now committed in `check_stride_results.py`; its function AST
+matches the original intermediate screen. Earlier agent summaries incorrectly
+used peak tilt or an eight-landing minimum. Corrected reports use mean tilt,
+six landings per 14 measured seconds, and all original contact/command checks.
+
+Epoch 750 separately passed Torch/portable and ONNX Runtime comparisons on
+531 observations, plus a 3,000-frame fixed sensor replay using its own actor
+actions through production `PolicyFrameSession`. Evidence and reproduction
+scripts are in `training/reviews/20260906-delivery/cad-actor-parity-v22-epoch750`.
+This verifies software math, not physical sensor dynamics or powered USB timing.
