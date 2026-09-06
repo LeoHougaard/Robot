@@ -347,23 +347,25 @@ class MainActivity : AppCompatActivity() {
         binding.yawSlider.valueFrom = service.yawMinimum
         binding.yawSlider.valueTo = service.yawMaximum
         binding.yawSlider.value = binding.yawSlider.value.coerceIn(service.yawMinimum, service.yawMaximum)
-        val postureEnabled = service.supportsPostureCommands
         binding.lateralSlider.isEnabled = service.lateralMinimum < service.lateralMaximum
         if (binding.lateralSlider.isEnabled) {
             binding.lateralSlider.valueFrom = service.lateralMinimum
             binding.lateralSlider.valueTo = service.lateralMaximum
             binding.lateralSlider.value = binding.lateralSlider.value.coerceIn(service.lateralMinimum, service.lateralMaximum)
         }
-        listOf(binding.heightSlider, binding.rollSlider, binding.pitchSlider).forEach {
-            it.isEnabled = postureEnabled
-        }
-        if (postureEnabled) {
-            binding.heightSlider.valueFrom = service.postureHeightMinimum
-            binding.heightSlider.valueTo = service.postureHeightMaximum
-            binding.rollSlider.valueFrom = service.postureRollMinimum
-            binding.rollSlider.valueTo = service.postureRollMaximum
-            binding.pitchSlider.valueFrom = service.posturePitchMinimum
-            binding.pitchSlider.valueTo = service.posturePitchMaximum
+        listOf(
+            Triple(binding.heightSlider, service.postureHeightMinimum, service.postureHeightMaximum),
+            Triple(binding.rollSlider, service.postureRollMinimum, service.postureRollMaximum),
+            Triple(binding.pitchSlider, service.posturePitchMinimum, service.posturePitchMaximum),
+        ).forEach { (slider, minimum, maximum) ->
+            slider.isEnabled = minimum < maximum
+            // Disabled Material sliders still require a nonempty render range.
+            // Keep their valid XML range when this command is fixed by policy.
+            if (slider.isEnabled) {
+                slider.valueFrom = minimum
+                slider.valueTo = maximum
+            }
+            slider.value = slider.value.coerceIn(minimum, maximum)
         }
         renderMotionLabels()
     }

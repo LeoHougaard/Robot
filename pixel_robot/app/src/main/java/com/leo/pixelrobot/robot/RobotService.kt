@@ -232,7 +232,10 @@ class RobotService : Service() {
     val lateralMaximum: Float get() = policyContract.lateralMaximum
     val yawMinimum: Float get() = policyContract.yawMinimum
     val yawMaximum: Float get() = policyContract.yawMaximum
-    val supportsPostureCommands: Boolean get() = policyContract.observationBuilder != "v2_180"
+    val supportsPostureCommands: Boolean get() =
+        postureHeightMinimum < postureHeightMaximum ||
+            postureRollMinimum < postureRollMaximum ||
+            posturePitchMinimum < posturePitchMaximum
     val postureHeightMinimum: Float get() = policyContract.postureHeightMinimum
     val postureHeightMaximum: Float get() = policyContract.postureHeightMaximum
     val postureRollMinimum: Float get() = policyContract.postureRollMinimum
