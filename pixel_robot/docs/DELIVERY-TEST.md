@@ -10,8 +10,9 @@ The isolated laptop checkout is `C:\Users\leo\Code Projects\Robot-sim-to-real`.
 The Android debug APK is under `pixel_robot\app\build\outputs\apk\debug`.
 Firmware 0.1.15 is under
 `robot_dog\firmware\robot-dog-control\.pio\build\esp32dev\firmware.bin`.
-Flash through the project's PlatformIO environment after identifying the
-board's current serial port; do not assume the earlier COM number:
+Before flashing, switch the Pixel USB cable to the ESP32 desktop computer. Keep
+the servo power off. Identify the board's current serial port; do not assume an
+earlier COM number:
 
 ```powershell
 python -m platformio device list
@@ -22,6 +23,10 @@ Run these commands inside `robot_dog\firmware\robot-dog-control`. The firmware
 keeps existing calibration in NVS and disables torque on boot. Confirm all
 twelve torque registers are off before handling unsupported legs.
 
+After the desktop flash and its read-only verification, unplug the board from
+the desktop and switch the cable to the Pixel through the OTG adapter. Do not
+leave the Pixel connected during desktop flashing.
+
 ## Read-only rate test
 
 Connect the Pixel directly to the ESP32, power the servo bus, and grant Pixel
@@ -29,8 +34,17 @@ Robot USB permission. The robot must already have torque off. Keep its legs
 supported. This diagnostic refuses to take over a held pose and never sends
 an arm, torque-enable, position-write, or configuration command.
 
-Install the app and instrumentation APKs without clearing app data. Use the
-current wireless ADB address (it can change after reboot). Stop the app to give
+Install the app and instrumentation APKs without clearing app data. Discover
+the current wireless ADB endpoint with mDNS after each reboot; the previously
+observed `10.1.39.188:41395` endpoint is evidence only and must not be reused
+as a fixed address:
+
+```powershell
+adb mdns services
+adb connect PHONE_MDNS_ENDPOINT
+```
+
+Stop the app to give
 the diagnostic sole ownership of USB, then run:
 
 ```powershell
@@ -72,7 +86,7 @@ writes motor targets. The bundle is candidate evidence and has no deployment app
 Build the debug app and instrumentation APK in the laptop checkout:
 
 ```powershell
-cd C:\Users\leo\Code Projects\Robot-sim-to-real\pixel_robot
+Set-Location 'C:\Users\leo\Code Projects\Robot-sim-to-real\pixel_robot'
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 $env:ANDROID_HOME = "C:\Users\leo\AppData\Local\Android\Sdk"
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
@@ -94,8 +108,10 @@ adb -s PHONE_ADDRESS shell am instrument -w -e class com.leo.pixelrobot.policy.C
 
 Before any physical use, Leo must confirm the candidate bundle hash, board calibration
 against `candidate_epoch2750/assembly-four-leg-linkage-12dof.calibration.json`, loaded
-reference hash, and measured 20 ms feedback timing. The existing production live stride
-guard remains in force; SDF fidelity and physical calibration are still required.
+reference hash, and measured 20 ms feedback timing. The corrected Isaac ground and
+SDF fidelity report passed (`sdf_fidelity_report_sha256` is retained in the delivery
+manifest), while physical calibration and loaded timing remain pending. The existing
+production live stride guard remains in force.
 
 ## Before Leo starts walking
 
