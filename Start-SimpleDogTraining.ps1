@@ -544,9 +544,10 @@ else {
 $checkpointArg = if ($Checkpoint) { $Checkpoint } else { "''" }
 $tuningArg = if ($TuningConfig) { $TuningConfig } else { "''" }
 $seedArg = if ($null -ne $Seed) { [string]$Seed } else { "''" }
-$runDirectory = (& ssh @sshOptions $sshTarget `
+$runDirectory = [string](& ssh @sshOptions $sshTarget `
     "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength' '$remoteSimulationFit' $seedArg" |
-    Select-Object -Last 1).Trim()
+    Select-Object -Last 1)
+$runDirectory = $runDirectory.Trim()
 if ($LASTEXITCODE -ne 0 -or -not $runDirectory) {
     throw "The detached training process did not create a run directory."
 }
