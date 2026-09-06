@@ -8,6 +8,8 @@ WAIT_PID="${1:?exact PPO PID required}"
 [[ "$WAIT_PID" =~ ^[0-9]+$ ]] || exit 2
 MODE="${2:-}"
 [[ -z "$MODE" || "$MODE" == "--resume" ]] || exit 2
+PREREQUISITE_PID="${3:-}"
+[[ -z "$PREREQUISITE_PID" || "$PREREQUISITE_PID" =~ ^[0-9]+$ ]] || exit 2
 
 TRAINING="/home/leo/isaac-workspace/projects/training"
 CTRAINING="/workspace/projects/training"
@@ -43,6 +45,15 @@ printf '%s  %s\n' 63ba44f1c884b6778c4ec1048f471c596ea5b553d342fc2f8c7f0169b1d160
 cp "$TRAINING/check_stride_results.py" "$REVIEW/check_stride_results.py"
 printf '%s  %s\n' 744024c2f692f8d4778d81c487e759426fd2820cc2214f067a4146aa51937668 "$BASELINE" | sha256sum -c -
 
+if [[ -n "$PREREQUISITE_PID" ]]; then
+  printf 'waiting for bumps25 review %s\n' "$PREREQUISITE_PID" > "$REVIEW/status"
+  while [[ -r "/proc/$PREREQUISITE_PID/cmdline" ]]; do
+    cmd="$(tr '\0' ' ' < "/proc/$PREREQUISITE_PID/cmdline")"
+    [[ "$cmd" == *"run_rough_bumps25_review.sh 2062239"* ]] || break
+    sleep 10
+  done
+fi
+
 while [[ -r "/proc/$WAIT_PID/cmdline" ]]; do
   cmd="$(tr '\0' ' ' < "/proc/$WAIT_PID/cmdline")"
   [[ "$cmd" == *"$CRUN/source/train_simple_dog.py"* ]] || break
@@ -57,8 +68,9 @@ if pgrep -af '[t]rain_simple_dog.py|[e]valuate_delivery_stride.py|[t]rain_delive
   echo 'another training/evaluation process is active' >&2
   exit 20
 fi
+[[ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]]
 
-experiment="$(sed -n 's/^Exact experiment name requested from command line: //p' "$RUN/console.log" | tail -1)"
+experiment="$(sed -n 's|^Exact experiment name requested from command line: \(/workspace/projects/training/.*\)$|\1|p' "$RUN/console.log" | tail -1)"
 [[ "$experiment" == "$CTRAINING/logs/rl_games/quadruped_current_body_v22_assembly_four_leg_linkage_12dof/2026-09-06_18-50-39" ]]
 CANDIDATE_DIR="${experiment/$CTRAINING/$TRAINING}/nn"
 mapfile -t candidates < <(find "$CANDIDATE_DIR" -maxdepth 1 -type f -name 'last_*_ep_3750_rew_*.pth' ! -name '*_rew__*' -print)
