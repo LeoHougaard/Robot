@@ -19,4 +19,4 @@ class CadStrideCommandsCfg(StrideCommandsCfg):
     policy_family = "current_body_v22"
     joint_coordinate_convention = "cad_drives_v1"
     stride_reference_filename = "stride-reference-cad-20260906.json"
-    moving_foot_duration_penalty_scale = .25
+    moving_foot_duration_penalty_scale = .4

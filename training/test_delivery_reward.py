@@ -1,7 +1,10 @@
 """Behavioral checks for the experiment's actual reward method on CPU."""
 import ast
+import hashlib
+import os
 import subprocess
 import textwrap
+from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
@@ -18,15 +21,24 @@ dense_cls = next(n for n in dense_tree.body if isinstance(n, ast.ClassDef) and n
 dense_method = next(n for n in dense_cls.body if isinstance(n, ast.FunctionDef) and n.name == "_dense_diagonal_gait_reward")
 dense_ns = {"torch": torch}
 exec(compile(ast.fix_missing_locations(ast.Module(body=[dense_method], type_ignores=[])), "dense_reward", "exec"), dense_ns)
+command_cfg = ast.parse((Path(__file__).parent / "simple_dog_task_current_body_v22/env_cfg.py").read_text())
+command_class = next(n for n in command_cfg.body if isinstance(n, ast.ClassDef) and n.name == "CadStrideCommandsCfg")
+EXPERIMENT_SCALE = ast.literal_eval(next(n.value for n in command_class.body if isinstance(n, ast.Assign)
+    and any(isinstance(t, ast.Name) and t.id == "moving_foot_duration_penalty_scale" for t in n.targets)))
 
 
+@lru_cache(maxsize=1)
 def legacy_reward_method():
     try:
         source = subprocess.check_output(
-            ["git", "show", "41677bd:training/simple_dog_task_current_body_v20/env.py"], text=True
+            ["git", "show", "41677bd:training/simple_dog_task_current_body_v20/env.py"],
+            cwd=Path(__file__).parent, stderr=subprocess.DEVNULL, text=True,
         )
     except (OSError, subprocess.CalledProcessError):
-        source = Path("/tmp/legacy_delivery_reward.py").read_text()
+        source = Path(os.environ["LEGACY_DELIVERY_REWARD_SOURCE"]).read_text()
+    assert hashlib.sha256(source.replace('\r\n', '\n').encode()).hexdigest() == (
+        "8cc8d3e6f62ed47e1f49299738ed698702259bebd8626c67ea7963d2b126c3af"
+    ), "legacy reward source must be the exact preserved 41677bd file"
     old_tree = ast.parse(textwrap.dedent(source))
     old_cls = next((n for n in old_tree.body if isinstance(n, ast.ClassDef) and n.name == "DeliveryEnv"), None)
     old_method = next((n for n in (old_cls.body if old_cls else old_tree.body)
@@ -156,12 +168,6 @@ class DeliveryRewardTests(unittest.TestCase):
             tracked = reward(command=command, yaw=target)
             self.assertGreater(tracked, reward(command=command, yaw=target*1.2))
 
-    def test_moving_duration_penalty_is_disabled_in_legacy_default(self):
-        self.assertEqual(
-            reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), contact_times=[2., 1., 1., 1.]),
-            reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), contact_times=[2., 1., 1., 1.], duration_scale=0.),
-        )
-
     def test_moving_duration_cost_ramps_caps_and_preserves_stop(self):
         kwargs = dict(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25, use_dense=False)
         below = reward(**kwargs, contact_times=[1.25, 1., 1., 1.])
@@ -185,20 +191,26 @@ class DeliveryRewardTests(unittest.TestCase):
             self.assertAlmostEqual(reward(**case, duration_scale=0.),
                                    reward(**case, duration_scale=0., method_name="legacy"), places=7)
 
-    def test_actual_dense_timing_rejects_planted_and_one_pair_sequences(self):
-        diagonal_air = [.20, .0, .20, .0]
-        diagonal_contact = [.40, .0, .40, .0]
-        one_pair_air = [.20, .0, .20, .0]
-        one_pair_contact = [.40, .0, .40, .0]
-        planted_air = [.0, .0, .20, .0]
-        planted_contact = [.8, .8, .4, .8]
-        obj = NS(cfg=NS(diagonal_gait_std=.10))
-        dense = dense_ns["_dense_diagonal_gait_reward"]
-        alternating = dense(obj, torch.tensor([diagonal_air]), torch.tensor([diagonal_contact])).item()
-        one_pair = dense(obj, torch.tensor([one_pair_air]), torch.tensor([one_pair_contact])).item()
-        planted = dense(obj, torch.tensor([planted_air]), torch.tensor([planted_contact])).item()
-        self.assertGreater(alternating, planted)
-        self.assertGreater(one_pair, planted)
+    def test_physical_diagonal_cycles_beat_one_or_two_planted_feet_at_equal_tracking(self):
+        # Evaluate full cycles, not simultaneous air/contact values. FR/BL and
+        # FL/BR are the diagonal pairs, at the reference's 0.6 Hz and 60% duty.
+        def average(planted):
+            samples = []
+            for step in range(300, 550):
+                elapsed = step * .02
+                air, contact = [], []
+                for foot, offset in enumerate((0., .5, .5, 0.)):
+                    phase = (elapsed * .6 + offset) % 1.
+                    air.append(0. if foot in planted or phase < .6 else (phase-.6)/.6)
+                    contact.append(elapsed if foot in planted else phase/.6 if phase < .6 else 0.)
+                    self.assertFalse(air[-1] > 0 and contact[-1] > 0)
+                samples.append(reward(command=(0., .02, 0.), motion=(0., .02, 0.),
+                    thresholds=(.005, .01), yaw_variance=.01, duration_scale=EXPERIMENT_SCALE,
+                    air_times=air, contact_times=contact))
+            return sum(samples)/len(samples)
+        cycling = average(set())
+        self.assertGreater(cycling, average({0}))
+        self.assertGreater(cycling, average({1, 2}))
 
     def test_prolonged_air_ramps_caps_and_is_suppressed_during_reset(self):
         kwargs = dict(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25, use_dense=False)
@@ -221,6 +233,22 @@ class DeliveryRewardTests(unittest.TestCase):
                            duration_scale=.25, contact_times=[2., 2., 2., 2.])
             self.assertGreater(tracked, parked)
             self.assertGreater(parked, wrong)
+
+    def test_measured_reward_delta_requires_more_than_quarter_scale_for_planted_yaw(self):
+        # Exact mean rewards from the preserved old/new-source command replay.
+        # The actor and physical trajectories are unchanged. Only this linear
+        # penalty changes; these values do not predict a retrained policy.
+        cases = (
+            # 250 cycling, 750 planted foot, and their penalty deltas at .25.
+            (.09750978648662567, .10124178230762482, -.000048741698265075684, -.0038359835743904114),
+            (.09101299941539764, .10203352570533752, -.00019478797912597656, -.007374942302703857),
+        )
+        for old250, old750, delta250, delta750 in cases:
+            self.assertGreater(old750, old250)
+            self.assertGreater(old250 + EXPERIMENT_SCALE/.25*delta250,
+                               old750 + EXPERIMENT_SCALE/.25*delta750)
+        old250, old750, delta250, delta750 = cases[1]
+        self.assertGreater(old750 + delta750, old250 + delta250)
 
     def test_moving_duration_cost_prefers_cycle_without_step_in_place_bonus(self):
         tracked = reward(command=(.04, 0., 0.), motion=(.04, 0., 0.), duration_scale=.25,
