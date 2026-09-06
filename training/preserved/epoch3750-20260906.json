@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "backup_id": "epoch3750-20260906",
+  "source_commit": "63a2b09",
+  "training_run": "20260906T185023Z-train-58941",
+  "policy_family": "CurrentBodyV22",
+  "checkpoint_sha256": "964b3d4fc7e40ce841e1ef6167f162d0af89d8f9f8057757bf07e16ba79ea8b5",
+  "remote_checkpoint": "/home/leo/isaac-workspace/projects/training/preserved/epoch3750-20260906/checkpoint/last_quadruped_current_body_v22_assembly_four_leg_linkage_12dof_ep_3750_rew_355.4544.pth",
+  "remote_tree": "/home/leo/isaac-workspace/projects/training/preserved/epoch3750-20260906",
+  "remote_archive": "/home/leo/isaac-workspace/projects/training/preserved/epoch3750-20260906.tar.gz",
+  "local_archive": "C:/Users/Leo/Videos/Robot-policy-review-20260905/preserved-epoch3750/epoch3750-20260906.tar.gz",
+  "local_tree": "C:/Users/Leo/Videos/Robot-policy-review-20260905/preserved-epoch3750/epoch3750-20260906",
+  "archive_sha256": "27a634d2e668428b13605c3ebebf3ef02d2e36f0ccb1afd4c3c288a1805ba2e6",
+  "provenance": "Complete immutable run bundle includes source_manifest.json, frozen launcher, control_profile.json, profile and simulation fit metadata, params, and copied source tree.",
+  "candidate_status": "candidate_only_not_physical_promoted",
+  "evaluation": {
+    "video_3750_bumps25_forward20": "passed",
+    "speed_cm_s": 5.786,
+    "resets": 0,
+    "longer_rough_turn_env5": "failed_one_foot_lift",
+    "physical_promotion": false
+  },
+  "git_policy": "Versioned preservation manifest; checkpoint and complete rollback archive remain outside Git.",
+  "actor_observations": 428,
+  "critic_observations": 438,
+  "joint_coordinate_convention": "cad_drives_v1"
+}
