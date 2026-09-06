@@ -33,4 +33,6 @@ class CadStrideVariationCfg(CadStrideCommandsCfg):
     """
     domain_randomization_enabled = True
     observation_noise_enabled = True
+    current_dropout_probability_max = .02
+    current_effort_scale_randomization = (.75, 1.25)
     push_probability = 0.
