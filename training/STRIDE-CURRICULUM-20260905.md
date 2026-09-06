@@ -90,6 +90,28 @@ tilt and longest continuous airborne interval per foot. The amended
 20-second evaluator must first reproduce the epoch-100 aggregate metrics;
 the added measurements must not silently change the matched task.
 
+A separate 31-command, 1,000-phase neutral-body kinematic screen checked
+the reference against the profile's actual joint limits. Individual forward
+commands at +/-0.04 m/s, lateral at +/-0.02 m/s and yaw at +/-0.1 rad/s
+fit without clipping and leave room for the full bounded residual. Some
+lateral-plus-yaw corners already clip 2.53% of requested joint values;
+pure lateral 0.04 m/s clips 6.27%, and forward 0.08 m/s clips 8.57%.
+Evidence is `training/reviews/20260905-delivery/stride-command-envelope-v1.json`.
+This is reference kinematics only, not a walking test. Establish individual
+slow axes and stopping before simultaneous command corners. Wider commands
+will need a reference that fits the mechanism and a fresh physical rollout;
+silently clipping them is not a solution. The original delivery speed and
+tracking gates are not reduced by this intermediate acquisition envelope.
+
+Epoch 500 completed and is now the preserved acquisition baseline. The
+extended evaluator exactly reproduced epoch 100 before comparing both
+actors for 20 and 60 seconds. Over the minute, lateral motion fell from
+0.03673 to 0.01477 m/s and tilt from 0.07385 to 0.05126 rad; forward speed
+is 0.04610 m/s for 0.04 requested. All eight robots survive and every foot
+lands at least 32 times. The inspected video shows steadier travel. This
+supports preparing the slow-command stage, while retaining the plane and
+the original delivery gates. Rough training is not enabled yet.
+
 ## Terrain progression
 
 1. Acquire and improve the stride entirely on a plane.
