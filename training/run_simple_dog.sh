@@ -385,6 +385,7 @@ if [[ "${SIMPLE_DOG_RECORD_VIDEO:-0}" == 1 ]]; then
 fi
 
 source_root="$TRAINING_ROOT"
+visualization_args=(--viz=none)
 if [[ "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire ]]; then
   # Keep NumPy/OpenBLAS workers out of Kit's startup fork. Scope this to the
   # delivery process; do not change the host or preserved policy families.
@@ -392,6 +393,7 @@ if [[ "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire ]
   if [[ "$terrain" == currentbodyv21acquire ]]; then
     # Process-local startup workaround validated in bounded diagnostics.
     export OMNI_CRASHREPORTER_ENABLED=0
+    visualization_args=(--headless --device=cuda:0)
   fi
   /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 "${TRAINING_ROOT}/snapshot_delivery_run.py" "$TRAINING_ROOT" "$run_dir"
   source_root="${run_dir}/source"
@@ -406,7 +408,7 @@ PYTHONPATH="$source_root" \
   --num_envs="$num_envs" \
   --max_iterations="$max_iterations" \
   "${video_args[@]}" \
-  --viz=none \
+  "${visualization_args[@]}" \
   >"${run_dir}/console.log" 2>&1
 exit_code=$?
 set -e
