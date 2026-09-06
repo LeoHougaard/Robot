@@ -259,3 +259,37 @@ Epoch 750 separately passed Torch/portable and ONNX Runtime comparisons on
 actions through production `PolicyFrameSession`. Evidence and reproduction
 scripts are in `training/reviews/20260906-delivery/cad-actor-parity-v22-epoch750`.
 This verifies software math, not physical sensor dynamics or powered USB timing.
+
+## Retained flat test candidate after collision isolation
+
+Epoch 2750 is the retained candidate for the supervised flat-floor test.
+The GPU collision fix is `f8dd552`. At the original 1.5 m spacing, the exact
+checker passes nominal 20/60-second commands, variation seeds 42 through 46,
+variation 60 seconds, and timing 20/60 seconds. Historical epochs 1250 and 2250
+also pass their corrected nominal/variation endurance checks. Root independently
+ran the committed checker on all 16 copied fixed-scene result files, with no
+failures, and inspected walking/stop frames spanning 2 through 58 seconds.
+
+Original SDF nominal20/60 checks also pass. The derived profile differs only in
+the verified source asset from the conversion manifest. At 60 seconds, forward
+speed is 0.04320 m/s with SDF versus 0.04529 m/s with convex geometry; mean tilt
+is 0.02791 versus 0.02412 rad. The source-controlled evidence-only guard validates
+the conversion, asset/layer hashes and profile identity. The training contract
+remains bound to its original profile. Evidence is under `collision-fixed-source`:
+`collision-fix-report.json` and `sdf-fidelity-final-report.json`.
+
+The exact 2750 actor passes 531 Torch/portable/ONNX comparisons and a 3,000-frame
+fixed sensor replay through production `PolicyFrameSession`, including restarts.
+Reproduction files are in `training/reviews/20260906-delivery/cad-actor-parity-v22-epoch2750`.
+Its training source is `6a126d6`, run `2026-09-06_10-33-19`; the earlier `02b9109`
+is ancestry, not the 2750 training revision.
+
+The candidate APK pair and portable bundle are in
+`Videos/Robot-policy-review-20260905/candidate-epoch2750` on both Windows machines.
+The instrumentation APK includes the candidate and a motor-disabled transport
+test. Production live stride loading remains guarded. Full host unit tests and
+APK builds pass; device instrumentation has not run. Firmware 0.1.15 is built,
+not flashed. Follow `pixel_robot/docs/DELIVERY-TEST.md` when the board and Pixel
+are connected. Physical calibration, motor-disabled USB timing and Leo's observed
+powered test remain required. Rough terrain, mixed commands and broader speeds
+are later stages; this record establishes the slow flat simulation test envelope.
