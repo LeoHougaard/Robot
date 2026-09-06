@@ -152,11 +152,16 @@ with nominal physical dynamics, so compare actors under the same command
 task and seed rather than mixing command-stage and acquisition samples.
 
 Planned first continuation: preserve epoch 500 and train to 1,000 total
-epochs, seed 42, 128 environments. Compare on the same isolated-command
+epochs, seed 42, 128 environments. This continuation has now started as run
+`20260906T020330Z-train-6539`. Compare on the same isolated-command
 screen, retain a minute-long acquisition check and inspect turn/stride
 video. Moving cases must retain every-foot lifting/landing, zero falls,
 at least 65% signed commanded speed, the existing tracking/posture limits
-and low sideways sway. Stop must settle with all feet down. The acquisition
+and low sideways sway. The follow-up additionally screens six or more
+landings per moving foot in the measured 14 seconds, no airborne interval
+above one second and no continuously planted moving foot. An unrequested
+signed yaw rate above 0.02 rad/s remains a heading failure, including the
+known epoch-500 drift. Stop must settle with all feet down. The acquisition
 check must retain the epoch-500 forward improvement. Repeat promising cases
 with additional seeds before moving to physical-model variation. These are
 intermediate gates; original delivery speeds, wider commands and hardware
