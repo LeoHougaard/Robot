@@ -15,6 +15,8 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--seconds", type=int, default=20,
                     help="20-second matched comparison or longer flat endurance check (up to 120 s)")
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
+parser.add_argument("--start-stationary", action="store_true",
+                    help="Command-screen variant: stand for the first four seconds before requesting motion")
 parser.add_argument("--command-index", type=int, help="Select one slow command for a single-robot video")
 parser.add_argument("--video-folder", type=Path)
 AppLauncher.add_app_launcher_args(parser)
@@ -23,6 +25,8 @@ if not 20 <= args.seconds <= 120:
     parser.error("seconds must be between 20 and 120")
 if args.command_index is not None and (not args.commands or not 0 <= args.command_index < 8):
     parser.error("command-index requires --commands and an index from 0 through 7")
+if args.start_stationary and not args.commands:
+    parser.error("start-stationary requires --commands")
 if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
 if "quadruped_current_body_v21_" not in str(args.checkpoint):
@@ -48,6 +52,8 @@ def evaluate():
     cfg.episode_length_s = args.seconds + 10.
     if args.commands:
         cfg.stride_evaluate_commands = True
+        if args.start_stationary:
+            cfg.stride_command = (0., 0., 0.)
         if args.command_index is not None:
             cfg.stride_command_menu = (cfg.stride_command_menu[args.command_index],)
         elif args.num_envs % len(cfg.stride_command_menu):
@@ -155,6 +161,7 @@ def evaluate():
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
                     terrain="plane", terrain_verification=terrain_verification, stage=stage,
+                    initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,
                     command=None if args.commands else [.04, 0., 0.], results=rows,
                     limitation=("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
                                 if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance"))
