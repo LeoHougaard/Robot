@@ -79,7 +79,7 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $localTraining -PathType Container)) {
     throw "Local simple-dog training package was not found: $localTraining"
 }
-if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+|quadruped_current_body_v2[01]_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$') {
+if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+|quadruped_current_body_v2[012]_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$') {
     throw "Checkpoint must be a .pth file below a supported simple-dog training log directory."
 }
 $isV2Terrain = $Terrain -in @("V2Core", "V2Robust", "V2Goal", "V2Rough")
