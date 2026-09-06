@@ -139,3 +139,48 @@ Bulk readback had intermittent checksum errors at 460800 and 230400 baud;
 was not received after software reset. Verify startup after reconnecting to the
 Pixel before the candidate torque-off transport test. Firmware flashing is
 complete; physical 50 Hz and walking remain unverified.
+
+## Immediate startup failure diagnosed
+
+The first user test on firmware 0.1.15 stopped at sequence 1 with
+`invalid or stale firmware sample interval: 1289 ms`. Inference was 0.906 ms.
+The phone was connected at 2 Mbps with complete servo feedback and 7.4 V.
+Firmware tick 0 samples the IMU before blocking servo arming/configuration,
+so its timestamp cannot initialize the running policy's sensor history.
+The controller now keeps tick 0 only as the held-pose acknowledgement and
+waits for a fresh later tick before its first observation and target. Existing
+stale-feedback limits remain enforced. A sensor regression reproduces the
+1,289 ms failure and verifies consecutive fresh 20 ms samples.
+
+The phone now queues 64 endpoint-sized USB reads to receive data while its
+listener processes earlier packets. The candidate diagnostic synchronizes its
+hello handshake when opening a UART already streaming periodic messages;
+malformed packets after the handshake still fail the diagnostic.
+
+The normal app is being changed from the previous epoch 1700 actor to the
+explicitly allowlisted epoch 2750 CAD candidate. Its command limits are
++/-0.04 m/s forward, +/-0.02 m/s lateral and +/-0.1 rad/s yaw, with no posture
+commands. Runtime status identifies the epoch and actor hash. Hardware rate
+verification and installation of this final bundle are still pending here.
+
+### Candidate installed for Leo's supervised trial
+
+The final laptop-signed app built from `a1566be` is installed on the Pixel.
+APK SHA256: `c4282b69e2e339a45697e52b7c3d2e5388995e2a63551cd871ea1909eeb96681`.
+The live status reports epoch 2750, `current_body_v22_428`, weights
+`95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c`,
+firmware 0.1.15, Actor ready, disarmed, and 7.4 V.
+
+All twelve saved physical zero angles, signs and limits, plus the IMU mapping,
+match the candidate calibration exactly. The app calibration now uses CAD drive
+coordinates, removing the four legacy parent terms. Its exact SHA256 is
+`6d5cccade24a54c8ff98e7e194f41af676c9f6268be15e44d9293b649090bfa6`;
+the previous calibration remains in app storage with `.legacy-before-v22` suffix.
+
+The motor-disabled diagnostic did not complete: its latest attempt timed out
+waiting for hello. The normal app subsequently connected and loaded the exact
+candidate. Leo requested an immediate trial without further diagnostic retries.
+This installation is a supervised candidate trial, not a passed physical 50 Hz
+or walking gate. Timing guards and the firmware watchdog remain active. Leo
+starts recording and all physical motion; no policy or motor run was started
+by an agent. Keep the first supported start and floor movement brief.
