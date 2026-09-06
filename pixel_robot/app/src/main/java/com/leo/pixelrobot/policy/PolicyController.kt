@@ -218,6 +218,14 @@ class PolicyController(
             }
             require(state.optBoolean("feedback_complete", false)) { "initial servo feedback is incomplete" }
             targetsBySequence[0L] = state.servoAnglesById()
+            // The tick-zero arm acknowledgement is captured before the firmware
+            // finishes its arm/configuration work. Do not use that old sample
+            // as the first observation or target; wait for the next watchdog
+            // fresh state while keeping sequence zero tied to the held pose.
+            state = awaitPolicyStateAfterTick(
+                previousTick = state.getLong("tick"),
+                timeoutMs = FEEDBACK_TIMEOUT_MS,
+            )
             while (currentCoroutineContext().isActive) {
                 val frameStartedNs = SystemClock.elapsedRealtimeNanos()
                 val inputState = state
@@ -496,10 +504,12 @@ class PolicyController(
             when (message.optString("type")) {
                 "error" -> error(message.optString("message", "ESP32 error"))
                 "policy_disarmed" -> error(message.optString("reason", "firmware disarmed"))
-                "policy_state" -> {
-                    require(message.optBoolean("armed", false)) { "firmware reports policy disarmed" }
-                    return message.optLong("tick", -1) > previousTick
-                }
+                "policy_state" -> return isFreshPolicyState(
+                    message = message,
+                    previousTick = previousTick,
+                    receivedNs = received.receivedNs,
+                    nowNs = SystemClock.elapsedRealtimeNanos(),
+                )
             }
             return false
         }
@@ -515,7 +525,7 @@ class PolicyController(
                     if (accepted(queued) && queued.message.getLong("tick") > newest.message.getLong("tick")) newest = queued
                 }
             }
-            require(SystemClock.elapsedRealtimeNanos() - newest.receivedNs <= MAX_FEEDBACK_AGE_NS) {
+            require(isFreshFeedbackTimestamp(newest.receivedNs, SystemClock.elapsedRealtimeNanos())) {
                 "queued robot feedback is stale"
             }
             lastFeedbackReceivedNs = newest.receivedNs
