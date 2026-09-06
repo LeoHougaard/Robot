@@ -293,3 +293,21 @@ not flashed. Follow `pixel_robot/docs/DELIVERY-TEST.md` when the board and Pixel
 are connected. Physical calibration, motor-disabled USB timing and Leo's observed
 powered test remain required. Rough terrain, mixed commands and broader speeds
 are later stages; this record establishes the slow flat simulation test envelope.
+
+The Pixel 10 now has the candidate diagnostic APK installed with the existing
+signing key, preserving app data. The offline device test passes with exact
+checkpoint reference actions, `PolicyContract`, CAD calibration and
+`PolicyFrameSession` validation. Device testing caught three packaging errors:
+history was labeled 6 instead of 24, calibration used the legacy linkage
+convention, and six reference answers were not the exact actor's outputs.
+Commits `43bb4f8`, `4a2362f` and `e1267b2` correct those artifacts. The trained
+weights remain unchanged and byte-equal to the checkpoint tensors. Command
+limits now match the tested isolated axes: 0.04/0.02 m/s and 0.1 rad/s.
+
+Verified installed test APK SHA is
+`fcf94140473f4bf2f7424dfb6bc7ebd25c82c33b18b9483c06939978545702e6`.
+The canonical packages on both Windows machines contain the same APK and its
+exact embedded assets. `desktop-pixel-evidence/candidate-smoke-verified.txt`
+records `OK (1 test)`. Wireless ADB was reconnected using mDNS discovery. The
+ESP32 is not yet connected to the desktop; flashing, transport timing and
+physical motion remain pending.
