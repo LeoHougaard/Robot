@@ -6,9 +6,47 @@ import zipfile
 from pathlib import Path
 
 from fit_sim_from_run_data import fit_path
+from inspect_run_data import summarize_run
 
 
 class FitSimFromRunDataTest(unittest.TestCase):
+    def test_both_analyzers_require_complete_rate_and_counter_evidence(self):
+        cases = [
+            ("valid", 20, 20, None, True),
+            ("slow", 21.5, 21.5, None, False),
+            ("sensor_slow", 20, 21.5, None, False),
+            ("missing_counter", 20, 20, "missing_counter", False),
+            ("invalid_counter", 20, 20, "invalid_counter", False),
+            ("missed", 20, 20, "missed", False),
+            ("missing_sample", 20, 20, "missing_sample", False),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            for name, host_ms, sample_ms, mutation, expected in cases:
+                with self.subTest(case=name):
+                    path = Path(directory) / (name + ".jsonl")
+                    self._write_run(path, complete_session=True, with_policy=True,
+                                    frame_period_ns=int(host_ms * 1_000_000),
+                                    sample_period_ms=sample_ms)
+                    records = [json.loads(line) for line in path.read_text().splitlines()]
+                    frames = [r["data"] for r in records if r["type"] == "derived_policy_frame"]
+                    if mutation == "missing_counter":
+                        frames[0]["input_robot_state"].pop("missed_feedback_periods")
+                    elif mutation == "invalid_counter":
+                        frames[0]["input_robot_state"]["missed_feedback_periods"] = -1
+                    elif mutation == "missed":
+                        for frame in frames:
+                            frame["input_robot_state"]["missed_feedback_periods"] = 90
+                    elif mutation == "missing_sample":
+                        frames[0].pop("firmware_sample_ms")
+                    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+                    fitted = fit_path(path)["runs"][0]
+                    summary = summarize_run(path)
+                    for report in (fitted, summary):
+                        self.assertEqual(report["transport_50hz_gate"]["passed"], expected)
+                    if mutation == "missed":
+                        self.assertEqual(fitted["data_quality"]["max_missed_feedback_periods"], 90)
+                        self.assertEqual(summary["max_missed_feedback_periods"], 90)
+
     def test_selects_complete_policy_runs_and_fits_known_two_frame_lag(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -55,6 +93,65 @@ class FitSimFromRunDataTest(unittest.TestCase):
             report = fit_path(path, max_lag_frames=3)
             encoded = json.dumps(report, sort_keys=True, allow_nan=False)
         self.assertEqual(json.loads(encoded)["report_schema_version"], 2)
+
+    def test_transport_gate_requires_genuine_50hz_aggregate_and_no_misses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            passing = root / "passing.jsonl"
+            slow = root / "slow.jsonl"
+            self._write_run(passing, complete_session=True, with_policy=True,
+                            frame_period_ns=20_000_000, sample_period_ms=20)
+            self._write_run(slow, complete_session=True, with_policy=True,
+                            frame_period_ns=21_500_000, sample_period_ms=21.5)
+            passing_gate = fit_path(passing)["runs"][0]["transport_50hz_gate"]
+            slow_gate = fit_path(slow)["runs"][0]["transport_50hz_gate"]
+
+        self.assertTrue(passing_gate["passed"])
+        self.assertFalse(slow_gate["passed"])
+        self.assertIn("aggregate host frame rate is outside 49.5-50.5 Hz", slow_gate["reasons"])
+
+    def test_transport_gate_rejects_host_firmware_rate_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mismatch.jsonl"
+            self._write_run(path, complete_session=True, with_policy=True,
+                            frame_period_ns=20_000_000, sample_period_ms=21.5)
+            gate = fit_path(path)["runs"][0]["transport_50hz_gate"]
+
+        self.assertFalse(gate["passed"])
+        self.assertIn("aggregate firmware sample rate is outside 49.5-50.5 Hz", gate["reasons"])
+
+    def test_transport_gate_rejects_cumulative_missed_feedback_periods(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "missed.jsonl"
+            self._write_run(path, complete_session=True, with_policy=True,
+                            frame_period_ns=20_000_000, sample_period_ms=20)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            for record in records:
+                state = record.get("data", {}).get("input_robot_state")
+                if isinstance(state, dict):
+                    state["missed_feedback_periods"] = 90
+            path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+            gate = fit_path(path)["runs"][0]["transport_50hz_gate"]
+
+        self.assertFalse(gate["passed"])
+        self.assertIn("firmware missed-feedback periods are nonzero", gate["reasons"])
+
+    def test_transport_gate_rejects_missing_missed_feedback_counter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "missing-counter.jsonl"
+            self._write_run(path, complete_session=True, with_policy=True,
+                            frame_period_ns=20_000_000, sample_period_ms=20)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            for record in records:
+                state = record.get("data", {}).get("input_robot_state")
+                if isinstance(state, dict):
+                    state.pop("missed_feedback_periods", None)
+                    break
+            path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+            gate = fit_path(path)["runs"][0]["transport_50hz_gate"]
+
+        self.assertFalse(gate["passed"])
+        self.assertIn("firmware missed-feedback counter evidence is incomplete", gate["reasons"])
 
     def test_rejects_negative_lag_search(self):
         with self.assertRaisesRegex(ValueError, "nonnegative"):
@@ -140,7 +237,15 @@ class FitSimFromRunDataTest(unittest.TestCase):
         )
 
     @classmethod
-    def _write_run(cls, path: Path, *, complete_session: bool, with_policy: bool) -> None:
+    def _write_run(
+        cls,
+        path: Path,
+        *,
+        complete_session: bool,
+        with_policy: bool,
+        frame_period_ns: int = 40_000_000,
+        sample_period_ms: float = 40,
+    ) -> None:
         records = [
             cls._record(
                 "session_start",
@@ -171,10 +276,10 @@ class FitSimFromRunDataTest(unittest.TestCase):
                     cls._record(
                         "derived_policy_frame",
                         len(records),
-                        1_000_000_000 + frame_index * 40_000_000,
+                        1_000_000_000 + frame_index * frame_period_ns,
                         {
                             "command_sequence": frame_index,
-                            "firmware_sample_ms": 1_000 + frame_index * 40,
+                            "firmware_sample_ms": round(1_000 + frame_index * sample_period_ms),
                             "requested_action": [1.0 if frame_index <= 3 else 0.5],
                             "applied_action": [0.4 if frame_index <= 2 else 0.2],
                             "servo_target_deg": {"1": target},
@@ -182,12 +287,14 @@ class FitSimFromRunDataTest(unittest.TestCase):
                             "frame_compute_ns": 10_000_000,
                             "input_robot_state": {
                                 "seq": frame_index - 1,
+                                "tick": frame_index - 1,
                                 "sample_ms": 1_000 + frame_index * 40,
                                 "ids": [1],
                                 "angles_deg": [angle],
                                 "feedback_us": 7_000,
                                 "current_us": 3_000,
                                 "frame_us": 8_000,
+                                "missed_feedback_periods": 0,
                                 "feedback_complete": True,
                                 "current_complete": True,
                                 "current_raw": [frame_index],

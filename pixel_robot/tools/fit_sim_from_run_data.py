@@ -16,6 +16,8 @@ from run_data_source import open_run_text, verify_training_capture
 REPORT_SCHEMA_VERSION = 2
 MIN_VALID_SAMPLE_INTERVAL_MS = 5
 MAX_VALID_SAMPLE_INTERVAL_MS = 100
+MIN_AGGREGATE_RATE_HZ = 49.5
+MAX_AGGREGATE_RATE_HZ = 50.5
 DEFAULT_MAX_LAG_FRAMES = 20
 IDENTIFIABILITY_WARNINGS = [
     "Closed-loop gait data cannot separate motor dynamics from linkage load, ground contact, body motion, or controller response.",
@@ -449,6 +451,11 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
 
     semantics, action_limits = _servo_metadata(records[0])
     states = [frame.get("input_robot_state", {}) for frame in frames]
+    missed_feedback_periods = [state.get("missed_feedback_periods") for state in states]
+    valid_missed_feedback_periods = [
+        value for value in missed_feedback_periods
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    ]
     pitch = [float(state["imu_pitch_deg"]) for state in states if isinstance(state.get("imu_pitch_deg"), (int, float))]
     roll = [float(state["imu_roll_deg"]) for state in states if isinstance(state.get("imu_roll_deg"), (int, float))]
     accel_norm = [
@@ -536,6 +543,27 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
     )
     firmware_interval_p95 = _percentile(sample_intervals_ms, 0.95)
     transport_gate_reasons: list[str] = []
+    if len(sample_intervals_ms) != len(frames) - 1:
+        transport_gate_reasons.append("firmware sample interval evidence is incomplete")
+    observed_hz = 1000.0 / statistics.fmean(host_intervals_ms) if host_intervals_ms else None
+    if observed_hz is None:
+        transport_gate_reasons.append("aggregate host frame rate is absent")
+    elif not MIN_AGGREGATE_RATE_HZ <= observed_hz <= MAX_AGGREGATE_RATE_HZ:
+        transport_gate_reasons.append("aggregate host frame rate is outside 49.5-50.5 Hz")
+    firmware_hz = (
+        1000.0 / statistics.fmean(sample_intervals_ms)
+        if sample_intervals_ms else None
+    )
+    if firmware_hz is None:
+        transport_gate_reasons.append("aggregate firmware sample rate is absent")
+    elif not MIN_AGGREGATE_RATE_HZ <= firmware_hz <= MAX_AGGREGATE_RATE_HZ:
+        transport_gate_reasons.append("aggregate firmware sample rate is outside 49.5-50.5 Hz")
+    if any(value is None for value in missed_feedback_periods):
+        transport_gate_reasons.append("firmware missed-feedback counter evidence is incomplete")
+    elif any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in missed_feedback_periods):
+        transport_gate_reasons.append("firmware missed-feedback counter evidence is invalid")
+    elif max(missed_feedback_periods, default=0) > 0:
+        transport_gate_reasons.append("firmware missed-feedback periods are nonzero")
     if len(integer_feedback_ticks) < 2:
         transport_gate_reasons.append("firmware feedback ticks are absent")
     if not sample_intervals_ms:
@@ -569,12 +597,12 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
             "current_complete_frames": current_complete,
             "incomplete_current_frames": incomplete_current,
             "rejected_firmware_sample_intervals": rejected_sample_intervals,
+            "max_missed_feedback_periods": max(valid_missed_feedback_periods, default=None),
         },
         "physical_context": _session_context_report(records[0]),
         "timing": {
-            "observed_hz": (
-                1000.0 / statistics.fmean(host_intervals_ms) if host_intervals_ms else None
-            ),
+            "observed_hz": observed_hz,
+            "firmware_observed_hz": firmware_hz,
             "host_frame_interval_ms": _stats(host_intervals_ms),
             "firmware_sample_interval_ms": _stats(sample_intervals_ms),
             "firmware_feedback_read_ms": _stats(

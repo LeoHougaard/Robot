@@ -299,7 +299,7 @@ def plot_run(run: Path, output_dir: Path, servo_id: int) -> list[Path]:
     ]
     timing = [
         ("Frame interval", intervals, "#111827"),
-        ("Android compute", [float(frame.get("frame_compute_ns")) / 1_000_000.0 if isinstance(frame.get("frame_compute_ns"), (int, float)) else None for frame in frames], "#9333ea"),
+        ("Cycle incl. wait", [float(frame.get("frame_compute_ns")) / 1_000_000.0 if isinstance(frame.get("frame_compute_ns"), (int, float)) else None for frame in frames], "#9333ea"),
         ("Firmware frame", [float(frame.get("input_robot_state", {}).get("frame_us")) / 1_000.0 if isinstance(frame.get("input_robot_state", {}).get("frame_us"), (int, float)) else None for frame in frames], "#16a34a"),
         ("Current read", [float(frame.get("input_robot_state", {}).get("current_us")) / 1_000.0 if isinstance(frame.get("input_robot_state", {}).get("current_us"), (int, float)) else None for frame in frames], "#ea580c"),
         ("Inference", [float(frame.get("inference_ms")) if isinstance(frame.get("inference_ms"), (int, float)) else None for frame in frames], "#0891b2"),

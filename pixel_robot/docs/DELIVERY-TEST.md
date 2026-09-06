@@ -199,3 +199,18 @@ The actual Pixel screen was visually inspected after a cold launch and again
 after returning from Home. It stays open, shows USB/Actor ready, and displays
 disabled posture sliders. Live status confirms epoch 2750 and disarmed state.
 The screenshot and status are retained in `desktop-pixel-evidence` outside Git.
+
+### First unsupported floor walk recorded
+
+Leo reports that the installed epoch 2750 candidate walks freely on the floor,
+slowly and unbalanced. The working source is tagged
+`robot-first-floor-walk-20260906` at `d745de3` on GitHub. The complete recording
+and policy capture were retrieved and hash-checked. It contains 25.385 seconds
+of policy operation at a fixed 0.04 m/s forward command, measured 46.445 Hz,
+and steady estimated body tilt with a 10.70-degree median and 21.07-degree peak.
+The run ends with a twelve-target packet validation error. This is a reported
+walking baseline, not a passed physical reliability or balance gate.
+
+See [the analysis and next experiment sequence](../../training/FIRST-FLOOR-WALK-20260906.md)
+for provenance, measured limitations and the corrected interpretation of the
+old offline 50 Hz gate. Raw captures and graphs remain outside Git.
