@@ -93,10 +93,9 @@ the final initialization must bind the committed files before PPO.
 ## Remaining plan
 
 1. Completed: fixed poses, matched historical retention and corrected stride.
-2. In progress: bounded flat acquisition, then compare against the corrected
-   zero actor and retained historical evidence. Review actual motion.
-3. Expand forward/lateral/yaw commands, then nominal-model variation and
-   measured latency/servo uncertainty. Keep posture neutral initially.
+2. Completed: bounded flat acquisition and matched reference comparison.
+3. Completed: nominal isolated forward/lateral/yaw command checks. Next:
+   model variation and measured latency/servo uncertainty. Keep posture neutral.
 4. Advance actual terrain heights only after acceptance, retaining flat cases.
    Use the reviewed compressed-height curriculum, not elapsed training time.
 5. Verify portable actor and session parity, motor-disabled 50 Hz USB timing,
@@ -169,4 +168,51 @@ V2/V4 level, complete-cycle and prolonged-air terms are not used. The first
 `.25` cost passed physical replay parity but did not reverse the preference
 for the measured poor negative turn. Source `02b9109` tests `.4`, with valid
 contact cycles and exact legacy source binding. Final replay and a matched
-retraining run remain pending. No V22 policy has been promoted or deployed.
+retraining results are recorded below. No V22 policy has been deployed.
+
+## Retained nominal command policy
+
+Run `20260906T062323Z-train-21373` resumed acquisition epoch 250 and completed
+epoch 750 with source `02b91094a9d7f76f8296cf751e722788aa36ad99`. Its checkpoint
+SHA is `89c9ca8a04b2132f457102003d3a3336f95967f52315b63d963c9dca5798247e`.
+The only behavioral experiment was the moving-foot duration cost at `.4`.
+The preceding `cad-duration-preflight-v2` reproduced physical rows and time
+windows exactly, with only the intended Commands reward difference.
+
+Epoch 750 is retained as the best nominal command-stage baseline. All existing
+intermediate checks pass for flat 20-second, flat 60-second and stationary-start
+isolated commands. Flat and command repeats at seeds 43 and 44 also pass.
+Its intermediate epoch 500 passes flat but fails reverse lateral motion and
+negative-strafe progress. Acquisition 250 and both rejected earlier runs remain
+available. This decision does not promote a physical deployment bundle.
+
+The minute-long flat result averages 0.04548 m/s forward for a 0.04 m/s command,
+0.01144 m/s absolute lateral speed and 0.02281 rad mean tilt, with no resets.
+The seed-42 command results are:
+
+| Command | Measured commanded-axis rate | Mean tilt rad |
+|---|---:|---:|
+| Forward 0.04 m/s | 0.04541 m/s | 0.02293 |
+| Reverse -0.04 m/s | -0.04404 m/s | 0.03393 |
+| Lateral 0.02 m/s | 0.01647 m/s | 0.02179 |
+| Lateral -0.02 m/s | -0.01525 m/s | 0.02352 |
+| Yaw 0.1 rad/s | 0.08545 rad/s | 0.02361 |
+| Yaw -0.1 rad/s | -0.09986 rad/s | 0.01966 |
+
+All moving command rows have at least eight landings per foot over 14 measured
+seconds. Stop has zero airborne fraction for every foot. Root inspected dense
+forward and negative-turn frames and the stop overview; they show repeated
+stepping, an upright body and a stationary stop. Contact telemetry supports
+the correction of the prior planted-foot failure. The gait remains asymmetric;
+passing these limits does not establish ideal gait quality or low foot slip.
+
+Evidence: `training/reviews/20260905-delivery/cad-duration-750-training` on GB10,
+including `evaluation-report.json`, checkpoint validation and checkpoint-bound
+video review. The four `cad-duration-750*.mp4` files and their result JSONs are
+SHA-verified in `Videos/Robot-policy-review-20260905` on both Windows machines.
+
+Next checks are physical-parameter, sensor and timing variation on flat ground,
+exact candidate actor/runtime parity, then deployment preparation. Combined
+commands, broader speeds, rough terrain and physical walking remain unverified.
+The motor-disabled transport and observed calibration checks still require the
+ESP32 and Leo. Live stride loading remains disabled pending accepted evidence.
