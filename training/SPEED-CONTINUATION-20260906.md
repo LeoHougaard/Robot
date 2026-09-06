@@ -49,3 +49,24 @@ durations. No phone or firmware update belongs to this experiment.
 The next curriculum stages must be justified by the measured results. Higher
 speeds, combined translation/turning and compressed-height rough terrain are
 later targets. This first experiment does not claim those capabilities.
+
+## Started run
+
+The run started as `20260906T170329Z-train-51934`, using source commit
+`51bab93` and the launcher's source snapshot. The output experiment is
+`2026-09-06_17-03-44` under the existing V22 RL-Games directory. The source
+checkpoint hash matched the baseline above. Actual epoch advancement was
+verified at 2783 and 3044; Luna subsequently checked epoch 3084.
+
+`run_speed_postppo_supervisor.sh` waits for the exact PPO process, requires
+successful training completion and an otherwise idle evaluation backend, then
+runs matched baseline/candidate slow and speed screens. It uses the frozen
+source, run profile and simulation fit. Evidence goes to
+`training/reviews/20260906-speed/20260906T170329Z-train-51934` on the GB10.
+The original waiting supervisor had invalid container paths and runtime
+arguments; it was stopped before evaluation and corrected without touching
+PPO. The replacement's Bash syntax and container-visible inputs were checked.
+
+Monitor training with `Get-SimpleDogTrainingStatus.ps1`; monitor evaluation
+through that review directory's `status`, `supervisor.log`, per-case logs and
+gate JSON files. A process launch is not evidence that the evaluation passed.
