@@ -27,7 +27,9 @@ parser.add_argument("--seconds", type=int, default=20,
                     help="20-second matched comparison or longer flat endurance check (up to 120 s)")
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
 parser.add_argument("--stage", choices=("commands", "speed", "rough"), default="commands",
-                    help="V22 command configuration or fixed Rough125 exploratory screen")
+                    help="V22 command configuration or fixed rough exploratory screen")
+parser.add_argument("--terrain-profile", choices=("compressed", "bumps25"), default="compressed",
+                    help="Rough terrain profile; bumps25 raises only uniform bumps to 2.5--6 mm")
 parser.add_argument("--terrain-kind", choices=("mixture", "uniform", "up", "down"), default="mixture",
                      help="Rough screen terrain kind; mixture is the fixed training distribution")
 parser.add_argument("--terrain-height-fraction", type=float, choices=(.125, .25, .5, .75, 1.0), default=.125,
@@ -59,6 +61,10 @@ if args.stage == "rough" and args.variation != "v20-train-envelope":
     parser.error("rough screens require the documented V20 training envelope")
 if args.stage == "rough" and args.terrain_kind == "mixture":
     parser.error("rough screen requires an explicit held-out terrain kind")
+if args.terrain_profile == "bumps25" and args.stage != "rough":
+    parser.error("bumps25 is valid only for rough screens")
+if args.terrain_profile == "bumps25" and args.terrain_height_fraction != .125:
+    parser.error("bumps25 requires terrain height fraction .125 for independently scaled slopes")
 if args.variation != "nominal" and not args.commands:
     parser.error("variation requires --commands")
 if args.variation != "nominal" and args.family != "v22":
@@ -148,16 +154,25 @@ def evaluate():
         from robot_control_profile import load_control_profile
         training_profile = load_control_profile()
         fidelity = fidelity_provenance(training_profile)
-    from verify_delivery_terrain import verify
+    from verify_delivery_terrain import verify, verify_bumps25
     terrain_verification = verify()
-    stage = "Rough125" if args.stage == "rough" else ("Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire")))
+    if args.stage == "rough" and args.terrain_profile == "bumps25":
+        terrain_verification = dict(compressed_reference=terrain_verification,
+                                    bumps25=verify_bumps25())
+    stage = (("RoughBumps25" if args.terrain_profile == "bumps25" else "Rough125")
+             if args.stage == "rough" else ("Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire"))))
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     if args.stage == "rough":
-        from delivery_terrain import terrain_for_height
-        cfg.terrain = terrain_for_height(args.terrain_height_fraction, args.terrain_kind, tile_size=8.0)
+        from delivery_terrain import terrain_for_height, terrain_with_2p5mm_bumps
+        cfg.terrain = (terrain_with_2p5mm_bumps(args.terrain_kind, tile_size=8.0)
+                       if args.terrain_profile == "bumps25"
+                       else terrain_for_height(args.terrain_height_fraction, args.terrain_kind, tile_size=8.0))
         cfg.terrain_height_fraction = args.terrain_height_fraction
         cfg.terrain_kind = args.terrain_kind
+        cfg.terrain_profile = args.terrain_profile
+        if args.terrain_profile == "bumps25":
+            cfg.bump_height_range_m = (.0025, .006)
         from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
         cfg.stride_command_menu = CadStrideSpeedCfg().stride_command_menu
     if args.stage == "speed" and args.variation != "nominal":
@@ -194,6 +209,8 @@ def evaluate():
                                 difficulty_range=list(generator.difficulty_range),
                                 terrain_kind=args.terrain_kind,
                                 terrain_height_fraction=args.terrain_height_fraction,
+                                terrain_profile=args.terrain_profile,
+                                bump_height_range_m=([.0025, .006] if args.terrain_profile == "bumps25" else None),
                                 terrain_relative_height_metric="_body_posture height minus terrain ray hits",
                                 sub_terrains=sorted(generator.sub_terrains))
         mesh_stats = {}
@@ -345,7 +362,7 @@ def evaluate():
                     window_columns=["mean_forward_m_s", "mean_abs_lateral_m_s", "mean_tilt_rad",
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
-                    terrain=(args.terrain_kind if args.stage == "rough" else "plane"), rough_terrain_provenance=rough_provenance, terrain_height_fraction=(args.terrain_height_fraction if args.stage == "rough" else 0.), terrain_tile_size_m=(8.0 if args.stage == "rough" else None), terrain_verification=terrain_verification, stage=stage,
+                    terrain=(args.terrain_kind if args.stage == "rough" else "plane"), terrain_profile=(args.terrain_profile if args.stage == "rough" else "flat"), bump_height_range_m=([.0025, .006] if args.terrain_profile == "bumps25" else None), rough_terrain_provenance=rough_provenance, terrain_height_fraction=(args.terrain_height_fraction if args.stage == "rough" else 0.), terrain_tile_size_m=(8.0 if args.stage == "rough" else None), terrain_verification=terrain_verification, stage=stage,
                     command_stage=args.stage,
                     fidelity_provenance=fidelity if args.family == "v22" else None,
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,

@@ -25,8 +25,8 @@ parser.add_argument("--video_length", type=int, default=400)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.task not in tuple(f"Isaac-Locomotion-CurrentBodyV{version}-{stage}-Simple-Dog-Direct-v0"
-                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125")
-                         if version == 22 or stage not in ("Speed", "Rough125")):
+                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125", "RoughBumps25")
+                         if version == 22 or stage not in ("Speed", "Rough125", "RoughBumps25")):
     parser.error("this entry point only supports the reviewed V21/V22 tasks")
 family = "current_body_v22" if "CurrentBodyV22" in args.task else "current_body_v21"
 if args.video:
@@ -63,16 +63,32 @@ def train():
         verify(load_control_profile(), root / "fits" / cfg.stride_reference_filename,
                root / "fits/servo-response-20260829.json", config["delivery_policy_contract"])
     cfg.seed = agent["params"]["seed"]
-    is_rough125 = args.task == "Isaac-Locomotion-CurrentBodyV22-Rough125-Simple-Dog-Direct-v0"
-    if is_rough125:
+    rough_stage = ("RoughBumps25" if "-RoughBumps25-" in args.task
+                   else ("Rough125" if "-Rough125-" in args.task else ""))
+    if rough_stage:
         assert cfg.terrain.terrain_type == "generator"
         assert cfg.terrain.terrain_generator is not None
         assert cfg.terrain_curriculum is False
         assert cfg.terrain_height_fraction == .125
+        assert cfg.terrain_profile in ("compressed", "bumps25")
+        if rough_stage == "RoughBumps25":
+            assert cfg.terrain_profile == "bumps25"
+            assert tuple(cfg.bump_height_range_m) == (.0025, .006)
+        else:
+            assert cfg.terrain_profile == "compressed"
         assert cfg.terrain.terrain_generator.size == (8.0, 8.0)
         assert cfg.terrain.terrain_generator.num_cols == 8
+        assert cfg.terrain.terrain_generator.num_rows == 1
+        assert set(cfg.terrain.terrain_generator.sub_terrains) == {
+            "floor", "small_uneven", "gentle_up", "gentle_down"
+        }
         assert len(cfg.stride_command_menu) == 14
         assert cfg.observation_space == 428 and cfg.state_space == 438
+        uniform_cfg = cfg.terrain.terrain_generator.sub_terrains["small_uneven"]
+        expected_noise = (.005, .012) if rough_stage == "RoughBumps25" else (.001, .006)
+        assert tuple(uniform_cfg.noise_range) == expected_noise
+        assert uniform_cfg.noise_step == .001
+        assert uniform_cfg.height_fraction == (.5 if rough_stage == "RoughBumps25" else .125)
     else:
         assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
     assert cfg.observation_space == 428 and cfg.state_space == 438

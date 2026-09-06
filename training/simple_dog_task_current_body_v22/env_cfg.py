@@ -1,7 +1,7 @@
 """CAD-driven linkage coordinates, isolated from the V21 mapping mismatch."""
 from isaaclab.utils.configclass import configclass
 from simple_dog_task_current_body_v21.env_cfg import StrideAcquireCfg, StrideCommandsCfg
-from delivery_terrain import terrain_for_height
+from delivery_terrain import terrain_for_height, terrain_with_2p5mm_bumps, BUMP_HEIGHT_RANGE_M
 
 
 @configclass
@@ -89,5 +89,14 @@ class CadStrideRough125Cfg(CadStrideSustainedCfg):
     """
     stride_command_menu = CadStrideSpeedCfg().stride_command_menu
     terrain_height_fraction = .125
+    terrain_profile = "compressed"
     terrain = terrain_for_height(terrain_height_fraction, tile_size=8.0)
     terrain_curriculum = False
+
+
+@configclass
+class CadStrideRoughBumps25Cfg(CadStrideRough125Cfg):
+    """Rough125 continuation with independently raised 2.5--6 mm bumps."""
+    terrain_profile = "bumps25"
+    bump_height_range_m = BUMP_HEIGHT_RANGE_M
+    terrain = terrain_with_2p5mm_bumps(tile_size=8.0)

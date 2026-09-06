@@ -96,3 +96,22 @@ Compare the exact failing single-environment video case and all three rough
 terrain types against epoch 3250. Longer flat nominal and randomized timing
 checks must accompany the terrain comparisons. Preserve all failures and
 keep height fixed until the intermediate gates support advancement.
+
+## Leo's minimum bump height
+
+Leo requested bumps at least 2.5 mm high. The next stage uses positive
+uneven-terrain heights of 2.5 to 6 mm above the tile base, with the existing
+zero-height borders and flat tiles. Slopes retain their gentle one-eighth
+scale independently. Flat terrain remains half of the training mixture.
+
+Generate integer heightfield samples from 5 to 12 mm at the existing 1 mm
+resolution, then scale the resulting mesh and spawn-origin Z by one-half.
+CPU verification in the installed Isaac runtime found positive mesh vertices
+from 0.00249999994 to 0.00600000005 m. Sloped transition faces interpolate
+between samples; the minimum refers to the raised samples, not every point
+on the transition from a zero-height border.
+
+Keep the active Rough125 run and its frozen evaluation source intact. Its
+sub-millimetre unevenness does not meet this new size target. A separate
+RoughBumps25 stage records the larger bumps explicitly. It needs its own
+rollout and comparisons before any policy can be called successful there.

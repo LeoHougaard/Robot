@@ -7,7 +7,8 @@ for stage, env, cfg in (("Acquire", "StrideEnv", "CadStrideAcquireCfg"),
                         ("Variation", "StrideCommandEnv", "CadStrideVariationCfg"),
                         ("Robust", "StrideCommandEnv", "CadStrideRobustCfg"),
                         ("Sustained", "StrideCommandEnv", "CadStrideSustainedCfg"),
-                        ("Rough125", "StrideCommandEnv", "CadStrideRough125Cfg")):
+                        ("Rough125", "StrideCommandEnv", "CadStrideRough125Cfg"),
+                        ("RoughBumps25", "StrideCommandEnv", "CadStrideRoughBumps25Cfg")):
     gym.register(
         id=f"Isaac-Locomotion-CurrentBodyV22-{stage}-Simple-Dog-Direct-v0",
         entry_point=f"simple_dog_task_current_body_v21.env:{env}",

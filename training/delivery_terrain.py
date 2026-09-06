@@ -10,6 +10,7 @@ import numpy as np
 
 
 HEIGHT_FRACTIONS = (0., .125, .25, .5, .75, 1.)
+BUMP_HEIGHT_RANGE_M = (.0025, .006)
 
 
 def compress_meshes(meshes, origin, fraction):
@@ -83,4 +84,24 @@ def terrain_for_height(fraction, terrain_kind="mixture", tile_size=4.0):
         generator.sub_terrains = {"gentle_up": SlopeCfg(proportion=1., slope_range=(.01, .06), platform_width=.8, border_width=.2)}
     else:
         generator.sub_terrains = {"gentle_down": DownCfg(proportion=1., slope_range=(.01, .06), platform_width=.8, border_width=.2)}
+    return terrain
+
+
+def terrain_with_2p5mm_bumps(terrain_kind="mixture", tile_size=8.0):
+    """The reviewed next rough stage: 2.5--6 mm uniform bumps.
+
+    The existing .125 stage and its separately scaled slopes remain the
+    source geometry. Only the uniform subterrain is given the new integer
+    heightfield range; floor and slope proportions are unchanged.
+    """
+    if terrain_kind not in ("mixture", "uniform", "up", "down"):
+        raise ValueError("terrain kind must be mixture, uniform, up, or down")
+    terrain = terrain_for_height(.125, terrain_kind, tile_size=tile_size)
+    if terrain_kind in ("mixture", "uniform"):
+        uniform = terrain.terrain_generator.sub_terrains["small_uneven"]
+        # compress_meshes applies height_fraction=.5, so generate twice the
+        # requested physical range before the vertical rescale.
+        uniform.noise_range = tuple(2. * height for height in BUMP_HEIGHT_RANGE_M)
+        uniform.noise_step = .001
+        uniform.height_fraction = .5
     return terrain
