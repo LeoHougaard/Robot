@@ -36,3 +36,16 @@ class CadStrideVariationCfg(CadStrideCommandsCfg):
     current_dropout_probability_max = .02
     current_effort_scale_randomization = (.75, 1.25)
     push_probability = 0.
+
+
+@configclass
+class CadStrideRobustCfg(CadStrideVariationCfg):
+    """Bounded robust continuation from the accepted V22 Commands policy."""
+    # Aug-29 feedback timing: median 23 ms, p95 31 ms, max 39 ms. The
+    # timing feature is sensor age; the action delay is a separate causal
+    # delivery buffer and the servo trajectory adds its measured delay.
+    timing_interval_ms = (18., 39.)
+    action_delay_steps = (0, 1)
+    # Activate the full documented envelope from the first robust stage step.
+    difficulty_ramp_floor = 1.
+    difficulty_ramp_full_step = 1
