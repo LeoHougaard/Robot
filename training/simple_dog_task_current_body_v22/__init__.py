@@ -2,7 +2,8 @@
 import gymnasium as gym
 
 for stage, env, cfg in (("Acquire", "StrideEnv", "CadStrideAcquireCfg"),
-                        ("Commands", "StrideCommandEnv", "CadStrideCommandsCfg")):
+                        ("Commands", "StrideCommandEnv", "CadStrideCommandsCfg"),
+                        ("Variation", "StrideCommandEnv", "CadStrideVariationCfg")):
     gym.register(
         id=f"Isaac-Locomotion-CurrentBodyV22-{stage}-Simple-Dog-Direct-v0",
         entry_point=f"simple_dog_task_current_body_v21.env:{env}",

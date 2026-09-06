@@ -26,6 +26,8 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--seconds", type=int, default=20,
                     help="20-second matched comparison or longer flat endurance check (up to 120 s)")
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
+parser.add_argument("--variation", choices=("nominal", "v20-train-envelope"), default="nominal",
+                    help="Enable the documented V20 physical/sensor randomization envelope")
 parser.add_argument("--start-stationary", action="store_true",
                     help="Command-screen variant: stand for the first four seconds before requesting motion")
 parser.add_argument("--command-index", type=int, help="Select one slow command for a single-robot video")
@@ -38,6 +40,8 @@ if args.command_index is not None and (not args.commands or not 0 <= args.comman
     parser.error("command-index requires --commands and an index from 0 through 7")
 if args.start_stationary and not args.commands:
     parser.error("start-stationary requires --commands")
+if args.variation != "nominal" and not args.commands:
+    parser.error("variation requires --commands")
 if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
 if f"quadruped_current_body_{args.family}_" not in str(args.checkpoint):
@@ -59,7 +63,7 @@ importlib.import_module("simple_dog_task_current_body_" + args.family)
 def evaluate():
     from verify_delivery_terrain import verify
     terrain_verification = verify()
-    stage = "Commands" if args.commands else "Acquire"
+    stage = "Variation" if args.variation != "nominal" else ("Commands" if args.commands else "Acquire")
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     cfg.seed = args.seed
@@ -187,8 +191,34 @@ def evaluate():
                     terrain="plane", terrain_verification=terrain_verification, stage=stage,
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,
                     command=None if args.commands else [.04, 0., 0.], results=rows,
-                    limitation=("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
-                                if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance"))
+                    variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
+                    variation_config=(dict(domain_randomization_enabled=cfg.domain_randomization_enabled,
+                                           observation_noise_enabled=cfg.observation_noise_enabled,
+                                           action_delay_steps=list(cfg.action_delay_steps),
+                                           timing_interval_ms=list(cfg.timing_interval_ms),
+                                           base_mass_scale=list(cfg.base_mass_scale),
+                                           link_mass_scale=list(cfg.link_mass_scale),
+                                           independent_inertia_scale=list(cfg.independent_inertia_scale),
+                                           actuator_drive_scale=list(cfg.actuator_drive_scale),
+                                           actuator_effort_scale=list(cfg.actuator_effort_scale),
+                                           actuator_velocity_scale=list(cfg.actuator_velocity_scale),
+                                           robot_static_friction_range=list(cfg.robot_static_friction_range),
+                                           robot_dynamic_friction_range=list(cfg.robot_dynamic_friction_range),
+                                           robot_restitution_range=list(cfg.robot_restitution_range),
+                                           current_dropout_probability_max=cfg.current_dropout_probability_max,
+                                           current_effort_scale_randomization=list(cfg.current_effort_scale_randomization),
+                                           gyro_noise=cfg.gyro_noise, joint_position_noise=cfg.joint_position_noise,
+                                           accelerometer_noise_mg=cfg.accelerometer_noise_mg)),
+                    realized_samples=(dict(current_effort_scale_min=float(base._current_effort_scale.min().item()),
+                                           current_effort_scale_max=float(base._current_effort_scale.max().item()),
+                                           current_dropout_probability_min=float(base._current_dropout_probability.min().item()),
+                                           current_dropout_probability_max=float(base._current_dropout_probability.max().item()),
+                                           actuator_delay_steps_min=int(base._servo_trajectory.delay.min().item()),
+                                           actuator_delay_steps_max=int(base._servo_trajectory.delay.max().item()))
+                                      if args.variation != "nominal" else None),
+                    limitation=("slow isolated command screen; flat physical/sensor variation only; no timing interval variation because V20Train documents (20,20), no deployment acceptance"
+                                if args.variation != "nominal" else ("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
+                                if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance")))
     finally:
         env.close()
 
