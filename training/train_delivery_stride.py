@@ -25,9 +25,9 @@ parser.add_argument("--video_length", type=int, default=400)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.task not in tuple(f"Isaac-Locomotion-CurrentBodyV{version}-{stage}-Simple-Dog-Direct-v0"
-                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained")
-                         if version == 22 or stage != "Speed"):
-    parser.error("this entry point only supports the reviewed flat V21/V22 tasks")
+                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125")
+                         if version == 22 or stage not in ("Speed", "Rough125")):
+    parser.error("this entry point only supports the reviewed V21/V22 tasks")
 family = "current_body_v22" if "CurrentBodyV22" in args.task else "current_body_v21"
 if args.video:
     args.enable_cameras = True
@@ -63,7 +63,18 @@ def train():
         verify(load_control_profile(), root / "fits" / cfg.stride_reference_filename,
                root / "fits/servo-response-20260829.json", config["delivery_policy_contract"])
     cfg.seed = agent["params"]["seed"]
-    assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
+    is_rough125 = args.task == "Isaac-Locomotion-CurrentBodyV22-Rough125-Simple-Dog-Direct-v0"
+    if is_rough125:
+        assert cfg.terrain.terrain_type == "generator"
+        assert cfg.terrain.terrain_generator is not None
+        assert cfg.terrain_curriculum is False
+        assert cfg.terrain_height_fraction == .125
+        assert cfg.terrain.terrain_generator.size == (8.0, 8.0)
+        assert cfg.terrain.terrain_generator.num_cols == 8
+        assert len(cfg.stride_command_menu) == 14
+        assert cfg.observation_space == 428 and cfg.state_space == 438
+    else:
+        assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
     assert cfg.observation_space == 428 and cfg.state_space == 438
     config["train_dir"] = str(Path("logs/rl_games", config["name"]).resolve())
     config["full_experiment_name"] = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")

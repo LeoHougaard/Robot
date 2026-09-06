@@ -35,7 +35,7 @@ def compressed_slope(difficulty, cfg):
     return compress_meshes(*pyramid_sloped_terrain(1., cfg), cfg.height_fraction)
 
 
-def terrain_for_height(fraction):
+def terrain_for_height(fraction, terrain_kind="mixture", tile_size=4.0):
     """Explicit fixed stage. Advancement requires a separate evaluation decision."""
     import copy
     import isaaclab.terrains as terrain_gen
@@ -44,6 +44,8 @@ def terrain_for_height(fraction):
 
     if fraction not in HEIGHT_FRACTIONS:
         raise ValueError("height fraction is not a reviewed curriculum level")
+    if terrain_kind not in ("mixture", "uniform", "up", "down"):
+        raise ValueError("terrain kind must be mixture, uniform, up, or down")
     if fraction == 0.:
         return copy.deepcopy(DeliveryFlatEvalCfg().terrain)
 
@@ -64,12 +66,21 @@ def terrain_for_height(fraction):
 
     terrain = copy.deepcopy(_terrain)
     generator = terrain.terrain_generator
+    generator.size = (tile_size, tile_size)
     generator.num_rows = 1
+    generator.num_cols = 8 if terrain_kind == "mixture" else 1
     generator.difficulty_range = (1., 1.)
-    generator.sub_terrains = {
-        "floor": terrain_gen.MeshPlaneTerrainCfg(proportion=.50),
-        "small_uneven": UniformCfg(proportion=.25, noise_range=(.001, .006), noise_step=.001, border_width=.2),
-        "gentle_up": SlopeCfg(proportion=.125, slope_range=(.01, .06), platform_width=.8, border_width=.2),
-        "gentle_down": DownCfg(proportion=.125, slope_range=(.01, .06), platform_width=.8, border_width=.2),
-    }
+    if terrain_kind == "mixture":
+        generator.sub_terrains = {
+            "floor": terrain_gen.MeshPlaneTerrainCfg(proportion=.50),
+            "small_uneven": UniformCfg(proportion=.25, noise_range=(.001, .006), noise_step=.001, border_width=.2),
+            "gentle_up": SlopeCfg(proportion=.125, slope_range=(.01, .06), platform_width=.8, border_width=.2),
+            "gentle_down": DownCfg(proportion=.125, slope_range=(.01, .06), platform_width=.8, border_width=.2),
+        }
+    elif terrain_kind == "uniform":
+        generator.sub_terrains = {"small_uneven": UniformCfg(proportion=1., noise_range=(.001, .006), noise_step=.001, border_width=.2)}
+    elif terrain_kind == "up":
+        generator.sub_terrains = {"gentle_up": SlopeCfg(proportion=1., slope_range=(.01, .06), platform_width=.8, border_width=.2)}
+    else:
+        generator.sub_terrains = {"gentle_down": DownCfg(proportion=1., slope_range=(.01, .06), platform_width=.8, border_width=.2)}
     return terrain

@@ -17,7 +17,7 @@ fi
 # END immutable launcher
 
 terrain="${SIMPLE_DOG_TERRAIN:-flat}"
-if [[ "$terrain" == v2robust || "$terrain" == v2goal ||
+if [[ "$terrain" == v2robust || "$terrain" == v2goal || "$terrain" == currentbodyv22rough125 ||
       ( "$terrain" == currentv3* && "$terrain" != currentv3core &&
         "$terrain" != currentv3reverse ) ]] &&
    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
@@ -214,6 +214,10 @@ case "$terrain" in
     readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV20-Train-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_body_v20"
     ;;
+  currentbodyv22rough125)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Rough125-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
   currentbodyv22commands)
     readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Commands-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
@@ -303,7 +307,7 @@ if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4* ||
       "$terrain" == currentbodyv13* || "$terrain" == currentbodyv14* ||
       "$terrain" == currentbodyv15* || "$terrain" == currentbodyv16* ||
       "$terrain" == currentbodyv17* || "$terrain" == currentbodyv18* ||
-      "$terrain" == currentbodyv19* || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed ]]; then
+      "$terrain" == currentbodyv19* || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 ]]; then
   [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
     printf 'Current-aware simulation fit is outside the training fits directory: %s\n' \
       "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2
@@ -329,7 +333,7 @@ if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
   else
     [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || exit 2
   fi
-  if [[ "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed ]]; then
+  if [[ "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 ]]; then
     [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v22_*/*.pth ]] || exit 2
   else
     [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v22_*/*.pth ]] || exit 2
@@ -408,11 +412,11 @@ fi
 
 source_root="$TRAINING_ROOT"
 visualization_args=(--viz=none)
-if [[ "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed ]]; then
+if [[ "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 ]]; then
   # Keep NumPy/OpenBLAS workers out of Kit's startup fork. Scope this to the
   # delivery process; do not change the host or preserved policy families.
   export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
-  if [[ "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed ]]; then
+  if [[ "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 ]]; then
     # Process-local startup workaround validated in bounded diagnostics.
     export OMNI_CRASHREPORTER_ENABLED=0
     visualization_args=(--headless --device=cuda:0)

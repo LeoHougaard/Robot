@@ -26,8 +26,12 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--seconds", type=int, default=20,
                     help="20-second matched comparison or longer flat endurance check (up to 120 s)")
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
-parser.add_argument("--stage", choices=("commands", "speed"), default="commands",
-                    help="V22 command configuration; speed retains the slow rows and adds bounded signed speeds")
+parser.add_argument("--stage", choices=("commands", "speed", "rough"), default="commands",
+                    help="V22 command configuration or fixed Rough125 exploratory screen")
+parser.add_argument("--terrain-kind", choices=("mixture", "uniform", "up", "down"), default="mixture",
+                     help="Rough screen terrain kind; mixture is the fixed training distribution")
+parser.add_argument("--terrain-height-fraction", type=float, choices=(.125, .25, .5, .75, 1.0), default=.125,
+                     help="Reviewed fixed terrain height fraction for rough screens")
 parser.add_argument("--variation", choices=("nominal", "v20-train-envelope"), default="nominal",
                     help="Enable the documented V20 physical/sensor randomization envelope")
 parser.add_argument("--timing-assessment", action="store_true",
@@ -43,14 +47,18 @@ parser.add_argument(
 parser.add_argument("--video-folder", type=Path)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
-if args.stage == "speed" and (args.family != "v22" or not args.commands):
-    parser.error("speed stage requires V22 and --commands")
+if args.stage in ("speed", "rough") and (args.family != "v22" or not args.commands):
+    parser.error("speed and rough stages require V22 and --commands")
 if not 20 <= args.seconds <= 120:
     parser.error("seconds must be between 20 and 120")
-if args.command_index is not None and (not args.commands or not 0 <= args.command_index < (14 if args.stage == "speed" else 8)):
+if args.command_index is not None and (not args.commands or not 0 <= args.command_index < (14 if args.stage in ("speed", "rough") else 8)):
     parser.error(f"command-index requires --commands and an index for the selected {args.stage} menu")
 if args.start_stationary and not args.commands:
     parser.error("start-stationary requires --commands")
+if args.stage == "rough" and args.variation != "v20-train-envelope":
+    parser.error("rough screens require the documented V20 training envelope")
+if args.stage == "rough" and args.terrain_kind == "mixture":
+    parser.error("rough screen requires an explicit held-out terrain kind")
 if args.variation != "nominal" and not args.commands:
     parser.error("variation requires --commands")
 if args.variation != "nominal" and args.family != "v22":
@@ -127,6 +135,7 @@ print("STRIDE_SIM_READY", flush=True)
 
 import gymnasium as gym
 import torch
+import numpy as np
 from isaaclab_tasks.utils import parse_env_cfg
 from initialize_delivery_stride import build_actor
 importlib.import_module("simple_dog_task_current_body_" + args.family)
@@ -141,12 +150,19 @@ def evaluate():
         fidelity = fidelity_provenance(training_profile)
     from verify_delivery_terrain import verify
     terrain_verification = verify()
-    stage = "Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire"))
+    stage = "Rough125" if args.stage == "rough" else ("Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire")))
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
+    if args.stage == "rough":
+        from delivery_terrain import terrain_for_height
+        cfg.terrain = terrain_for_height(args.terrain_height_fraction, args.terrain_kind, tile_size=8.0)
+        cfg.terrain_height_fraction = args.terrain_height_fraction
+        cfg.terrain_kind = args.terrain_kind
+        from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
+        cfg.stride_command_menu = CadStrideSpeedCfg().stride_command_menu
     if args.stage == "speed" and args.variation != "nominal":
         from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
-        cfg.stride_command_menu = CadStrideSpeedCfg.stride_command_menu
+        cfg.stride_command_menu = CadStrideSpeedCfg().stride_command_menu
     if fidelity is not None:
         cfg.robot.spawn.usd_path = fidelity["fidelity_asset"]
     cfg.seed = args.seed
@@ -164,7 +180,38 @@ def evaluate():
             cfg.stride_command_menu = (cfg.stride_command_menu[args.command_index],)
         elif args.num_envs % len(cfg.stride_command_menu):
             raise ValueError(f"{args.stage} command screen requires complete menu groups or --command-index")
-    assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
+    if args.stage == "rough":
+        assert cfg.terrain.terrain_type == "generator" and cfg.terrain.terrain_generator is not None
+        assert cfg.terrain.terrain_generator.size == (8.0, 8.0)
+    else:
+        assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
+    rough_provenance = None
+    if args.stage == "rough":
+        generator = cfg.terrain.terrain_generator
+        rough_provenance = dict(seed=generator.seed, tile_size_m=list(generator.size),
+                                horizontal_scale_m=generator.horizontal_scale,
+                                vertical_scale_m=generator.vertical_scale,
+                                difficulty_range=list(generator.difficulty_range),
+                                terrain_kind=args.terrain_kind,
+                                terrain_height_fraction=args.terrain_height_fraction,
+                                terrain_relative_height_metric="_body_posture height minus terrain ray hits",
+                                sub_terrains=sorted(generator.sub_terrains))
+        mesh_stats = {}
+        for name, sub_cfg in generator.sub_terrains.items():
+            if name == "floor":
+                mesh_stats[name] = dict(z_min_m=0., z_max_m=0., spawn_origin_m=[0., 0., 0.])
+                continue
+            sub_cfg.size = generator.size
+            sub_cfg.horizontal_scale = generator.horizontal_scale
+            sub_cfg.vertical_scale = generator.vertical_scale
+            np.random.seed(generator.seed)
+            meshes, origin = sub_cfg.function(1., sub_cfg)
+            z = np.concatenate([mesh.vertices[:, 2] for mesh in meshes])
+            mesh_stats[name] = dict(z_min_m=float(z.min()), z_max_m=float(z.max()),
+                                    spawn_origin_m=np.asarray(origin, dtype=float).tolist())
+        # These independently generated meshes check the configured shape.
+        # Record actual imported terrain and sampled ray heights separately.
+        rough_provenance["reference_generated_mesh_stats"] = mesh_stats
     env = gym.make(task, cfg=cfg, render_mode="rgb_array" if args.video_folder else None)
     if args.video_folder:
         env = gym.wrappers.RecordVideo(env, video_folder=str(args.video_folder),
@@ -186,6 +233,14 @@ def evaluate():
         actor.load_state_dict(state["model"], strict=True)
         actor.to(base.device).eval()
         obs, _ = env.reset()
+        if args.stage == "rough":
+            rough_provenance["initial_spawn_origins_m"] = base.scene.env_origins.detach().cpu().tolist()
+            initial_height, initial_roll, initial_pitch = base._body_posture()
+            rough_provenance["initial_terrain_relative_height_m"] = initial_height[:min(8, args.num_envs)].detach().cpu().tolist()
+            rough_provenance["initial_rays_finite"] = True
+            hits = base._height_scanner.data.ray_hits_w.torch[..., 2]
+            rough_provenance["initial_ray_z_range_m"] = [float(hits.min()), float(hits.max())]
+            rough_provenance["observed_ray_z_range_m"] = [float(hits.min()), float(hits.max())]
         if args.variation != "nominal":
             # V4 ramps current randomization during training.  Evaluation
             # starts at step zero, so sample the configured envelope explicitly
@@ -237,6 +292,11 @@ def evaluate():
                 if step >= 300:
                     motion = base._semantic_vector_b(base._robot.data.root_lin_vel_b.torch)
                     height, roll, pitch = base._body_posture()
+                    if rough_provenance is not None:
+                        hits = base._height_scanner.data.ray_hits_w.torch[..., 2]
+                        bounds = rough_provenance["observed_ray_z_range_m"]
+                        bounds[0] = min(bounds[0], float(hits.min()))
+                        bounds[1] = max(bounds[1], float(hits.max()))
                     tilt = torch.sqrt(roll.square() + pitch.square())
                     values = torch.stack((motion[:, 0], motion[:, 1].abs(), tilt, height, reward,
                                           (residual.abs() >= 1.).float().mean(-1)), dim=-1)
@@ -285,7 +345,7 @@ def evaluate():
                     window_columns=["mean_forward_m_s", "mean_abs_lateral_m_s", "mean_tilt_rad",
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
-                    terrain="plane", terrain_verification=terrain_verification, stage=stage,
+                    terrain=(args.terrain_kind if args.stage == "rough" else "plane"), rough_terrain_provenance=rough_provenance, terrain_height_fraction=(args.terrain_height_fraction if args.stage == "rough" else 0.), terrain_tile_size_m=(8.0 if args.stage == "rough" else None), terrain_verification=terrain_verification, stage=stage,
                     command_stage=args.stage,
                     fidelity_provenance=fidelity if args.family == "v22" else None,
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,

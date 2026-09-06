@@ -17,6 +17,16 @@ CAD drive convention, geometry, stride reference, servo fit, action limits,
 rewards, PPO settings and flat terrain remain unchanged. Larger commands
 increase horizontal stride displacement through the existing reference math.
 
+The saved baseline environment configuration confirms that epoch 2750 came
+from Sustained training, with 70-second episodes, 4 to 60 second command holds,
+physical/sensor randomization and 18 to 39 ms sensor-age inputs. Speed inherits
+the simpler Commands configuration, with 20-second episodes, 4 to 6 second
+holds and nominal dynamics. This run therefore changes the training exposure
+as well as the command menu. It is an acquisition curriculum, not an isolated
+speed-only experiment or a continuation of the full robustness envelope.
+Long-duration and randomized evaluation must check what it retained before
+considering further training or deployment.
+
 This is a speed acquisition experiment. Physics still uses the nominal 20 ms
 control step. It does not resolve the real run's 46.4 Hz timing, body lean or
 terminal packet fault. Sensor-age/action-delay stress evaluation remains
@@ -82,5 +92,19 @@ names, then the profile loader's approved-directory restriction. Their evidence
 is retained separately. The v3 supervisor uses approved profile/fit paths and
 requires their bytes to match the frozen run copies. It also requires a complete
 result with the expected number of command rows before applying behavior gates.
-The first valid baseline rollout completed under v3; candidate decisions and
-visual review are pending.
+All eight nominal comparisons completed and passed: baseline and candidate,
+slow and speed menus, 20 and 60 seconds. Both checkpoints already pass the
+faster commands. Candidate changes are mixed, with worse positive lateral
+tilt and improved backward and several turning balance measurements.
+
+Both complete one-minute candidate videos pass the stride checks. Contact
+sheets spanning each full minute show sustained forward stepping and turning
+without an obvious fall. Raw results and videos remain outside Git.
+
+The physical-variation and timing screens expose a shared limitation at the
+0.06 m/s forward command in environment 8. Both checkpoints fail foot 0 and
+foot 3 lift and landing-rate checks. Baseline timing also fails unrequested
+lateral motion; candidate timing does not. Both stationary-start checks pass.
+These results retain epoch 3250 as an
+exploratory training candidate, not a promoted physical policy. The installed
+epoch 2750 bundle remains preserved.

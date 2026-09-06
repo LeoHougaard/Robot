@@ -1,6 +1,7 @@
 """CAD-driven linkage coordinates, isolated from the V21 mapping mismatch."""
 from isaaclab.utils.configclass import configclass
 from simple_dog_task_current_body_v21.env_cfg import StrideAcquireCfg, StrideCommandsCfg
+from delivery_terrain import terrain_for_height
 
 
 @configclass
@@ -76,3 +77,17 @@ class CadStrideSustainedCfg(CadStrideRobustCfg):
     """Robust continuation with long command holds for drift exposure."""
     episode_length_s = 70.
     stride_command_hold_s = (4., 60.)
+
+
+@configclass
+class CadStrideRough125Cfg(CadStrideSustainedCfg):
+    """Fixed exploratory rough mixture at one-eighth source height.
+
+    This stage keeps the 428-observation actor contract and Sustained
+    randomization/holds. Terrain difficulty is fixed; advancement requires
+    separate held-out per-kind gates and does not imply promotion.
+    """
+    stride_command_menu = CadStrideSpeedCfg().stride_command_menu
+    terrain_height_fraction = .125
+    terrain = terrain_for_height(terrain_height_fraction, tile_size=8.0)
+    terrain_curriculum = False
