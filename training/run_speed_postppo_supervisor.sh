@@ -97,6 +97,7 @@ run_eval() {
   printf '\n' >> "$REVIEW/commands.sh"
   local attempt=1 log_path="$REVIEW/$label.log" rc=0
   while (( attempt <= 3 )); do
+    printf 'evaluating %s attempt %s at %s\n' "$label" "$attempt" "$(date -Is)" > "$REVIEW/status"
     if (( attempt == 1 )) && [[ "$MODE" == "--resume" && -f "$log_path" ]]; then
       :
     else
@@ -113,7 +114,10 @@ run_eval() {
     if grep -q 'STRIDE_SIM_START' "$log_path" && ! grep -q 'STRIDE_SIM_READY' "$log_path" && (( attempt < 3 )); then
       ((attempt++)); continue
     fi
-    return "${rc:-1}"
+    # A wrapper can return zero without producing an evaluation result.
+    # Missing results must still stop the queue as an infrastructure error.
+    (( rc != 0 )) || rc=22
+    return "$rc"
   done
   # A failed behavior gate is evidence, not an infrastructure failure.
   if python3 "$REVIEW/check_stride_results.py" "$REVIEW/$label.json" > "$REVIEW/$label-gate.json"; then
