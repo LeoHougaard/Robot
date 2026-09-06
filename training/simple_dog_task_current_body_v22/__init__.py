@@ -3,6 +3,7 @@ import gymnasium as gym
 
 for stage, env, cfg in (("Acquire", "StrideEnv", "CadStrideAcquireCfg"),
                         ("Commands", "StrideCommandEnv", "CadStrideCommandsCfg"),
+                        ("Speed", "StrideCommandEnv", "CadStrideSpeedCfg"),
                         ("Variation", "StrideCommandEnv", "CadStrideVariationCfg"),
                         ("Robust", "StrideCommandEnv", "CadStrideRobustCfg"),
                         ("Sustained", "StrideCommandEnv", "CadStrideSustainedCfg")):

@@ -26,6 +26,8 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--seconds", type=int, default=20,
                     help="20-second matched comparison or longer flat endurance check (up to 120 s)")
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
+parser.add_argument("--stage", choices=("commands", "speed"), default="commands",
+                    help="V22 command configuration; speed retains the slow rows and adds bounded signed speeds")
 parser.add_argument("--variation", choices=("nominal", "v20-train-envelope"), default="nominal",
                     help="Enable the documented V20 physical/sensor randomization envelope")
 parser.add_argument("--timing-assessment", action="store_true",
@@ -41,10 +43,12 @@ parser.add_argument(
 parser.add_argument("--video-folder", type=Path)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+if args.stage == "speed" and (args.family != "v22" or not args.commands):
+    parser.error("speed stage requires V22 and --commands")
 if not 20 <= args.seconds <= 120:
     parser.error("seconds must be between 20 and 120")
-if args.command_index is not None and (not args.commands or not 0 <= args.command_index < 8):
-    parser.error("command-index requires --commands and an index from 0 through 7")
+if args.command_index is not None and (not args.commands or not 0 <= args.command_index < (14 if args.stage == "speed" else 8)):
+    parser.error(f"command-index requires --commands and an index for the selected {args.stage} menu")
 if args.start_stationary and not args.commands:
     parser.error("start-stationary requires --commands")
 if args.variation != "nominal" and not args.commands:
@@ -137,9 +141,12 @@ def evaluate():
         fidelity = fidelity_provenance(training_profile)
     from verify_delivery_terrain import verify
     terrain_verification = verify()
-    stage = "Variation" if args.variation != "nominal" else ("Commands" if args.commands else "Acquire")
+    stage = "Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire"))
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
+    if args.stage == "speed" and args.variation != "nominal":
+        from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
+        cfg.stride_command_menu = CadStrideSpeedCfg.stride_command_menu
     if fidelity is not None:
         cfg.robot.spawn.usd_path = fidelity["fidelity_asset"]
     cfg.seed = args.seed
@@ -156,7 +163,7 @@ def evaluate():
         if args.command_index is not None:
             cfg.stride_command_menu = (cfg.stride_command_menu[args.command_index],)
         elif args.num_envs % len(cfg.stride_command_menu):
-            raise ValueError("command screen requires complete eight-environment groups or --command-index")
+            raise ValueError(f"{args.stage} command screen requires complete menu groups or --command-index")
     assert cfg.terrain.terrain_type == "plane" and cfg.terrain.terrain_generator is None
     env = gym.make(task, cfg=cfg, render_mode="rgb_array" if args.video_folder else None)
     if args.video_folder:
@@ -279,9 +286,11 @@ def evaluate():
                                     "mean_height_m", "mean_reward", "residual_clip_fraction"],
                     windows=windows,
                     terrain="plane", terrain_verification=terrain_verification, stage=stage,
+                    command_stage=args.stage,
                     fidelity_provenance=fidelity if args.family == "v22" else None,
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,
-                    command=None if args.commands else [.04, 0., 0.], results=rows,
+                    command=None if args.commands else [.04, 0., 0.], command_menu=(
+                        [list(command) for command in cfg.stride_command_menu] if args.commands else None), results=rows,
                     variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
                     timing_assessment=bool(args.timing_assessment),
                     variation_config=(dict(domain_randomization_enabled=cfg.domain_randomization_enabled,

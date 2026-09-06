@@ -9,7 +9,7 @@ param(
     [ValidateRange(0, 2147483647)]
     [Nullable[int]]$Seed = $null,
 
-    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard", "CurrentBodyV12Hard", "CurrentBodyV13Hard", "CurrentBodyV14Hard", "CurrentBodyV15Hard", "CurrentBodyV16Hard", "CurrentBodyV17Hard", "CurrentBodyV18Hard", "CurrentBodyV19Hard", "CurrentBodyV20Train", "CurrentBodyV21Acquire", "CurrentBodyV21Commands", "CurrentBodyV22Acquire", "CurrentBodyV22Commands")]
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard", "CurrentBodyV12Hard", "CurrentBodyV13Hard", "CurrentBodyV14Hard", "CurrentBodyV15Hard", "CurrentBodyV16Hard", "CurrentBodyV17Hard", "CurrentBodyV18Hard", "CurrentBodyV19Hard", "CurrentBodyV20Train", "CurrentBodyV21Acquire", "CurrentBodyV21Commands", "CurrentBodyV22Acquire", "CurrentBodyV22Commands", "CurrentBodyV22Speed")]
     [string]$Terrain = "Flat",
 
     [string]$Checkpoint = "",
@@ -121,7 +121,7 @@ $v19Terrains = @("CurrentBodyV19Hard")
 $isV19Terrain = $Terrain -in $v19Terrains
 $v20Terrains = @("CurrentBodyV20Train")
 $isV20Terrain = $Terrain -in $v20Terrains
-$v22Terrains = @("CurrentBodyV22Acquire", "CurrentBodyV22Commands")
+$v22Terrains = @("CurrentBodyV22Acquire", "CurrentBodyV22Commands", "CurrentBodyV22Speed")
 $isV22Terrain = $Terrain -in $v22Terrains
 if ($Checkpoint -and (($isV22Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v22_"))) {
     throw "CAD-drive checkpoints require a CurrentBodyV22 terrain; angle conventions differ from earlier families."
@@ -539,6 +539,7 @@ if ($ControlProfile) {
             "CurrentBodyV19Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
             "CurrentBodyV20Train" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentBodyV22Commands" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Speed" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentBodyV22Acquire" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentBodyV21Commands" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentBodyV21Acquire" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }

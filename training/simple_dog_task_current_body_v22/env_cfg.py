@@ -23,6 +23,26 @@ class CadStrideCommandsCfg(StrideCommandsCfg):
 
 
 @configclass
+class CadStrideSpeedCfg(CadStrideCommandsCfg):
+    """Bounded flat speed continuation from the accepted V22 epoch 2750 line.
+
+    The slow rows remain in the menu to train retention of the known walking
+    behavior; matched evaluations check for regressions. This nominal
+    speed stage keeps the 20 ms simulation timing; sensor-age/action-delay
+    stress remains a separately labeled evaluation condition.
+    """
+    stride_command_menu = (
+        (.04, 0., 0.), (-.04, 0., 0.),
+        (0., .02, 0.), (0., -.02, 0.),
+        (0., 0., .10), (0., 0., -.10),
+        (0., 0., 0.), (.04, 0., 0.),
+        (.06, 0., 0.), (-.06, 0., 0.),
+        (0., .03, 0.), (0., -.03, 0.),
+        (0., 0., .15), (0., 0., -.15),
+    )
+
+
+@configclass
 class CadStrideVariationCfg(CadStrideCommandsCfg):
     """Flat V22 command screen with the documented V20 physical envelope.
 
