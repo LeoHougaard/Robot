@@ -184,3 +184,18 @@ This installation is a supervised candidate trial, not a passed physical 50 Hz
 or walking gate. Timing guards and the firmware watchdog remain active. Leo
 starts recording and all physical motion; no policy or motor run was started
 by an agent. Keep the first supported start and floor movement brief.
+
+### Fixed UI crash with the restricted candidate
+
+The app previously classified every non-V2 actor as supporting posture, then
+set each posture slider to a zero-width range for this candidate. Material
+Slider threw `valueFrom(0.0) must be smaller than valueTo(0.0)` while drawing.
+Posture availability now follows the actual command limits. Fixed commands
+stay disabled and retain valid drawing ranges.
+
+Commit `71e96b3` is installed. APK SHA256 is
+`0beab9ce6e310f3d00269f81eb6edbb2da33e2a0f677930249092219d3a57e9e`.
+The actual Pixel screen was visually inspected after a cold launch and again
+after returning from Home. It stays open, shows USB/Actor ready, and displays
+disabled posture sliders. Live status confirms epoch 2750 and disarmed state.
+The screenshot and status are retained in `desktop-pixel-evidence` outside Git.
