@@ -136,6 +136,8 @@ elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v19":
     import simple_dog_task_current_body_v19  # noqa: F401
 if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v20":
     import simple_dog_task_current_body_v20  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v21":
+    import simple_dog_task_current_body_v21  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 
@@ -154,7 +156,7 @@ isaac_task_utils.resolve_task_config = resolve_task_config_with_profile
 
 
 deferred_checkpoint = os.environ.pop("SIMPLE_DOG_CHECKPOINT", "")
-delivery_training = os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v20"
+delivery_training = os.environ.get("SIMPLE_DOG_POLICY_FAMILY") in ("current_body_v20", "current_body_v21")
 if deferred_checkpoint or delivery_training:
     # Isaac's stock trainer places the checkpoint into agent configuration
     # before gym.make(), even though RL-Games restores it only in Runner.run().

@@ -214,6 +214,10 @@ case "$terrain" in
     readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV20-Train-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_body_v20"
     ;;
+  currentbodyv21acquire)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV21-Acquire-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v21"
+    ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
     exit 2
@@ -283,7 +287,7 @@ if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4* ||
       "$terrain" == currentbodyv13* || "$terrain" == currentbodyv14* ||
       "$terrain" == currentbodyv15* || "$terrain" == currentbodyv16* ||
       "$terrain" == currentbodyv17* || "$terrain" == currentbodyv18* ||
-      "$terrain" == currentbodyv19* || "$terrain" == currentbodyv20train ]]; then
+      "$terrain" == currentbodyv19* || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire ]]; then
   [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
     printf 'Current-aware simulation fit is outside the training fits directory: %s\n' \
       "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2
@@ -304,6 +308,11 @@ on_signal() {
 trap on_signal INT TERM
 
 if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
+  if [[ "$terrain" == currentbodyv21acquire ]]; then
+    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || exit 2
+  else
+    [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || exit 2
+  fi
   if [[ "$terrain" == currentbodyv20train ]]; then
     [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || exit 2
   else
@@ -315,7 +324,8 @@ if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
-     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || {
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || {
     printf 'Checkpoint is outside the simple-dog log directory: %s\n' "$SIMPLE_DOG_CHECKPOINT" >&2
     exit 2
   }
@@ -375,10 +385,14 @@ if [[ "${SIMPLE_DOG_RECORD_VIDEO:-0}" == 1 ]]; then
 fi
 
 source_root="$TRAINING_ROOT"
-if [[ "$terrain" == currentbodyv20train ]]; then
+if [[ "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire ]]; then
   # Keep NumPy/OpenBLAS workers out of Kit's startup fork. Scope this to the
   # delivery process; do not change the host or preserved policy families.
   export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+  if [[ "$terrain" == currentbodyv21acquire ]]; then
+    # Process-local startup workaround validated in bounded diagnostics.
+    export OMNI_CRASHREPORTER_ENABLED=0
+  fi
   /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 "${TRAINING_ROOT}/snapshot_delivery_run.py" "$TRAINING_ROOT" "$run_dir"
   source_root="${run_dir}/source"
 fi

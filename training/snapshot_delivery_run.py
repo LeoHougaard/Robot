@@ -18,6 +18,11 @@ def snapshot(root, run):
     for package in ("simple_dog_task", "simple_dog_task_v2", "simple_dog_task_current",
                     "simple_dog_task_current_body_v4", "simple_dog_task_current_body_v20"):
         files += [p.relative_to(root).as_posix() for p in (root / package).rglob("*") if p.suffix in (".py", ".yaml")]
+    if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v21":
+        files += ["delivery_gait.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py",
+                  "verify_delivery_terrain.py", "fits/stride-reference-20260905.json"]
+        files += [p.relative_to(root).as_posix() for p in (root / "simple_dog_task_current_body_v21").rglob("*")
+                  if p.suffix in (".py", ".yaml")]
     hashes = {}
     for name in files:
         source = root / name
@@ -50,7 +55,7 @@ def snapshot(root, run):
                   for p in asset.parent.rglob("*") if p.suffix.lower() in (".usd", ".usda", ".usdc")}
     inputs["asset"]["source_layers"] = layers
     execution_environment = {name: os.environ.get(name) for name in
-                             ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS")}
+                             ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OMNI_CRASHREPORTER_ENABLED")}
     (run / "source_manifest.json").write_text(json.dumps(
         dict(source_files=hashes, inputs=inputs, execution_environment=execution_environment), indent=2) + "\n")
 

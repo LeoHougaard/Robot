@@ -25,6 +25,10 @@ parser.add_argument("--dataset", type=Path,
                     help="Optionally preserve causal actor observations and reference actions for an initialization experiment.")
 parser.add_argument("--checkpoint", type=Path,
                     help="Run a learned 426-input actor instead of reference targets; diagnostic only.")
+parser.add_argument("--stride-spec", type=Path,
+                    help="Test the persistent reference implementation and bounded exploratory corrections.")
+parser.add_argument("--acquisition", action="store_true",
+                    help="One slow forward command, eight replicas at each of four exploration magnitudes.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.output.exists():
@@ -33,6 +37,10 @@ if args.dataset and args.dataset.exists():
     parser.error("refusing to overwrite a demonstration dataset")
 if args.checkpoint and (not args.command_sweep or args.dataset):
     parser.error("actor diagnostics require --command-sweep and cannot generate teacher data")
+if args.stride_spec and (args.checkpoint or args.dataset or not args.acquisition):
+    parser.error("stride diagnostics require --acquisition and cannot use an actor or record teacher data")
+if args.acquisition and (not args.stride_spec or not args.command_sweep):
+    parser.error("acquisition diagnostics require --stride-spec and --command-sweep")
 if args.video_folder:
     if args.video_folder.exists():
         parser.error("refusing to overwrite a video directory")
@@ -63,6 +71,16 @@ def probe():
         settings += [dict(name=n, forward=x, lateral=y, yaw=w, frequency=f,
                           lift=.02, attitude_gain=.5)
                      for n, x, y, w in commands for f in (.6, .9)]
+    specification = json.loads(args.stride_spec.read_text()) if args.stride_spec else None
+    if specification:
+        if specification["feet"] != [f["foot"] for f in reach["feet"]]:
+            raise ValueError("stride specification has a different foot order")
+        if specification["geometry_evidence_sha256"] != hashlib.sha256(args.reach.read_bytes()).hexdigest():
+            raise ValueError("stride specification has different geometry evidence")
+        settings = [dict(name="forward_slow", forward=.04, lateral=0., yaw=0.,
+                         frequency=specification["frequency_hz"], lift=specification["lift_m"],
+                         attitude_gain=specification["attitude_gain"], residual_std=sigma, replica=replica)
+                    for sigma in (0., .1, .2, .4) for replica in range(8)]
     if args.case_index is not None:
         if not 0 <= args.case_index < len(settings):
             raise ValueError("invalid diagnostic case index")
@@ -113,6 +131,7 @@ def probe():
         air_steps = torch.zeros_like(landings)
         resets = torch.zeros(count, device=device)
         previous_contact = torch.ones(count, 4, dtype=torch.bool, device=device)
+        noise_generator = torch.Generator(device=device).manual_seed(7042)
         start_position = None
         samples = 0
         observation_samples, action_samples = [], []
@@ -156,6 +175,22 @@ def probe():
                 raw = q / cfg.action_scale
                 clipped = (raw.abs() > limits).float().mean(-1)
                 actions = torch.maximum(torch.minimum(raw, limits), -limits)
+                if specification:
+                    from delivery_gait import combine_stride, stride_reference
+                    elapsed = torch.full((count,), t, device=device)
+                    reference = stride_reference(requested, base._posture_commands,
+                                                 base._gravity_previous, elapsed, specification)
+                    # Independently compare the reusable controller with the
+                    # original diagnostic equations before adding exploration.
+                    if not torch.allclose(reference, raw, atol=2e-5, rtol=2e-5):
+                        raise RuntimeError("persistent stride differs from the verified reference equations")
+                    residual = torch.randn((count, 12), device=device, generator=noise_generator) * values["residual_std"]
+                    raw = combine_stride(residual, requested, base._posture_commands,
+                                         base._gravity_previous, elapsed, specification)
+                    if not torch.isfinite(raw).all():
+                        raise RuntimeError("nonfinite stride action")
+                    clipped = (raw.abs() > limits).float().mean(-1)
+                    actions = raw.clamp(-1., 1.)
                 if actor is not None:
                     # The reference above supplies no input or action to the
                     # actor. It must sustain motion from causal sensors alone.
@@ -223,10 +258,16 @@ def probe():
         return dict(completed=True, results=output, control_hz=50, simulation_seconds=20,
                     case_index=args.case_index,
                     command_sweep=args.command_sweep,
+                    acquisition=args.acquisition,
+                    exploration_seed=7042 if specification else None,
+                    stride_specification=specification,
+                    stride_source_sha256=(hashlib.sha256((Path(__file__).parent / "delivery_gait.py").read_bytes()).hexdigest()
+                                          if specification else None),
                     dataset_sha256=dataset_sha,
                     checkpoint_sha256=(hashlib.sha256(args.checkpoint.read_bytes()).hexdigest()
                                        if args.checkpoint else None),
-                    controller="learned_actor" if actor is not None else "scripted_reference",
+                    controller=("learned_actor" if actor is not None else
+                                "persistent_reference_with_exploration" if specification else "scripted_reference"),
                     measured_seconds=samples * base.step_dt, duty_fraction=.6,
                     reach_sha256=hashlib.sha256(args.reach.read_bytes()).hexdigest(),
                     source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
