@@ -73,6 +73,23 @@ Improvement requires lower sway or tilt without losing forward tracking,
 ground clearance, foot landings or survival. A higher training reward alone
 does not qualify. This comparison cannot promote a delivery policy.
 
+The first 100 epochs completed 819,200 transitions. An exact-source rerun
+of the zero actor reproduced the baseline. The learned actor reduced mean
+absolute lateral speed from 0.03833 to 0.03640 m/s (5.0%) and tilt from
+0.07841 to 0.07000 rad (10.7%). Forward speed changed from 0.04052 to
+0.04279 m/s against a 0.04 m/s request. All eight trials completed without
+resets and every foot landed. The exact candidate video shows continued
+stepping and visible residual sway. This justifies continuing acquisition,
+not moving to rough ground or declaring hardware readiness.
+
+Continue the preserved epoch-100 actor, critic and optimizers to 500 total
+epochs without changing training conditions. Keep the original 20-second
+comparison and add a 60-second check before widening commands. Evaluation
+now records five-second windows, absolute yaw rate, minimum height, maximum
+tilt and longest continuous airborne interval per foot. The amended
+20-second evaluator must first reproduce the epoch-100 aggregate metrics;
+the added measurements must not silently change the matched task.
+
 ## Terrain progression
 
 1. Acquire and improve the stride entirely on a plane.
