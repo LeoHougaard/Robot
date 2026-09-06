@@ -29,7 +29,7 @@ from pathlib import Path,PurePosixPath
 manifest=json.load(open(sys.argv[1]))
 root=Path(sys.argv[2]).resolve()
 for name,digest in manifest['source_files'].items():
-    relative=PurePosixPath(name).relative_to('training')
+    relative=PurePosixPath(name.removeprefix('training/'))
     path=(root/str(relative)).resolve()
     assert path.is_relative_to(root)
     assert hashlib.sha256(path.read_bytes()).hexdigest()==digest, name

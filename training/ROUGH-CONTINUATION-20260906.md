@@ -115,3 +115,12 @@ Keep the active Rough125 run and its frozen evaluation source intact. Its
 sub-millimetre unevenness does not meet this new size target. A separate
 RoughBumps25 stage records the larger bumps explicitly. It needs its own
 rollout and comparisons before any policy can be called successful there.
+
+The Rough125 preparation run completed epoch 3750 in 1592.97 seconds of PPO.
+Its periodic checkpoint SHA256 is
+`964b3d4fc7e40ce841e1ef6167f162d0af89d8f9f8057757bf07e16ba79ea8b5`.
+Matched evaluations remain pending, so completion is not a promotion.
+`run_rough_bumps25_review.sh` schedules the 2.5 to 6 mm baseline screen and
+video after the existing Rough125 evaluation queue. Evidence belongs in
+`training/reviews/bumps25-20260906` on the GB10. That queue evaluates epoch
+3250; it does not silently choose a newly trained checkpoint or launch PPO.
