@@ -57,6 +57,42 @@ Visual review found sustained stepping without an obvious collapse. Both
 checkpoints fail the same two-foot lift/landing checks in one randomized
 fast-forward condition. Candidate timing has one fewer failure than baseline.
 This shared limitation remains an evaluation target for the rough stage.
-Both stationary-start checks pass. The first one-eighth-height uniform terrain
-screen passes all fourteen commands with finite terrain rays. Slope checks
-and a rough video are pending. No rough PPO run has started at this entry.
+Both stationary-start checks pass. All three one-eighth-height terrain screens
+pass fourteen commands with finite terrain rays. Slope rays change during the
+rollout, confirming that translating robots leave the central flat platform.
+
+The separate single-environment forward video fails tracking and progress,
+plus foot 0 and foot 3 lift/landing checks. It averages 0.0193 m/s for a
+0.06 m/s command, with landings [0, 9, 10, 1] and no resets. Visual review
+confirms persistent planted feet. Its randomized hardware sample differs
+from the fourteen-environment screen, so the failure cannot be attributed
+to terrain alone. Preserve this exact case for the post-training comparison.
+
+Continue epoch 3250 for 500 additional epochs on the fixed one-eighth mix.
+Although the short multi-environment terrain screens pass, long holds and
+restored hardware variation at the faster commands remain training targets.
+This changes terrain and training exposure together. No automatic terrain
+advancement or physical promotion follows from finishing PPO.
+
+Preflight evidence is in the GB10 review directory
+`training/reviews/20260906-speed/20260906T170329Z-train-51934-rough-v2-eval`.
+The evaluator SHA256 is
+`6209945809bda16a1c4dd896c8327b9a4d0ff1fde616647ac038262d62ff7f3a`.
+Its legacy `limitation` prose incorrectly describes rough results as flat with
+no timing variation. The actual `terrain`, `rough_terrain_provenance` and
+`variation_config` fields record the applied rough terrain and 18 to 39 ms
+sensor-age bounds correctly. Physics still advances at 20 ms per policy step.
+
+## Started run
+
+Run `20260906T185023Z-train-58941` continues the exact epoch 3250 checkpoint
+with SHA256 `744024c2f692f8d4778d81c487e759426fd2820cc2214f067a4146aa51937668`.
+The frozen source comes from commit `63a2b09`. Actual epoch advancement was
+verified after restoring the 428-observation actor and 438-value critic.
+The target is epoch 3750 with 128 environments. Output is the V22 experiment
+`2026-09-06_18-50-39`. Luna supervises approximately every five minutes.
+
+Compare the exact failing single-environment video case and all three rough
+terrain types against epoch 3250. Longer flat nominal and randomized timing
+checks must accompany the terrain comparisons. Preserve all failures and
+keep height fixed until the intermediate gates support advancement.

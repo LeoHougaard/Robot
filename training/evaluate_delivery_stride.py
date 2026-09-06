@@ -379,10 +379,11 @@ def evaluate():
                                       if args.variation != "nominal" else None),
                     realized_snapshots=(dict(initial=variation_initial, after_reset=variation_after_reset)
                                         if args.variation != "nominal" else None),
-                    limitation=(("timing assessment uses existing V4 bounds (18..39 ms) and one-frame action delay; timing input is sensor age only, physics remains 20 ms"
+                    limitation=("exploratory rough terrain screen with Sustained physical/sensor variation and 18..39 ms sensor age; physics remains 20 ms; no deployment acceptance"
+                                if args.stage == "rough" else (("timing assessment uses existing V4 bounds (18..39 ms) and one-frame action delay; timing input is sensor age only, physics remains 20 ms"
                                  if args.timing_assessment else "slow isolated command screen; flat physical/sensor variation only; no timing interval variation because V20Train documents (20,20), no deployment acceptance")
                                 if args.variation != "nominal" else ("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
-                                if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance")))
+                                if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance"))))
     finally:
         env.close()
 
