@@ -4,6 +4,8 @@ set -Eeuo pipefail
 RUN_ID="20260906T170329Z-train-51934"
 WAIT_PID="${1:?exact PPO PID required}"
 [[ "$WAIT_PID" =~ ^[0-9]+$ ]] || exit 2
+MODE="${2:-}"
+[[ -z "$MODE" || "$MODE" == "--resume" ]] || exit 2
 TRAINING="/home/leo/isaac-workspace/projects/training"
 CTRAINING="/workspace/projects/training"
 RUN="$TRAINING/runs/simple_dog/$RUN_ID"
@@ -13,7 +15,12 @@ CSOURCE="$CRUN/source"
 REVIEW="$TRAINING/reviews/20260906-speed/$RUN_ID-eval-v3"
 CREVIEW="$CTRAINING/reviews/20260906-speed/$RUN_ID-eval-v3"
 BASELINE="$TRAINING/logs/rl_games/quadruped_current_body_v22_assembly_four_leg_linkage_12dof/2026-09-06_10-33-19/nn/last_quadruped_current_body_v22_assembly_four_leg_linkage_12dof_ep_2750_rew_336.68628.pth"
-mkdir "$REVIEW"
+if [[ "$MODE" == "--resume" ]]; then
+  test -d "$REVIEW"
+else
+  test ! -e "$REVIEW"
+  mkdir "$REVIEW"
+fi
 exec >>"$REVIEW/supervisor.log" 2>&1
 trap 'printf "failed line %s at %s\n" "$LINENO" "$(date -Is)" > "$REVIEW/status"' ERR
 printf 'waiting for PPO %s\n' "$WAIT_PID" > "$REVIEW/status"
@@ -46,11 +53,35 @@ CANDIDATE="$CANDIDATE_DIR/last_quadruped_current_body_v22_assembly_four_leg_link
 printf '%s  %s\n' 744024c2f692f8d4778d81c487e759426fd2820cc2214f067a4146aa51937668 "$CANDIDATE" | sha256sum -c -
 sha256sum "$BASELINE" "$CANDIDATE" "$SOURCE/evaluate_delivery_stride.py" "$RUN/source_manifest.json" "$RUN/control_profile.json" "$RUN/simulation-fit.json" "$REVIEW/check_stride_results.py" > "$REVIEW/identity.sha256"
 printf 'baseline=%s\ncandidate=%s\nsource=%s\n' "$BASELINE" "$CANDIDATE" "$SOURCE" > "$REVIEW/identity.txt"
+EVALUATOR_SHA="$(sha256sum "$SOURCE/evaluate_delivery_stride.py" | awk '{print $1}')"
+valid_existing() {
+  local label="$1" checkpoint="$2" envs="$3" seconds="$4" expected_sha
+  [[ "$MODE" == "--resume" && -f "$REVIEW/$label.json" && -f "$REVIEW/$label-gate.json" ]] || return 1
+  expected_sha="$(sha256sum "$checkpoint" | awk '{print $1}')"
+  python3 - "$REVIEW/$label.json" "$expected_sha" "$EVALUATOR_SHA" "$envs" "$seconds" <<'PY'
+import json,sys
+p,checkpoint_sha,source_sha,rows,seconds=sys.argv[1:]
+d=json.load(open(p))
+assert d.get("completed") is True
+assert d.get("checkpoint_sha256") == checkpoint_sha
+assert d.get("source_sha256") == source_sha
+assert d.get("simulation_seconds") == int(seconds)
+assert len(d.get("results", [])) == int(rows)
+json.load(open(p.replace('.json','-gate.json')))
+PY
+}
 run_eval() {
   local label="$1" checkpoint="$2" stage="$3" envs="$4" seconds="$5"
   shift 5
   local ccheckpoint="${checkpoint/$TRAINING/$CTRAINING}"
-  test ! -e "$REVIEW/$label.json"
+  if valid_existing "$label" "$checkpoint" "$envs" "$seconds"; then
+    echo "skipping validated existing $label"
+    return 0
+  fi
+  if [[ "$MODE" == "--resume" && -e "$REVIEW/$label.json" ]]; then
+    echo "existing $label is invalid and will not be retried" >&2
+    return 21
+  fi
   printf 'evaluating %s at %s\n' "$label" "$(date -Is)" > "$REVIEW/status"
   local command=(docker exec -w "$CTRAINING" -e "PYTHONPATH=$CSOURCE" -e PYTHONUNBUFFERED=1
     -e OPENBLAS_NUM_THREADS=1 -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1
@@ -64,8 +95,26 @@ run_eval() {
     --headless --device=cuda:0 "$@")
   printf '%q ' "${command[@]}" >> "$REVIEW/commands.sh"
   printf '\n' >> "$REVIEW/commands.sh"
-  "${command[@]}" > "$REVIEW/$label.log" 2>&1
-  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("completed") is True and len(d.get("results",[])) == int(sys.argv[2]), d.get("error", "incomplete evaluation")' "$REVIEW/$label.json" "$envs"
+  local attempt=1 log_path="$REVIEW/$label.log" rc=0
+  while (( attempt <= 3 )); do
+    if (( attempt == 1 )) && [[ "$MODE" == "--resume" && -f "$log_path" ]]; then
+      :
+    else
+      (( attempt > 1 )) && log_path="$REVIEW/$label.attempt${attempt}.log"
+      set +e
+      "${command[@]}" > "$log_path" 2>&1
+      rc=$?
+      set -e
+    fi
+    if [[ -f "$REVIEW/$label.json" ]]; then
+      python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("completed") is True and len(d.get("results",[])) == int(sys.argv[2]), d.get("error", "incomplete evaluation")' "$REVIEW/$label.json" "$envs"
+      break
+    fi
+    if grep -q 'STRIDE_SIM_START' "$log_path" && ! grep -q 'STRIDE_SIM_READY' "$log_path" && (( attempt < 3 )); then
+      ((attempt++)); continue
+    fi
+    return "${rc:-1}"
+  done
   # A failed behavior gate is evidence, not an infrastructure failure.
   if python3 "$REVIEW/check_stride_results.py" "$REVIEW/$label.json" > "$REVIEW/$label-gate.json"; then
     echo pass > "$REVIEW/$label-gate-status"
