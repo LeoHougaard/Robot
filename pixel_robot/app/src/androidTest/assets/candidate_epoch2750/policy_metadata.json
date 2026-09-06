@@ -18,8 +18,8 @@
   "normalization_epsilon": 1e-05,
   "joint_coordinate_convention": "cad_drives_v1",
   "reference_sha256": "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2",
-  "source_run": "20260906T062323Z-train-21373",
-  "source_commit": "02b91094a9d7f76f8296cf751e722788aa36ad99",
+  "source_run": "2026-09-06_10-33-19",
+  "source_commit": "6a126d6",
   "promoted": false,
   "physical_transport_verified": false,
   "control_hz": 50,
@@ -162,5 +162,7 @@
     "sha256": "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2",
     "clock": "float32_20ms_per_fresh_feedback",
     "initial_hold_frames": 50
-  }
+  },
+  "parent_checkpoint_source_commit": "cb899147c236c79887c40ccbcde63481c4fe6ebb",
+  "contract_reference_ancestry": "02b91094a9d7f76f8296cf751e722788aa36ad99"
 }

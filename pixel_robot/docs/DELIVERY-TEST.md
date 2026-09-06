@@ -67,7 +67,7 @@ The installed production app remains bound to its existing policy bundle. The te
 asset bundle: 428-input CAD V22 actor, production `PolicyFrameSession`, exact CAD stride
 reference, profile, calibration bytes, portable weights and ONNX manifest. It requires
 `policy_candidate=epoch2750` and `robot_hardware=torque_off`; it never enables torque or
-writes motor targets. The bundle is candidate evidence and has no deployment approval.
+writes motor targets. The bundle is candidate evidence and has no deployment approval. Candidate assets are read from the instrumentation APK context, so the offline packaging/parity check is `CandidateEpoch2750AssetSmokeTest`; it opens the ONNX actor, validates metadata, reference/calibration bindings, and runs the packaged reference vectors without USB or motor access.
 
 Build the debug app and instrumentation APK in the laptop checkout:
 
@@ -84,6 +84,12 @@ this diagnostic explicitly; the normal app policy is not replaced:
 ```powershell
 adb -s PHONE_ADDRESS shell am force-stop com.leo.pixelrobot
 adb -s PHONE_ADDRESS shell am instrument -w -e robot_hardware torque_off -e policy_candidate epoch2750 -e class com.leo.pixelrobot.policy.CandidateEpoch2750MotorDisabledTransportTest com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+For an offline emulator or board with no USB test, run only the asset check:
+
+```powershell
+adb -s PHONE_ADDRESS shell am instrument -w -e class com.leo.pixelrobot.policy.CandidateEpoch2750AssetSmokeTest com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 Before any physical use, Leo must confirm the candidate bundle hash, board calibration

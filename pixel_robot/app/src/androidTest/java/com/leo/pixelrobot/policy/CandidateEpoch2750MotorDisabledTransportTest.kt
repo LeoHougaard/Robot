@@ -30,13 +30,14 @@ class CandidateEpoch2750MotorDisabledTransportTest {
         assumeTrue(InstrumentationRegistry.getArguments().getString("robot_hardware") == "torque_off")
         assumeTrue(InstrumentationRegistry.getArguments().getString("policy_candidate") == "epoch2750")
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val candidateAssets = InstrumentationRegistry.getInstrumentation().context.assets
         val manager = context.getSystemService(UsbManager::class.java)
         val device = manager.deviceList.values.single {
             it.vendorId == UsbRobotTransport.ROBOT_VENDOR_ID && it.productId == UsbRobotTransport.ROBOT_PRODUCT_ID
         }
         check(manager.hasPermission(device)) { "Grant USB permission in Pixel Robot, then stop the app before this test" }
         val candidateAssetPrefix = "candidate_epoch2750"
-        val candidateMetadata = context.assets.open("$candidateAssetPrefix/policy_metadata.json")
+        val candidateMetadata = candidateAssets.open("$candidateAssetPrefix/policy_metadata.json")
             .bufferedReader().use { it.readText() }
         val metadataJson = JSONObject(candidateMetadata)
         check(metadataJson.getInt("checkpoint_epoch") == 2750)
@@ -47,7 +48,7 @@ class CandidateEpoch2750MotorDisabledTransportTest {
         check(contract.jointCoordinateConvention == "cad_drives_v1")
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
             .digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
-        val calibrationBytes = context.assets.open("$candidateAssetPrefix/assembly-four-leg-linkage-12dof.calibration.json")
+        val calibrationBytes = candidateAssets.open("$candidateAssetPrefix/assembly-four-leg-linkage-12dof.calibration.json")
             .use { it.readBytes() }
         check(sha256(calibrationBytes) == "60fae8876f2df1a7f225b20c9ca542824c1390ea2f9ae7017e348d32f87705b6")
         val calibration = RobotCalibration.parse(calibrationBytes.toString(Charsets.UTF_8))
@@ -90,7 +91,7 @@ class CandidateEpoch2750MotorDisabledTransportTest {
         var outcome = "failed"
         var loadedPolicy: OnnxPolicy? = null
         try {
-            val policy = OnnxPolicy(context.assets, contract.profileId, contract.profileSha256,
+            val policy = OnnxPolicy(candidateAssets, contract.profileId, contract.profileSha256,
                 contract.weightsSha256, contract.observationSize, candidateAssetPrefix)
             loadedPolicy = policy
             transport.open()
@@ -102,7 +103,7 @@ class CandidateEpoch2750MotorDisabledTransportTest {
             send(JSONObject().put("cmd", "policy_monitor").put("duration_ms", 30000))
             check(receive("ok").first.getString("cmd") == "policy_monitor")
             val sensors = PolicySensors(calibration, .02f)
-            val reference = context.assets.open("$candidateAssetPrefix/stride-reference-cad-20260906.json")
+            val reference = candidateAssets.open("$candidateAssetPrefix/stride-reference-cad-20260906.json")
                 .use { it.readBytes() }
             check(sha256(reference) == "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2")
             val session = PolicyFrameSession(contract, reference)
