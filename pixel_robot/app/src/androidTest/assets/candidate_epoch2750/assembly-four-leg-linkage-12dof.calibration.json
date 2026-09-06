@@ -56,12 +56,7 @@
       "zero_deg": 145.23080444335938,
       "servo_degrees_per_policy_radian": -57.2957795,
       "min_deg": 110.2308120727539,
-      "max_deg": 180.23080444335938,
-      "linkage": {
-        "type": "four_bar_follow",
-        "parent_policy_index": 1,
-        "parent_ratio": 1
-      }
+      "max_deg": 180.23080444335938
     },
     {
       "policy_index": 3,
@@ -88,12 +83,7 @@
       "zero_deg": 35.86812973022461,
       "servo_degrees_per_policy_radian": 57.2957795,
       "min_deg": 0.8681282997131348,
-      "max_deg": 70.86812591552734,
-      "linkage": {
-        "type": "four_bar_follow",
-        "parent_policy_index": 4,
-        "parent_ratio": 1
-      }
+      "max_deg": 70.86812591552734
     },
     {
       "policy_index": 6,
@@ -120,12 +110,7 @@
       "zero_deg": 219.95599365234375,
       "servo_degrees_per_policy_radian": 57.2957795,
       "min_deg": 184.95599365234375,
-      "max_deg": 254.95599365234375,
-      "linkage": {
-        "type": "four_bar_follow",
-        "parent_policy_index": 7,
-        "parent_ratio": 1
-      }
+      "max_deg": 254.95599365234375
     },
     {
       "policy_index": 9,
@@ -152,12 +137,8 @@
       "zero_deg": 130.54949951171875,
       "servo_degrees_per_policy_radian": -57.2957795,
       "min_deg": 95.54950714111328,
-      "max_deg": 165.54949951171875,
-      "linkage": {
-        "type": "four_bar_follow",
-        "parent_policy_index": 10,
-        "parent_ratio": 1
-      }
+      "max_deg": 165.54949951171875
     }
-  ]
+  ],
+  "joint_coordinate_convention": "cad_drives_v1"
 }

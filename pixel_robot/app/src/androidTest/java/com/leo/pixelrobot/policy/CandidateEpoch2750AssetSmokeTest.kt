@@ -39,7 +39,7 @@ class CandidateEpoch2750AssetSmokeTest {
         val calibrationBytes = assets.open("$prefix/assembly-four-leg-linkage-12dof.calibration.json").use { it.readBytes() }
         val calibrationSha = MessageDigest.getInstance("SHA-256").digest(calibrationBytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-        assertEquals("60fae8876f2df1a7f225b20c9ca542824c1390ea2f9ae7017e348d32f87705b6", calibrationSha)
+        assertEquals("6d5cccade24a54c8ff98e7e194f41af676c9f6268be15e44d9293b649090bfa6", calibrationSha)
         val calibration = RobotCalibration.parse(calibrationBytes.toString(Charsets.UTF_8))
         contract.requireCalibration(calibration)
         val referenceBytes = assets.open("$prefix/stride-reference-cad-20260906.json").use { it.readBytes() }

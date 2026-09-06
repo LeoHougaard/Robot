@@ -50,7 +50,7 @@ class CandidateEpoch2750MotorDisabledTransportTest {
             .digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
         val calibrationBytes = candidateAssets.open("$candidateAssetPrefix/assembly-four-leg-linkage-12dof.calibration.json")
             .use { it.readBytes() }
-        check(sha256(calibrationBytes) == "60fae8876f2df1a7f225b20c9ca542824c1390ea2f9ae7017e348d32f87705b6")
+        check(sha256(calibrationBytes) == "6d5cccade24a54c8ff98e7e194f41af676c9f6268be15e44d9293b649090bfa6")
         val calibration = RobotCalibration.parse(calibrationBytes.toString(Charsets.UTF_8))
         val failure = AtomicReference<Throwable?>()
         val queue = ArrayBlockingQueue<Pair<JSONObject, Long>>(8)
