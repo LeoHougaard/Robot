@@ -25,6 +25,8 @@ def snapshot(root, run):
                   if p.suffix in (".py", ".yaml")]
     if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v22":
         files += ["verify_delivery_coordinates.py", "verify_delivery_stairs.py",
+                  "verify_delivery_varied.py", "fork_delivery_stride.py",
+                  "fits/stride-reference-cad-highlift-20260906.json",
                   "fits/stride-reference-cad-20260906.json"]
         files += [p.relative_to(root).as_posix() for p in (root / "simple_dog_task_current_body_v22").rglob("*")
                   if p.suffix in (".py", ".yaml")]

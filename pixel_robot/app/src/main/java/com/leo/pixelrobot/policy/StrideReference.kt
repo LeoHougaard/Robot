@@ -21,6 +21,13 @@ class StrideReference private constructor(spec: JSONObject) {
     private val angularFrequency = (2.0 * PI * spec.getDouble("frequency_hz")).toFloat()
     private val duty = spec.finite("duty_fraction")
     private val lift = spec.finite("lift_m")
+    private val kind = spec.getString("kind")
+    private val liftFullPlanarSpeed = if (kind == "stride_reference_cad_v2") {
+        spec.finite("lift_full_planar_speed_m_s")
+    } else .04f
+    private val liftFullYawRate = if (kind == "stride_reference_cad_v2") {
+        spec.finite("lift_full_yaw_rate_rad_s")
+    } else .2f
     private val attitudeGain = spec.finite("attitude_gain")
     private val maximumCorrection = spec.finite("maximum_attitude_correction_m")
     private val rampSeconds = spec.finite("ramp_seconds")
@@ -32,6 +39,7 @@ class StrideReference private constructor(spec: JSONObject) {
     init {
         require(frequency > 0f && angularFrequency.isFinite() && duty > 0f && duty < 1f)
         require(lift >= 0f && attitudeGain >= 0f && maximumCorrection >= 0f)
+        require(liftFullPlanarSpeed > 0f && liftFullYawRate > 0f)
         require(rampSeconds > 0f && settleSeconds >= 0f)
         require(residualScale in 0f..1f && positionScale > 0f)
         require(offsets.all { it >= 0f && it < 1f })
@@ -57,8 +65,8 @@ class StrideReference private constructor(spec: JSONObject) {
         require(elapsedSeconds.isFinite() && elapsedSeconds >= 0f)
         val activeTime = (elapsedSeconds - settleSeconds).coerceAtLeast(0f)
         val ramp = (activeTime / rampSeconds).coerceIn(0f, 1f)
-        val moving = (sqrt(command[0] * command[0] + command[1] * command[1]) / .04f +
-            abs(command[2]) / .2f).coerceIn(0f, 1f)
+        val moving = (sqrt(command[0] * command[0] + command[1] * command[1]) / liftFullPlanarSpeed +
+            abs(command[2]) / liftFullYawRate).coerceIn(0f, 1f)
         val desiredGravity = floatArrayOf(
             -sin(posture[2]), sin(posture[1]) * cos(posture[2]), -cos(posture[1]) * cos(posture[2]),
         )
@@ -109,6 +117,7 @@ class StrideReference private constructor(spec: JSONObject) {
             when (spec.getString("kind")) {
                 "stride_reference_v1" -> require(spec.optString("joint_coordinate_convention", "legacy_relative_knee") == "legacy_relative_knee")
                 "stride_reference_cad_v1" -> require(spec.getString("joint_coordinate_convention") == "cad_drives_v1")
+                "stride_reference_cad_v2" -> require(spec.getString("joint_coordinate_convention") == "cad_drives_v1")
                 else -> error("unknown stride reference kind")
             }
             require(spec.getString("profile_sha256") == expectedProfileSha256) { "stride profile mismatch" }

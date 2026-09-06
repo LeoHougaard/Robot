@@ -25,8 +25,8 @@ parser.add_argument("--video_length", type=int, default=400)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.task not in tuple(f"Isaac-Locomotion-CurrentBodyV{version}-{stage}-Simple-Dog-Direct-v0"
-                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125", "RoughBumps25", "Stairs")
-                         if version == 22 or stage not in ("Speed", "Rough125", "RoughBumps25", "Stairs")):
+                         for version in (21, 22) for stage in ("Acquire", "Commands", "Speed", "Variation", "Robust", "Sustained", "Rough125", "RoughBumps25", "Stairs", "VariedLift")
+                         if version == 22 or stage not in ("Speed", "Rough125", "RoughBumps25", "Stairs", "VariedLift")):
     parser.error("this entry point only supports the reviewed V21/V22 tasks")
 family = "current_body_v22" if "CurrentBodyV22" in args.task else "current_body_v21"
 if args.video:
@@ -53,11 +53,14 @@ importlib.import_module("simple_dog_task_" + family)
 
 def train():
     root = Path(__file__).parent
-    agent = yaml.safe_load((root / f"simple_dog_task_{family}/agents/rl_games_ppo_cfg.yaml").read_text())
+    cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
+    agent_file = getattr(cfg, "stride_agent_filename", "rl_games_ppo_cfg.yaml")
+    agent = yaml.safe_load((root / f"simple_dog_task_{family}/agents" / agent_file).read_text())
     agent = apply_agent_profile(agent, load_control_profile())
     config = agent["params"]["config"]
     config["max_epochs"] = args.max_iterations
-    cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
+    if agent_file != "rl_games_ppo_cfg.yaml":
+        config["name"] += "_highlift"
     if family == "current_body_v22":
         from verify_delivery_coordinates import verify
         verify(load_control_profile(), root / "fits" / cfg.stride_reference_filename,
@@ -66,7 +69,16 @@ def train():
     rough_stage = ("RoughBumps25" if "-RoughBumps25-" in args.task
                    else ("Rough125" if "-Rough125-" in args.task else ""))
     stairs_stage = "-Stairs-" in args.task
-    if stairs_stage:
+    if "-VariedLift-" in args.task:
+        from verify_delivery_varied import verify
+        verify()
+        assert cfg.terrain_profile == "varied" and cfg.terrain_curriculum is False
+        assert cfg.stride_reference_filename == "stride-reference-cad-highlift-20260906.json"
+        assert cfg.terrain.terrain_generator.num_cols == 64
+        assert cfg.terrain.terrain_generator.num_rows == 1
+        assert cfg.terrain.terrain_generator.curriculum is True
+        assert len(cfg.stride_command_menu) == 14
+    elif stairs_stage:
         assert cfg.terrain.terrain_type == "generator"
         assert cfg.terrain.terrain_generator is not None
         assert cfg.terrain_curriculum is False

@@ -47,6 +47,38 @@ class StrideReferenceTest {
                 floatArrayOf(Float.NaN, 0f, -1f), 2f)
         }.isFailure)
     }
+
+    @Test
+    fun cadV2UsesItsExplicitLiftFadeSpeeds() {
+        val spec = JSONObject(bytes.toString(Charsets.UTF_8))
+            .put("kind", "stride_reference_cad_v2")
+            .put("joint_coordinate_convention", "cad_drives_v1")
+            .put("lift_m", .03)
+            .put("lift_full_planar_speed_m_s", .02)
+            .put("lift_full_yaw_rate_rad_s", .10)
+        val v2Bytes = spec.toString().toByteArray(Charsets.UTF_8)
+        val reference = StrideReference.parse(v2Bytes, sha256(v2Bytes), profile)
+        val stop = reference.combined(FloatArray(12), floatArrayOf(0f, 0f, 0f),
+            FloatArray(3), floatArrayOf(0f, 0f, -1f), 3f)
+        assertTrue(stop.all { it == 0f })
+        val identity = JSONArray("[[1,0,0],[0,1,0],[0,0,1]]")
+        spec.put("nominal_feet_m", JSONArray("[[0,0,0],[0,0,0],[0,0,0],[0,0,0]]"))
+            .put("inverse_jacobians", JSONArray().also { a -> repeat(4) { a.put(identity) } })
+            .put("phase_offsets", JSONArray("[0,0,0,0]"))
+            .put("frequency_hz", 1.0).put("settle_seconds", 0.0).put("ramp_seconds", 1.0)
+        val probeBytes = spec.toString().toByteArray(Charsets.UTF_8)
+        val probe = StrideReference.parse(probeBytes, sha256(probeBytes), profile)
+        for (command in arrayOf(floatArrayOf(0f, .02f, 0f), floatArrayOf(0f, 0f, .10f))) {
+            val targets = probe.combined(FloatArray(12), command, FloatArray(3),
+                floatArrayOf(0f, 0f, -1f), 2.8f)
+            for (foot in 0..3) assertTrue(kotlin.math.abs(targets[3 * foot + 2] - .1f) < 1e-5f)
+        }
+        val tiny = probe.combined(FloatArray(12), floatArrayOf(0f, .000001f, 0f),
+            FloatArray(3), floatArrayOf(0f, 0f, -1f), 2.8f)
+        for (foot in 0..3) assertTrue(tiny[3 * foot + 2] in 0f..1e-5f)
+    }
 }
 
 private fun JSONArray.floats() = FloatArray(length()) { getDouble(it).toFloat() }
+private fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256")
+    .digest(bytes).joinToString("") { "%02x".format(it) }

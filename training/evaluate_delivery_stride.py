@@ -28,8 +28,10 @@ parser.add_argument("--seconds", type=int, default=20,
 parser.add_argument("--commands", action="store_true", help="Screen slow isolated axes after four seconds forward")
 parser.add_argument("--stage", choices=("commands", "speed", "rough"), default="commands",
                     help="V22 command configuration or fixed rough exploratory screen")
-parser.add_argument("--terrain-profile", choices=("compressed", "bumps25", "stairs"), default="compressed",
-                    help="Rough terrain profile; stairs uses fixed true-riser mesh terrain")
+parser.add_argument("--terrain-profile", choices=("compressed", "bumps25", "stairs", "varied"), default="compressed",
+                    help="Rough terrain profile; varied uses the held-out varied-height mesh")
+parser.add_argument("--gait-profile", choices=("standard", "highlift"), default="standard",
+                    help="Actor/reference profile; highlift selects the measured high-lift contract")
 parser.add_argument("--terrain-kind", choices=("mixture", "uniform", "up", "down",
                                                 "stairs_ascend", "stairs_descend"), default="mixture",
                      help="Rough screen terrain kind; stairs names the physical outward direction")
@@ -64,14 +66,16 @@ if args.start_stationary and not args.commands:
     parser.error("start-stationary requires --commands")
 if args.stage == "rough" and args.variation != "v20-train-envelope":
     parser.error("rough screens require the documented V20 training envelope")
-if args.stage == "rough" and args.terrain_kind == "mixture":
+if args.stage == "rough" and args.terrain_kind == "mixture" and args.terrain_profile != "varied":
     parser.error("rough screen requires an explicit held-out terrain kind")
-if args.terrain_profile in ("bumps25", "stairs") and args.stage != "rough":
+if args.terrain_profile in ("bumps25", "stairs", "varied") and args.stage != "rough":
     parser.error(f"{args.terrain_profile} is valid only for rough screens")
 if args.terrain_profile == "bumps25" and args.terrain_height_fraction != .125:
     parser.error("bumps25 requires terrain height fraction .125 for independently scaled slopes")
 if args.terrain_profile == "stairs" and args.terrain_kind not in ("stairs_ascend", "stairs_descend"):
     parser.error("stairs requires --terrain-kind stairs_ascend or stairs_descend")
+if args.terrain_profile == "varied" and args.terrain_kind != "mixture":
+    parser.error("varied requires --terrain-kind mixture")
 if args.terrain_profile != "stairs" and args.terrain_kind in ("stairs_ascend", "stairs_descend"):
     parser.error("stair terrain kinds require --terrain-profile stairs")
 if args.variation != "nominal" and not args.commands:
@@ -80,6 +84,8 @@ if args.variation != "nominal" and args.family != "v22":
     parser.error("variation is registered only for V22")
 if args.timing_assessment and (args.variation == "nominal" or args.family != "v22"):
     parser.error("timing-assessment requires V22 variation")
+if args.gait_profile == "highlift" and args.family != "v22":
+    parser.error("highlift gait profile requires V22")
 if args.output.exists() or (args.video_folder and args.video_folder.exists()):
     parser.error("refusing to overwrite evidence")
 if f"quadruped_current_body_{args.family}_" not in str(args.checkpoint):
@@ -172,22 +178,29 @@ def evaluate():
         from verify_delivery_stairs import verify as verify_stairs
         terrain_verification = dict(compressed_reference=terrain_verification,
                                     stairs=verify_stairs())
-    stage = (("Stairs" if args.terrain_profile == "stairs"
-              else ("RoughBumps25" if args.terrain_profile == "bumps25" else "Rough125"))
+    elif args.stage == "rough" and args.terrain_profile == "varied":
+        from verify_delivery_varied import verify as verify_varied
+        terrain_verification = dict(compressed_reference=terrain_verification,
+                                    varied=verify_varied())
+    stage = (("VariedLift" if args.terrain_profile == "varied"
+              else ("Stairs" if args.terrain_profile == "stairs"
+              else ("RoughBumps25" if args.terrain_profile == "bumps25" else "Rough125")))
              if args.stage == "rough" else ("Variation" if args.variation != "nominal" else ("Speed" if args.commands and args.stage == "speed" else ("Commands" if args.commands else "Acquire"))))
     task = f"Isaac-Locomotion-CurrentBody{args.family.upper()}-{stage}-Simple-Dog-Direct-v0"
     cfg = parse_env_cfg(task, device=args.device, num_envs=args.num_envs)
     if args.stage == "rough":
         from delivery_terrain import (terrain_for_height, terrain_for_stairs,
-                                      terrain_with_2p5mm_bumps)
+                                      terrain_with_2p5mm_bumps, terrain_for_varied)
         cfg.terrain = (terrain_with_2p5mm_bumps(args.terrain_kind, tile_size=8.0)
                        if args.terrain_profile == "bumps25"
                        else (terrain_for_stairs(args.terrain_kind, args.stair_height_mm,
                                                 args.stair_tread_mm, tile_size=8.0)
                              if args.terrain_profile == "stairs"
-                             else terrain_for_height(args.terrain_height_fraction,
-                                                      args.terrain_kind, tile_size=8.0)))
-        cfg.terrain_height_fraction = (None if args.terrain_profile == "stairs"
+                             else (terrain_for_varied(tile_size=8.0)
+                                   if args.terrain_profile == "varied" else
+                                   terrain_for_height(args.terrain_height_fraction,
+                                                      args.terrain_kind, tile_size=8.0))))
+        cfg.terrain_height_fraction = (None if args.terrain_profile in ("stairs", "varied")
                                        else args.terrain_height_fraction)
         cfg.terrain_kind = args.terrain_kind
         cfg.terrain_profile = args.terrain_profile
@@ -200,6 +213,11 @@ def evaluate():
             cfg.bump_height_range_m = (.0025, .006)
         from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
         cfg.stride_command_menu = CadStrideSpeedCfg().stride_command_menu
+    cfg.stride_reference_filename = ("stride-reference-cad-highlift-20260906.json"
+                                     if args.gait_profile == "highlift"
+                                     else ("stride-reference-cad-20260906.json"
+                                           if args.family == "v22" else
+                                           "stride-reference-20260905.json"))
     if args.stage == "speed" and args.variation != "nominal":
         from simple_dog_task_current_body_v22.env_cfg import CadStrideSpeedCfg
         cfg.stride_command_menu = CadStrideSpeedCfg().stride_command_menu
@@ -266,7 +284,8 @@ def evaluate():
     base = env.unwrapped
     variation_initial = base.variation_snapshot() if args.variation != "nominal" else None
     try:
-        params, actor = build_actor(Path(__file__).parent / f"simple_dog_task_current_body_{args.family}/agents/rl_games_ppo_cfg.yaml")
+        actor_cfg = "rl_games_ppo_highlift_cfg.yaml" if args.gait_profile == "highlift" else "rl_games_ppo_cfg.yaml"
+        params, actor = build_actor(Path(__file__).parent / f"simple_dog_task_current_body_{args.family}/agents/{actor_cfg}")
         if args.family == "v22":
             from robot_control_profile import load_control_profile
             from verify_delivery_coordinates import verify
@@ -309,6 +328,13 @@ def evaluate():
         previous_contact = torch.ones_like(air, dtype=torch.bool)
         air_streak = torch.zeros_like(air)
         max_air_streak = torch.zeros_like(air)
+        # Direct foot-body displacement, measured only for completed
+        # liftoff-to-landing swings. This is foot lift, not terrain clearance.
+        swing_active = torch.zeros_like(air, dtype=torch.bool)
+        swing_baseline_z = torch.zeros_like(air)
+        swing_peak_z = torch.zeros_like(air)
+        swing_started_step = torch.full_like(air, -1., dtype=torch.int64)
+        foot_lift_samples = [[[] for _ in range(4)] for _ in range(args.num_envs)]
         yaw_sum = torch.zeros(args.num_envs, device=base.device)
         command_sums = torch.zeros(args.num_envs, 5, device=base.device)
         max_tilt = torch.zeros_like(yaw_sum)
@@ -321,6 +347,12 @@ def evaluate():
         expected_command = base._commands.clone()
         fixed_command = torch.tensor([cfg.stride_command_menu[i % len(cfg.stride_command_menu)]
                                       for i in range(args.num_envs)], device=base.device) if args.commands else None
+        foot_position_field = "body_link_pos_w" if hasattr(base._robot.data, "body_link_pos_w") else "body_com_pos_w"
+        foot_position = getattr(base._robot.data, foot_position_field)
+        initial_foot_z = foot_position.torch[:, base._feet_body_ids, 2]
+        previous_foot_z = initial_foot_z.clone()
+        swing_baseline_z.copy_(initial_foot_z)
+        swing_peak_z.copy_(initial_foot_z)
         with torch.inference_mode():
             for step in range(total_steps):
                 assert obs["policy"].shape == (args.num_envs, 428)
@@ -333,7 +365,8 @@ def evaluate():
                 if not torch.isfinite(residual).all():
                     raise RuntimeError("nonfinite residual")
                 obs, reward, terminated, truncated, _ = env.step(residual.clamp(-1., 1.))
-                resets += terminated | truncated
+                done = terminated | truncated
+                resets += done
                 if args.stage == "rough" and args.terrain_profile == "stairs":
                     hits = base._height_scanner.data.ray_hits_w.torch[..., 2]
                     stair_ray_min = torch.minimum(stair_ray_min, hits.amin(dim=1))
@@ -348,6 +381,29 @@ def evaluate():
                     if not torch.allclose(base._commands, expected_command, atol=1e-7, rtol=0):
                         raise RuntimeError(f"command timing/smoothing mismatch at step {step}")
                 contact = base._contact_sensor.data.current_contact_time.torch[:, base._feet_sensor_ids] > 0
+                foot_position = getattr(base._robot.data, foot_position_field)
+                foot_z = foot_position.torch[:, base._feet_body_ids, 2]
+                liftoff = previous_contact & ~contact
+                swing_baseline_z = torch.where(liftoff, previous_foot_z, swing_baseline_z)
+                swing_peak_z = torch.where(liftoff, torch.maximum(previous_foot_z, foot_z),
+                                           torch.maximum(swing_peak_z, foot_z))
+                swing_started_step = torch.where(
+                    liftoff, torch.full_like(swing_started_step, step), swing_started_step)
+                swing_active |= liftoff
+                landing = swing_active & contact & ~previous_contact
+                if step >= 300:
+                    completed_lift = (swing_peak_z - swing_baseline_z).detach().cpu()
+                    complete_cycle = landing & ~done[:, None] & (swing_started_step >= 300)
+                    for env_id, foot_id in zip(*torch.where(complete_cycle)):
+                        value = float(completed_lift[env_id, foot_id])
+                        if np.isfinite(value) and value >= 0.:
+                            foot_lift_samples[int(env_id)][int(foot_id)].append(value)
+                swing_active &= ~landing
+                swing_active &= ~done[:, None]
+                swing_started_step = torch.where(
+                    done[:, None], torch.full_like(swing_started_step, -1), swing_started_step)
+                previous_foot_z = foot_z
+                previous_contact = torch.where(done[:, None], contact, previous_contact)
                 if step >= 300:
                     motion = base._semantic_vector_b(base._robot.data.root_lin_vel_b.torch)
                     height, roll, pitch = base._body_posture()
@@ -389,6 +445,17 @@ def evaluate():
                        max_continuous_air_s_frflbrbl=(max_air_streak[i] / 50).cpu().tolist(),
                        mean_abs_yaw_rate_rad_s=float(yaw_sum[i] / measured_steps),
                        max_tilt_rad=float(max_tilt[i]), min_height_m=float(min_height[i]))
+            lift_stats = []
+            for samples in foot_lift_samples[i]:
+                values_np = np.asarray(samples, dtype=float)
+                lift_stats.append(dict(
+                    mean_m=float(values_np.mean()) if values_np.size else None,
+                    median_m=float(np.median(values_np)) if values_np.size else None,
+                    p95_m=float(np.percentile(values_np, 95)) if values_np.size else None,
+                    max_m=float(values_np.max()) if values_np.size else None,
+                    count=int(values_np.size),
+                ))
+            row["foot_swing_lift_m"] = lift_stats
             if args.stage == "rough" and args.terrain_profile == "stairs":
                 row.update(terrain_ray_z_min_m=float(stair_ray_min[i]),
                            terrain_ray_z_max_m=float(stair_ray_max[i]),
@@ -407,6 +474,8 @@ def evaluate():
                     joint_coordinate_convention=cfg.joint_coordinate_convention,
                     checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
                     source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                    gait_profile=args.gait_profile,
+                    stride_reference_filename=cfg.stride_reference_filename,
                     seed=args.seed, control_hz=50, simulation_seconds=args.seconds,
                     measured_seconds=measured_steps / 50,
                     window_columns=["mean_forward_m_s", "mean_abs_lateral_m_s", "mean_tilt_rad",
@@ -418,6 +487,9 @@ def evaluate():
                     initial_command=list(cfg.stride_command), start_stationary=args.start_stationary,
                     command=None if args.commands else [.04, 0., 0.], command_menu=(
                         [list(command) for command in cfg.stride_command_menu] if args.commands else None), results=rows,
+                    foot_lift_measurement=("per-foot world-Z rise from liftoff to completed landing; "
+                                           "measured over complete swings after the 6 s warmup; "
+                                           "not terrain clearance; selected point=" + foot_position_field),
                     variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
                     timing_assessment=bool(args.timing_assessment),
                     variation_config=(dict(domain_randomization_enabled=cfg.domain_randomization_enabled,

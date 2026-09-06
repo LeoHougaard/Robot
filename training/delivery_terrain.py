@@ -178,3 +178,61 @@ def terrain_for_stairs(kind="mixture", step_height_mm=6, step_width_mm=200,
         generator.num_cols = 1
     generator.sub_terrains = sub_terrains
     return terrain
+
+
+def terrain_for_varied(tile_size=8.0):
+    """Build the fixed 64-column varied-terrain training mixture.
+
+    Column assignment is deterministic through Isaac's curriculum ordering;
+    the environment-level terrain curriculum remains disabled by the stage
+    config.  The mixture is 20 flat, 16 bump, 4 slope, and 24 stair columns.
+    """
+    import copy
+    import isaaclab.terrains as terrain_gen
+    from simple_dog_task_current_body_v20.env_cfg import _terrain
+
+    if tile_size != 8.0:
+        raise ValueError("varied terrain is reviewed only on 8 m tiles")
+
+    varied = copy.deepcopy(_terrain)
+    generator = varied.terrain_generator
+    generator.size = (tile_size, tile_size)
+    generator.num_rows = 1
+    generator.num_cols = 64
+    generator.difficulty_range = (0.0, 0.0)
+    generator.curriculum = True
+
+    bumps = terrain_with_2p5mm_bumps(tile_size=tile_size)
+    bump_cfg = bumps.terrain_generator.sub_terrains["small_uneven"]
+    # The 8 m source generator uses a 2.5 mm vertical quantization, which
+    # cannot represent the 1 mm reviewed bump step. Keep the explicit bump
+    # range while using the existing 1 mm heightfield resolution.
+    bump_cfg.vertical_scale = .001
+    # The regular pyramid slopes down away from the center; the inverted
+    # pyramid slopes up. Name the columns by physical travel direction.
+    slope_ascend_quarter = terrain_for_height(.25, "down", tile_size).terrain_generator.sub_terrains["gentle_down"]
+    slope_ascend_half = terrain_for_height(.5, "down", tile_size).terrain_generator.sub_terrains["gentle_down"]
+    slope_descend_quarter = terrain_for_height(.25, "up", tile_size).terrain_generator.sub_terrains["gentle_up"]
+    slope_descend_half = terrain_for_height(.5, "up", tile_size).terrain_generator.sub_terrains["gentle_up"]
+
+    sub_terrains = {
+        "floor": terrain_gen.MeshPlaneTerrainCfg(proportion=20.0 / 64.0),
+    }
+    for index in range(16):
+        sub_terrains[f"bumps_{index:02d}"] = copy.deepcopy(bump_cfg)
+        sub_terrains[f"bumps_{index:02d}"].proportion = 1.0 / 64.0
+    for name, cfg in (("slope_ascend_25", slope_ascend_quarter),
+                      ("slope_ascend_50", slope_ascend_half),
+                      ("slope_descend_25", slope_descend_quarter),
+                      ("slope_descend_50", slope_descend_half)):
+        sub_terrains[name] = copy.deepcopy(cfg)
+        sub_terrains[name].proportion = 1.0 / 64.0
+    for direction in ("stairs_ascend", "stairs_descend"):
+        for height in STAIR_HEIGHTS_MM:
+            for width in STAIR_TREAD_WIDTHS_MM:
+                name = f"{direction}_{height}mm_{width}mm"
+                stair_cfg = terrain_for_stairs(direction, height, width, tile_size).terrain_generator.sub_terrains[name]
+                sub_terrains[name] = copy.deepcopy(stair_cfg)
+                sub_terrains[name].proportion = 1.0 / 64.0
+    generator.sub_terrains = sub_terrains
+    return varied

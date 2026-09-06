@@ -2,7 +2,7 @@
 from isaaclab.utils.configclass import configclass
 from simple_dog_task_current_body_v21.env_cfg import StrideAcquireCfg, StrideCommandsCfg
 from delivery_terrain import (BUMP_HEIGHT_RANGE_M, terrain_for_height,
-                              terrain_for_stairs, terrain_with_2p5mm_bumps)
+                              terrain_for_stairs, terrain_for_varied, terrain_with_2p5mm_bumps)
 
 
 @configclass
@@ -111,4 +111,15 @@ class CadStrideStairsCfg(CadStrideSustainedCfg):
     terrain_height_range_m = (.006, .020)
     terrain_step_width_range_m = (.15, .25)
     terrain = terrain_for_stairs()
+    terrain_curriculum = False
+
+
+@configclass
+class CadStrideVariedLiftCfg(CadStrideSustainedCfg):
+    """Mixed terrain practice with a separately identified higher stride."""
+    stride_command_menu = CadStrideSpeedCfg().stride_command_menu
+    stride_reference_filename = "stride-reference-cad-highlift-20260906.json"
+    stride_agent_filename = "rl_games_ppo_highlift_cfg.yaml"
+    terrain_profile = "varied"
+    terrain = terrain_for_varied()
     terrain_curriculum = False

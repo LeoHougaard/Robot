@@ -30,10 +30,15 @@ def stride_reference(command, posture, gravity, elapsed, specification):
                      - velocity * (1. - duty) / frequency * endpoint_slope)
         return torch.where(phase < duty, amplitude * (1. - 2. * phase / duty), returning)
 
-    # Lift fades with the already smoothed motion command. Zero motion does
-    # not request a stepping cycle, including during posture-only control.
-    moving = (torch.linalg.vector_norm(command[:, :2], dim=-1) / .04
-              + command[:, 2].abs() / .2).clamp(0., 1.)[:, None]
+    # Lift fades with the motion command. V2 references carry their own full
+    # lift speeds; legacy references retain the calibrated V1 defaults.
+    if specification.get("kind") == "stride_reference_cad_v2":
+        planar_speed = specification["lift_full_planar_speed_m_s"]
+        yaw_rate = specification["lift_full_yaw_rate_rad_s"]
+    else:
+        planar_speed, yaw_rate = .04, .2
+    moving = (torch.linalg.vector_norm(command[:, :2], dim=-1) / planar_speed
+              + command[:, 2].abs() / yaw_rate).clamp(0., 1.)[:, None]
     z = torch.where(phase < duty, 0., specification["lift_m"] * torch.sin(math.pi * swing).square()) * moving
     desired_gravity = torch.stack((-torch.sin(posture[:, 2]),
                                    torch.sin(posture[:, 1]) * torch.cos(posture[:, 2]),
