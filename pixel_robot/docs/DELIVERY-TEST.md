@@ -214,3 +214,21 @@ walking baseline, not a passed physical reliability or balance gate.
 See [the analysis and next experiment sequence](../../training/FIRST-FLOOR-WALK-20260906.md)
 for provenance, measured limitations and the corrected interpretation of the
 old offline 50 Hz gate. Raw captures and graphs remain outside Git.
+
+
+## Epoch 3750 Pixel test handoff (2026-09-07)
+
+The Pixel at `10.1.39.188:41395` has the restricted epoch 3750 test actor installed.
+
+- Checkpoint SHA-256: `964b3d4fc7e40ce841e1ef6167f162d0af89d8f9f8057757bf07e16ba79ea8b5`
+- Portable weights SHA-256: `4a4b716411962ee95c1cd6e6fafd815d8d9e8020eaa2393ef1edc4c3f1491c2e`
+- ONNX actor SHA-256: `b12395bccd9410a7c1ac4017e46b70e9b161cc3641839b9ada2d08252c20142a`
+- Installed APK SHA-256: `7efed627a69bcdbc8e02ab4e17ac5ba7f6142ae5490ca37a4d093ecbd98fc5a6`
+- On-device `OnnxPolicyParityTest`: 1 test passed.
+- Host `StrideReferenceTest` and `StrideSessionTest`: passed.
+
+The app was updated with `adb install -r -d`; existing app data and calibration were retained. The app starts successfully. Physical 50 Hz feedback, torque, and walking remain pending the ESP32-connected test; no motor command was issued during installation or verification.
+
+The installed APK uses the laptop runtime build and its existing signing key.
+This repository records the matching policy bundle and activation guard; it
+is not a claim that the installed APK was built from this entire checkout.

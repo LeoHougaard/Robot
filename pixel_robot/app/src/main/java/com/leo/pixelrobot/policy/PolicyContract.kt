@@ -278,10 +278,10 @@ class PolicyContract private constructor(value: JSONObject) {
             if (it.usesStrideReference) it.requireLiveActivationCandidate()
         }
 
-        private const val ACCEPTED_CANDIDATE_EPOCH = 2750
-        private const val ACCEPTED_CANDIDATE_CHECKPOINT_SHA256 = "ed52b4f3502fb3d0fb64ad4b258c3cdc623e37d0fab96dad02e8f11a1644e940"
+        private const val ACCEPTED_CANDIDATE_EPOCH = 3750
+        private const val ACCEPTED_CANDIDATE_CHECKPOINT_SHA256 = "964b3d4fc7e40ce841e1ef6167f162d0af89d8f9f8057757bf07e16ba79ea8b5"
         private const val ACCEPTED_CANDIDATE_PROFILE_SHA256 = "2e249f1a8efc7df0fca72dfaf2e50712a2b108874bdf7a883cbd69f02b25ca0d"
-        private const val ACCEPTED_CANDIDATE_WEIGHTS_SHA256 = "95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c"
+        private const val ACCEPTED_CANDIDATE_WEIGHTS_SHA256 = "4a4b716411962ee95c1cd6e6fafd815d8d9e8020eaa2393ef1edc4c3f1491c2e"
         private const val ACCEPTED_CANDIDATE_REFERENCE_SHA256 = "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2"
 
         fun parse(json: String): PolicyContract = PolicyContract(JSONObject(json))
