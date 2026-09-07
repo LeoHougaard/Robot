@@ -232,3 +232,23 @@ The app was updated with `adb install -r -d`; existing app data and calibration 
 The installed APK uses the laptop runtime build and its existing signing key.
 This repository records the matching policy bundle and activation guard; it
 is not a claim that the installed APK was built from this entire checkout.
+
+### Corrected runtime after first-frame failure
+
+The initial epoch-3750 APK above was incorrectly built from the older laptop
+runtime, version 0.2.7/code 9. Actor parity passed but did not test construction
+of the V22 observations. Leo's first policy start failed before frame 1 with
+`Failed requirement`. The ST3215 load/current explanation was informational
+and unrelated to the failure.
+
+The corrected APK is built from the reviewed Robot-delivery runtime, version
+0.2.9/code 11, and signed with the existing laptop key. Its SHA256 is
+`ac3b49a5fff25765c2302b08f422988eba1a012dd8f4e41b2223cfcf3a1d5d7e`.
+App data was retained. Both on-device `InstalledPolicyFrameTest` and
+`OnnxPolicyParityTest` passed. The added test runs the installed epoch-3750
+contract, calibrated synthetic sensor feedback, 428-input observation builder,
+ONNX actor, and stride action processing for 60 frames without opening USB or
+starting a service. It also checks the first 50 frames' reset hold.
+
+This verifies the formerly missing runtime path, not physical control timing
+or walking. No agent initiated a physical policy retry.
