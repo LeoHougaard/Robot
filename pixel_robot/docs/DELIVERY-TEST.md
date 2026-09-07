@@ -273,3 +273,19 @@ serial device was attached to the laptop when checked.
 the installed policy through the monitor-only firmware parser while recording
 TX/RX evidence. It has not been run. The packet failure is not yet fixed;
 next step is the direct USB firmware update and motor-disabled reproduction.
+
+Diagnostic firmware was subsequently flashed through laptop COM3 after manual
+download mode. The CP210x serial is `D822EACDED72EF119FD0734F8FCC3FA0`,
+and the ESP32 MAC is `30:76:f5:00:ae:74`. Esptool verified the written regions;
+NVS was not erased. Post-flash hello confirmed `0.1.16-rxdiag`, disarmed,
+monitor support, and the 8192-byte RX buffer.
+
+Monitor admission then failed because the servo bus did not respond: all
+twelve read-only torque-register probes returned no bytes, measured positions
+were empty, and battery voltage was unavailable. This does not establish
+enabled torque. The packet reproduction awaits restored servo power.
+The packet-count problem remains unresolved.
+
+The Android monitor diagnostic now distinguishes actual parser diagnostics
+from ordinary feedback, aborts if monitoring reports armed state, and cannot
+mark a run with recorded errors as passing. Instrumentation compilation passed.

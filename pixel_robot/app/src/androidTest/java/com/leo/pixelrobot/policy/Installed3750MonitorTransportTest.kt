@@ -102,6 +102,9 @@ class Installed3750MonitorTransportTest {
                 val item = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
                 if (item.first.optString("type") == "error") {
                     normalErrors += item.first.toString()
+                    item.first.optJSONObject("policy_frame_diagnostic")?.let {
+                        firmwareDiagnostics += JSONObject(it.toString())
+                    }
                     continue
                 }
                 if (item.first.optString("type") == type) return item
@@ -142,10 +145,10 @@ class Installed3750MonitorTransportTest {
             repeat(1250) { index ->
                     val (state, hostNs) = receive("policy_monitor_state")
                     val computeStart = SystemClock.elapsedRealtimeNanos()
-                    if (state.optBoolean("armed") || !state.optBoolean("feedback_complete")) normalErrors += "state_not_complete:$index"
+                    check(!state.getBoolean("armed")) { "monitor reported armed state; aborting diagnostic" }
+                    if (!state.optBoolean("feedback_complete")) normalErrors += "state_not_complete:$index"
                     if (state.getLong("missed_feedback_periods") != 0L) normalErrors += "missed_feedback:$index"
                     if (state.getLong("tick") != previousTick + 1) normalErrors += "tick_gap:$index"
-                    firmwareDiagnostics += JSONObject(state.toString())
                     previousTick = state.getLong("tick")
                     val ack = state.getLong("seq")
                     if (ack !in maxOf(0L, index.toLong() - 2)..index.toLong()) normalErrors += "ack_stalled:$index"
@@ -191,6 +194,7 @@ class Installed3750MonitorTransportTest {
             assertTrue(report.toString(), report.getDouble("sample_p99_ms") <= 25 && report.getDouble("sample_max_ms") <= 40)
             assertTrue(report.toString(), report.getDouble("compute_p99_ms") < 10)
             assertTrue(report.toString(), report.getDouble("current_complete_fraction") >= .99)
+            assertTrue("monitor reported errors: $normalErrors", normalErrors.isEmpty())
             outcome = "passed"
         } finally {
             SystemClock.sleep(250)
