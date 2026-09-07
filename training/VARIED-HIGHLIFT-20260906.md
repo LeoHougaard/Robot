@@ -1,4 +1,4 @@
-# Varied terrain and higher foot lift
+﻿# Varied terrain and higher foot lift
 
 Leo requested varied terrain rather than predominantly stairs, and higher
 foot lift. Preserve epoch 3750 as the general walking baseline. The stair
@@ -55,3 +55,53 @@ this linkage. Those foot-rise values are superseded. The corrected diagnostic
 extracts the neutral sole point from the CAD collision mesh and transforms
 it with the live link pose; body and contact-sensor ordering is checked.
 The earlier runs remain useful for balance, progress, resets, and visuals.
+
+## Completed continuation: epoch 3750 to 4750
+
+The CurrentBody V22 high lift fork completed its bounded 1,000 epoch continuation on the GB10 in run `20260906T230448Z-train-73173` (experiment `2026-09-06_23-05-05`). It used 128 environments, the varied terrain mix (20 flat, 16 bumps at 2.5–6 mm, 4 gentle slopes, and 24 stairs spanning 6–20 mm with 150–250 mm treads), and source snapshot commit `73cea6b`. The fork preserved parent checkpoint SHA `314d6f0e8a03eb531440b249290793329325bec23371c9078f5cee0fca5368dc`. The selected epoch-4750 checkpoint is:
+
+`/home/leo/isaac-workspace/projects/training/logs/rl_games/quadruped_current_body_v22_assembly_four_leg_linkage_12dof_highlift/2026-09-06_23-05-05/nn/last_quadruped_current_body_v22_assembly_four_leg_linkage_12dof_highlift_ep_4750_rew_297.18176.pth`
+
+SHA256: `5b1dfa039cab30f7599e27c872cf10a30918c11e535c7257a82a812148a841d7`.
+
+The checkpoint and run provenance are preserved outside Git at `C:\Users\Leo\Videos\Robot-policy-review-20260905\preserved-epoch4750`, including the source manifest, control profile, simulation fit, source checkpoint record, and launcher metadata. The matched post-training evaluations are recorded below; this candidate is not promoted and no installed policy bundle was changed.
+
+The corrected sole-point measurement uses the lowest collision-sole material
+point transformed by body link pose. Results are ordered by semantic foot
+names `[FR, FL, BR, BL]`; the old diagnostic label `[base, LF, RR, LR]` was
+incorrect for this CAD linkage.
+
+The 20-case post queue completed. Gate failure counts were:
+
+| Case | Baseline | High lift candidate |
+|---|---:|---:|
+| flat60 | 0 | 4 |
+| flat timing60 | 0 | 2 |
+| bumps20 | 0 | 5 |
+| slope up / down | 1 / 2 | 3 / 2 |
+| stairs 6 mm ascend | 12 | 6 |
+| stairs 20 mm ascend | 22 | 29 |
+| stairs 20 mm descend | 33 | 24 |
+| video checks (bumps / flat / stairs6 / stairs20) | — | 2 / 1 / 5 / 3 |
+
+For the nominal `.06 m/s` forward command on flat ground, corrected sole
+mean rises in metres were `[0.000965, 0.001123, 0.012051, 0.003616]` for the
+baseline and `[0.001571, 0.001408, 0.025255, 0.013703]` for the candidate,
+ordered `[FR, FL, BR, BL]`. The candidate raises the aggregate measurement,
+but that does not mean every foot improved on every command; the FL median in
+this command was only `0.000084 m` in the candidate.
+
+The candidate remains an unpromoted controller experiment. The retained
+epoch-3750 checkpoint remains the baseline, and no installed policy bundle was
+changed.
+
+
+The PPO continuation took 3271.16 seconds. Evaluation evidence is retained at
+`/home/leo/isaac-workspace/projects/training/reviews/varied-highlift-sole-20260906/post`.
+All four recorded rollout contact sheets were visually reviewed: the robot
+remains upright, but the stair clips show hesitation and limited traversal.
+The 20 mm clip does not demonstrate a successful sustained climb. Videos and
+the muted review page are under `C:\Users\Leo\Videos\Robot-policy-review-20260905\speed-20260906\latest-varied.html`.
+The next behavioral issue to address is front-foot scuffing and lateral
+wobble while retaining the broader terrain mix; a larger reference alone
+did not produce a uniformly higher, balanced gait.
