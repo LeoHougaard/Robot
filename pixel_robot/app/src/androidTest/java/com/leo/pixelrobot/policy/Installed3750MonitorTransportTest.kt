@@ -73,6 +73,7 @@ class Installed3750MonitorTransportTest {
         val queue = ArrayBlockingQueue<Pair<JSONObject, Long>>(8)
         val normalErrors = mutableListOf<String>()
         val firmwareDiagnostics = mutableListOf<JSONObject>()
+        val startupTimings = mutableListOf<JSONObject>()
         val decoder = JsonLineDecoder()
         val recorder = RunSessionRecorder(File(context.filesDir, "transport_diagnostics"), {
             JSONObject().put("mode", "torque_off_no_motor_writes")
@@ -103,11 +104,11 @@ class Installed3750MonitorTransportTest {
             recorder.recordRobotTx(bytes)
             transport.write(bytes)
         }
-        fun receive(type: String): Pair<JSONObject, Long> {
+        fun receive(type: String, ignoreStickyFailure: Boolean = false): Pair<JSONObject, Long> {
             val until = SystemClock.elapsedRealtime() + 2000
             var retryHelloAt = SystemClock.elapsedRealtime() + 250
             while (SystemClock.elapsedRealtime() < until) {
-                failure.get()?.let { throw it }
+                if (!ignoreStickyFailure) failure.get()?.let { throw it }
                 if (type == "hello" && SystemClock.elapsedRealtime() >= retryHelloAt) {
                     send(JSONObject().put("cmd", "hello"))
                     retryHelloAt = SystemClock.elapsedRealtime() + 250
@@ -127,6 +128,12 @@ class Installed3750MonitorTransportTest {
         }
         var outcome = "failed"
         var loadedPolicy: OnnxPolicy? = null
+        var reportWritten = false
+        var serialErrorsBefore: LongArray? = null
+        var serialErrorDeltas: LongArray? = null
+        var postHello: JSONObject? = null
+        var firmwareVersion = "unknown"
+        var missedFeedbackEvents = 0L
         try {
             val policy = OnnxPolicy(candidateAssets, contract.profileId, contract.profileSha256,
                 contract.weightsSha256, contract.observationSize, candidateAssetPrefix)
@@ -134,11 +141,18 @@ class Installed3750MonitorTransportTest {
             transport.open()
             send(JSONObject().put("cmd", "hello"))
             val hello = receive("hello").first
+            firmwareVersion = hello.optString("version", "unknown")
             check(!hello.getBoolean("policyArmed") && !hello.optBoolean("policyMonitoring"))
             check(hello.optBoolean("supportsTorqueOffPolicyMonitor")) { "Flash firmware 0.1.15 or later first" }
             check(hello.getInt("policyFeedbackIntervalMs") == 20)
-            send(JSONObject().put("cmd", "policy_monitor").put("duration_ms", 30000))
-            check(receive("ok").first.getString("cmd") == "policy_monitor")
+            serialErrorsBefore = hello.optJSONArray("serialErrorCounts")?.let { array ->
+                LongArray(array.length()) { array.getLong(it) }
+            }
+            if (hello.has("serialFifoThresholdConfigured")) {
+                check(hello.getBoolean("serialFifoThresholdConfigured"))
+            }
+            // Match production initialization: construct sensors/session and load the actor
+            // before starting the firmware's periodic monitor stream.
             val sensors = PolicySensors(calibration, .02f)
             val reference = candidateAssets.open("stride_reference.json")
                 .use { it.readBytes() }
@@ -148,27 +162,48 @@ class Installed3750MonitorTransportTest {
             val posture = FloatArray(3)
             var applied = FloatArray(12)
             val actions = mutableMapOf(0L to applied.copyOf())
+            session.reset()
+            send(JSONObject().put("cmd", "policy_monitor").put("duration_ms", 30000)
+                .put("compact_feedback", true))
+            check(receive("ok").first.getString("cmd") == "policy_monitor")
             val sampleIntervals = mutableListOf<Double>()
             val hostIntervals = mutableListOf<Double>()
-            val computeTimes = mutableListOf<Double>()
+            val inferenceTimes = mutableListOf<Double>()
+            val sendTimes = mutableListOf<Double>()
+            val frameTimes = mutableListOf<Double>()
             var previousHost = 0L
             var previousTick = 0L
             var currentComplete = 0
-            session.reset()
+            var previousMissedFeedback = 0L
             repeat(1250) { index ->
                     val (state, hostNs) = receive("policy_monitor_state")
-                    val computeStart = SystemClock.elapsedRealtimeNanos()
+                    val frameStart = SystemClock.elapsedRealtimeNanos()
                     check(!state.getBoolean("armed")) { "monitor reported armed state; aborting diagnostic" }
+                    check(state.optBoolean("compact")) { "monitor feedback was not compact" }
                     if (!state.optBoolean("feedback_complete")) normalErrors += "state_not_complete:$index"
-                    if (state.getLong("missed_feedback_periods") != 0L) normalErrors += "missed_feedback:$index"
+                    val missedFeedback = state.getLong("missed_feedback_periods")
+                    if (missedFeedback < previousMissedFeedback) {
+                        normalErrors += "missed_feedback_counter_regressed:$index"
+                    } else if (missedFeedback > previousMissedFeedback) {
+                        missedFeedbackEvents += missedFeedback - previousMissedFeedback
+                    }
+                    previousMissedFeedback = missedFeedback
                     if (state.getLong("tick") != previousTick + 1) normalErrors += "tick_gap:$index"
                     previousTick = state.getLong("tick")
                     val ack = state.getLong("seq")
                     if (ack !in maxOf(0L, index.toLong() - 2)..index.toLong()) normalErrors += "ack_stalled:$index"
+                    val sampleStart = SystemClock.elapsedRealtimeNanos()
                     val sample = sensors.read(state, calibration.gyroBiasDps)
+                    val observationStart = SystemClock.elapsedRealtimeNanos()
                     val observation = session.observation(sample, command, posture, checkNotNull(actions[ack]))
+                    val observationDone = SystemClock.elapsedRealtimeNanos()
+                    val inferenceStart = SystemClock.elapsedRealtimeNanos()
                     val requested = policy.action(observation)
+                    val inferenceDone = SystemClock.elapsedRealtimeNanos()
+                    inferenceTimes += (SystemClock.elapsedRealtimeNanos() - inferenceStart) / 1_000_000.0
+                    val actionStart = SystemClock.elapsedRealtimeNanos()
                     val next = session.action(requested, command, posture, sample.imu.copyOfRange(3, 6))
+                    val actionDone = SystemClock.elapsedRealtimeNanos()
                     applied = next.applied
                     val targets = calibration.servoTargets(FloatArray(12) { contract.positionTargetScaleRadians * applied[it] })
                     val sequence = index.toLong() + 1
@@ -177,46 +212,106 @@ class Installed3750MonitorTransportTest {
                     // Identical target decoding, but firmware never calls the motor write path for this command.
                     val packet = JSONObject(RobotProtocol.policyFrame(sequence, targets).toString(Charsets.UTF_8))
                     packet.put("cmd", "policy_monitor_frame")
+                    val formatDone = SystemClock.elapsedRealtimeNanos()
                     send(packet)
+                    if (index >= 50) sendTimes += (SystemClock.elapsedRealtimeNanos() - frameStart) / 1e6
                     recorder.recordDerivedFrame(JSONObject().put("observation", JSONArray(observation.toList()))
                         .put("requested_action", JSONArray(requested.toList())).put("input_robot_state", state))
+                    val recordDone = SystemClock.elapsedRealtimeNanos()
+                    if (index < 10) startupTimings += JSONObject()
+                        .put("index", index)
+                        .put("sample_ms", (observationStart - sampleStart) / 1e6)
+                        .put("observation_ms", (observationDone - observationStart) / 1e6)
+                        .put("inference_ms", (inferenceDone - inferenceStart) / 1e6)
+                        .put("action_ms", (actionDone - actionStart) / 1e6)
+                        .put("format_send_ms", (formatDone - actionDone) / 1e6)
+                        .put("record_ms", (recordDone - formatDone) / 1e6)
+                        .put("frame_ms", (recordDone - frameStart) / 1e6)
                     session.completeFrame()
                     if (index >= 50) {
                         sampleIntervals += sample.dt.toDouble() * 1000
                         hostIntervals += (hostNs - previousHost) / 1e6
-                        computeTimes += (SystemClock.elapsedRealtimeNanos() - computeStart) / 1e6
+                        frameTimes += (SystemClock.elapsedRealtimeNanos() - frameStart) / 1e6
                         if (state.getBoolean("current_complete")) currentComplete++
                     }
                     previousHost = hostNs
             }
             fun percentile(values: List<Double>, fraction: Double) = values.sorted()[((values.size - 1) * fraction).toInt()]
+            send(JSONObject().put("cmd", "hello"))
+            val helloAfter = receive("hello").first
+            postHello = helloAfter
+            serialErrorDeltas = serialErrorsBefore?.let { before ->
+                val after = helloAfter.optJSONArray("serialErrorCounts")
+                check(after != null && after.length() == before.size) { "missing serial error counters after monitor" }
+                LongArray(before.size) { counter -> after.getLong(counter) - before[counter] }
+            }
             val report = JSONObject().put("firmware", hello.getString("version"))
                 .put("startup_partial_lines", startupFragments.get())
                 .put("normal_error_count", normalErrors.size)
                 .put("normal_errors", JSONArray(normalErrors))
+                .put("startup_timings", JSONArray(startupTimings))
+                .put("callback_failure", failure.get()?.toString() ?: JSONObject.NULL)
+                .put("missed_feedback_events", missedFeedbackEvents)
+                .put("serial_error_counts_before", JSONArray(serialErrorsBefore?.toList() ?: emptyList<Long>()))
+                .put("serial_error_count_deltas", JSONArray(serialErrorDeltas?.toList() ?: emptyList<Long>()))
                 .put("firmware_diagnostic_count", firmwareDiagnostics.size)
                 .put("firmware_diagnostic_last", firmwareDiagnostics.lastOrNull() ?: JSONObject())
                 .put("weights_sha256", contract.weightsSha256).put("measured_frames", sampleIntervals.size)
                 .put("firmware_hz", 1000 / sampleIntervals.average()).put("host_hz", 1000 / hostIntervals.average())
                 .put("sample_p99_ms", percentile(sampleIntervals, .99)).put("sample_max_ms", sampleIntervals.max())
-                .put("compute_p99_ms", percentile(computeTimes, .99)).put("current_complete_fraction", currentComplete / 1200.0)
+                .put("inference_p99_ms", percentile(inferenceTimes.drop(50), .99))
+                .put("send_p99_ms", percentile(sendTimes, .99))
+                .put("frame_p99_ms", percentile(frameTimes, .99)).put("frame_max_ms", frameTimes.max())
+                .put("current_complete_fraction", currentComplete / 1200.0)
                 .put("motor_targets_written", false).put("physical_walking_verified", false)
             File(context.filesDir, "motor-disabled-transport-result.json").writeText(report.toString(2))
+            reportWritten = true
             assertTrue(report.toString(), report.getDouble("firmware_hz") in 49.5..50.5)
             assertTrue(report.toString(), report.getDouble("host_hz") in 49.5..50.5)
             assertTrue(report.toString(), report.getDouble("sample_p99_ms") <= 25 && report.getDouble("sample_max_ms") <= 40)
-            assertTrue(report.toString(), report.getDouble("compute_p99_ms") < 10)
+            assertTrue(report.toString(), report.getDouble("inference_p99_ms") < 10)
+            assertTrue(report.toString(), report.getDouble("send_p99_ms") < 10)
+            assertTrue(report.toString(), report.getDouble("frame_p99_ms") < 20)
+            assertTrue(report.toString(), serialErrorDeltas?.all { it == 0L } != false)
+            assertTrue(report.toString(), missedFeedbackEvents == 0L)
             assertTrue(report.toString(), report.getDouble("current_complete_fraction") >= .99)
             assertTrue("monitor reported errors: $normalErrors", normalErrors.isEmpty())
             outcome = "passed"
         } finally {
             SystemClock.sleep(250)
+            // Capture a closing hello even when setup, feedback, or inference fails.
+            if (postHello == null && serialErrorsBefore != null) {
+                runCatching {
+                    send(JSONObject().put("cmd", "hello"))
+                    postHello = receive("hello", ignoreStickyFailure = true).first
+                    val after = postHello?.optJSONArray("serialErrorCounts")
+                    if (after != null && after.length() == serialErrorsBefore!!.size) {
+                        serialErrorDeltas = LongArray(serialErrorsBefore!!.size) { i ->
+                            after.getLong(i) - serialErrorsBefore!![i]
+                        }
+                    }
+                }
+            }
             runCatching {
                 send(JSONObject().put("cmd", "policy_disarm"))
                 receive("policy_monitor_stopped")
             }
             transport.close()
             loadedPolicy?.close()
+            if (!reportWritten) {
+                File(context.filesDir, "motor-disabled-transport-result.json").writeText(
+                    JSONObject().put("firmware", firmwareVersion).put("outcome", outcome)
+                        .put("normal_error_count", normalErrors.size)
+                        .put("normal_errors", JSONArray(normalErrors))
+                        .put("startup_timings", JSONArray(startupTimings))
+                        .put("callback_failure", failure.get()?.toString() ?: JSONObject.NULL)
+                        .put("missed_feedback_events", missedFeedbackEvents)
+                        .put("serial_error_counts_before", JSONArray(serialErrorsBefore?.toList() ?: emptyList<Long>()))
+                        .put("serial_error_count_deltas", JSONArray(serialErrorDeltas?.toList() ?: emptyList<Long>()))
+                        .put("post_hello_received", postHello != null)
+                        .toString(2),
+                )
+            }
             val saved = recorder.finish(outcome, "read-only feedback, inference and USB; no motor target writes")
             recorder.close()
             check(saved.error == null) { "transport recording incomplete: ${saved.error}" }
