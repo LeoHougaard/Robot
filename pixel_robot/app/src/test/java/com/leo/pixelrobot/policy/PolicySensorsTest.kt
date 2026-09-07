@@ -39,16 +39,35 @@ class PolicySensorsTest {
     }
 
     @Test
-    fun duplicateClockAndLongFeedbackGapAreRejected() {
+    fun delayedSamplesUseActualDtAndClockErrorsAreRejected() {
         val fixture = fixture()
         val first = fixture.getJSONArray("frames").getJSONObject(0).getJSONObject("state")
         val bias = fixture.getJSONArray("gyro_bias_dps").floats()
-        for (gap in listOf(0L, 80L)) {
-            val sensors = PolicySensors(calibration(), .02f)
-            sensors.read(first, bias)
+        val calibration = calibration()
+        val sensors = PolicySensors(calibration, .02f)
+        val firstPosition = sensors.read(first, bias).position
+        val delayed = JSONObject(first.toString())
+            .put("sample_ms", (first.getLong("sample_ms") + 62L) and 0xffff_ffffL)
+        val delayedPosition = JSONObject(delayed.toString())
+            .put("angles_deg", JSONArray(first.getJSONArray("angles_deg").let { values ->
+                DoubleArray(values.length()) { i -> values.getDouble(i) + if (i == 0) 1.0 else 0.0 }.toList()
+            }))
+        val delayedRead = sensors.read(delayedPosition, bias)
+        assertEquals(.062f, delayedRead.dt, 1e-6f)
+        assertEquals((delayedRead.position[0] - firstPosition[0]) / .062f, delayedRead.velocity[0], 1e-5f)
+
+        for (gap in listOf(0L, 121L, -1L)) {
+            val rejected = PolicySensors(calibration, .02f)
+            rejected.read(first, bias)
             val stale = JSONObject(first.toString()).put("sample_ms", (first.getLong("sample_ms") + gap) and 0xffff_ffffL)
-            assertTrue(runCatching { sensors.read(stale, bias) }.isFailure)
+            assertTrue("gap $gap", runCatching { rejected.read(stale, bias) }.isFailure)
         }
+
+        val rollover = PolicySensors(calibration, .02f)
+        val beforeWrap = JSONObject(first.toString()).put("sample_ms", 0xffff_fff0L)
+        val afterWrap = JSONObject(first.toString()).put("sample_ms", 20L)
+        rollover.read(beforeWrap, bias)
+        assertEquals(.036f, rollover.read(afterWrap, bias).dt, 1e-6f)
     }
 }
 

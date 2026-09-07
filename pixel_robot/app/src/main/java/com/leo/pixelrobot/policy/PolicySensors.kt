@@ -21,7 +21,9 @@ class PolicySensors(private val calibration: RobotCalibration, private val nomin
         val sampleMs = state.getLong("sample_ms") and 0xffff_ffffL
         val dt = previousSampleMs?.let { previous ->
             val elapsed = (sampleMs - previous) and 0xffff_ffffL
-            require(elapsed in 5..60) { "invalid or stale firmware sample interval: $elapsed ms" }
+            // Accept delayed but fresh ESP32 samples up to the 120 ms stale-frame
+            // watchdog bound; the monitor still separately enforces its 50 Hz gate.
+            require(elapsed in 5..120) { "invalid or stale firmware sample interval: $elapsed ms" }
             elapsed / 1000f
         } ?: nominalDt
         val ids = state.getJSONArray("ids")

@@ -339,3 +339,18 @@ Battery telemetry reached 6.4 V, below the configured 6.6 V critical threshold.
 Powered tests stopped pending a charged battery. The app was reopened disarmed.
 The receive fix is installed, but the original walking retry remains blocked
 by the unresolved startup timing failure; no successful physical retry is claimed.
+
+### Bounded timing tolerance for Leo's requested trial
+
+Leo requested a trial without the hard stop on the observed 62 ms sample gap.
+Pixel 0.2.10, version code 12, accepts firmware sample intervals from 5 through
+120 ms and uses the actual elapsed time for velocity and gravity estimation.
+Duplicate/reversed timestamps and intervals above 120 ms still fail. The
+80 ms feedback wait timeout, 40 ms host feedback age checks, ESP32 120 ms
+command watchdog, target validation, and Stop control remain unchanged.
+The policy remains epoch 3750; this change does not establish reliable 50 Hz
+operation. The monitor diagnostic retains its strict timing acceptance gates.
+
+The focused sensor test passed for a 62 ms gap, clock rollover, duplicate and
+reversed timestamps, and a rejected 121 ms gap. The older recorded-data parity
+fixture still fails at frame zero as previously documented; it was not weakened.
