@@ -1487,7 +1487,26 @@ void handlePolicyMonitor(JsonDocument &doc) {
   sendOk("policy_monitor");
 }
 
-void handlePolicyFrame(JsonDocument &doc, bool monitorOnly = false) {
+void sendPolicyFrameTargetCountError(
+  uint32_t sequence, JsonObject targets, JsonDocument &doc, const String &rawLine) {
+  DynamicJsonDocument response(2048);
+  response["type"] = "error";
+  response["message"] = "policy frame requires exactly 12 targets";
+  JsonObject diagnostic = response["policy_frame_diagnostic"].to<JsonObject>();
+  diagnostic["seq"] = sequence;
+  diagnostic["received_bytes"] = rawLine.length();
+  diagnostic["parsed_target_count"] = targets.size();
+  diagnostic["overflowed"] = doc.overflowed();
+  const size_t kept = min(rawLine.length(), static_cast<size_t>(512));
+  diagnostic["raw_line_truncated"] = kept < rawLine.length();
+  diagnostic["raw_line"] = rawLine.substring(0, kept);
+  JsonArray keys = diagnostic["parsed_target_keys"].to<JsonArray>();
+  for (JsonPair item : targets) keys.add(item.key().c_str());
+  sendJson(response);
+}
+
+void handlePolicyFrame(
+  JsonDocument &doc, bool monitorOnly = false, const String &receivedLine = String()) {
   if (monitorOnly ? !policyControl.monitoring : !policyControl.armed) {
     sendError("policy is not armed");
     return;
@@ -1504,7 +1523,10 @@ void handlePolicyFrame(JsonDocument &doc, bool monitorOnly = false) {
   }
 
   JsonObject targets = doc["targets"].as<JsonObject>();
-  if (targets.size() != MAX_SERVOS) { sendError("policy frame requires exactly 12 targets"); return; }
+  if (targets.size() != MAX_SERVOS) {
+    sendPolicyFrameTargetCountError(sequence, targets, doc, receivedLine);
+    return;
+  }
   uint8_t ids[MAX_SERVOS];
   uint16_t positions[MAX_SERVOS];
   float nextAngles[MAX_SERVOS];
@@ -2787,11 +2809,11 @@ void handleCommand(const String &line) {
   } else if (strcmp(cmd, "policy_arm") == 0) {
     handlePolicyArm(doc);
   } else if (strcmp(cmd, "policy_frame") == 0) {
-    handlePolicyFrame(doc);
+    handlePolicyFrame(doc, false, line);
   } else if (strcmp(cmd, "policy_monitor") == 0) {
     handlePolicyMonitor(doc);
   } else if (strcmp(cmd, "policy_monitor_frame") == 0) {
-    handlePolicyFrame(doc, true);
+    handlePolicyFrame(doc, true, line);
   } else if (strcmp(cmd, "policy_disarm") == 0) {
     disarmPolicy("host request", true);
     sendOk("policy_disarm");

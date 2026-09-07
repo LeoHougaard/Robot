@@ -252,3 +252,24 @@ starting a service. It also checks the first 50 frames' reset hold.
 
 This verifies the formerly missing runtime path, not physical control timing
 or walking. No agent initiated a physical policy retry.
+
+### Packet-count rejection investigation
+
+Leo's next trial reached command sequence 85, then stopped with
+`policy frame requires exactly 12 targets`. This matches the earlier recorded
+sequence-1180 failure. Host-side target validation and the earlier 203-byte
+TX record do not establish what the ESP32 received.
+
+Firmware `0.1.16-rxdiag` adds structured evidence to the same rejection:
+received length, sequence, target count and keys, document overflow, and up
+to 512 characters of the received policy line. It preserves target validation
+and watchdog behavior. The ESP32 build passed; firmware SHA256 is
+`a8b280bf490e521583ed473bad91b4b1393322d6ec0b960044a1ac3f2a7e3245`.
+It has not been flashed. Network update access was unavailable, and no
+serial device was attached to the laptop when checked.
+
+`Installed3750MonitorTransportTest` compiles and is explicitly gated by
+`robot_hardware=torque_off` and `policy_candidate=epoch3750`. It exercises
+the installed policy through the monitor-only firmware parser while recording
+TX/RX evidence. It has not been run. The packet failure is not yet fixed;
+next step is the direct USB firmware update and motor-disabled reproduction.
