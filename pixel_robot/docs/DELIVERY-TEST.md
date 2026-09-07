@@ -289,3 +289,20 @@ The packet-count problem remains unresolved.
 The Android monitor diagnostic now distinguishes actual parser diagnostics
 from ordinary feedback, aborts if monitoring reports armed state, and cannot
 mark a run with recorded errors as passing. Instrumentation compilation passed.
+
+With servo power restored, a laptop monitor test sent 1250 packets without
+draining feedback concurrently and produced six invalid-JSON errors. That
+result was a test artifact caused by host receive starvation and must not be
+used as proof of the original fault. The corrected continuous-reader test sent
+1000 frames at 50 Hz; the final acknowledged sequence was 1000, with no parser
+or target-count errors. This does not prove the Pixel USB path or motor-loaded
+control is reliable.
+
+The Pixel monitor test APK was installed, but no current CP210x USB host
+device was available. Android reported UFP/device/sink mode; its CP210x
+entries were historical connection/permission records. A single request for
+source/host role did not change the actual role. The test now waits briefly
+for attachment and reports the enumerated devices instead of a generic
+NoSuchElementException. The Pixel test awaits a working host connection.
+Firmware remains 0.1.16-rxdiag; the unflashed UART-counter experiment was
+removed. The original policy packet failure remains unresolved.

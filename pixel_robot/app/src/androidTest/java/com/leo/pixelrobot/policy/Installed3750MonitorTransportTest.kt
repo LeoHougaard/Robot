@@ -34,10 +34,23 @@ class Installed3750MonitorTransportTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val candidateAssets = context.assets
         val manager = context.getSystemService(UsbManager::class.java)
-        val device = manager.deviceList.values.single {
+        val deadline = SystemClock.elapsedRealtime() + 5_000L
+        var device = manager.deviceList.values.firstOrNull {
             it.vendorId == UsbRobotTransport.ROBOT_VENDOR_ID && it.productId == UsbRobotTransport.ROBOT_PRODUCT_ID
         }
-        check(manager.hasPermission(device)) { "Grant USB permission in Pixel Robot, then stop the app before this test" }
+        while (device == null && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(100)
+            device = manager.deviceList.values.firstOrNull {
+                it.vendorId == UsbRobotTransport.ROBOT_VENDOR_ID && it.productId == UsbRobotTransport.ROBOT_PRODUCT_ID
+            }
+        }
+        check(device != null) {
+            "CP210x USB device not enumerated; devices=" + manager.deviceList.values.joinToString {
+                "${it.deviceName}:${it.vendorId.toString(16)}:${it.productId.toString(16)}"
+            }
+        }
+        val selectedDevice = requireNotNull(device)
+        check(manager.hasPermission(selectedDevice)) { "Grant USB permission in Pixel Robot, then stop the app before this test" }
         val candidateAssetPrefix = ""
         val candidateMetadata = candidateAssets.open("policy_metadata.json")
             .bufferedReader().use { it.readText() }
@@ -66,7 +79,7 @@ class Installed3750MonitorTransportTest {
                 .put("weights_sha256", contract.weightsSha256).put("observation_size", contract.observationSize)
         })
         check(recorder.start("motor_disabled_transport").active)
-        val transport = UsbRobotTransport(manager, device, { bytes ->
+        val transport = UsbRobotTransport(manager, selectedDevice, { bytes ->
             val receivedNs = SystemClock.elapsedRealtimeNanos()
             runCatching {
                 decoder.accept(bytes).forEach { line ->
@@ -210,4 +223,3 @@ class Installed3750MonitorTransportTest {
         }
     }
 }
-
