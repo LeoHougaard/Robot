@@ -304,5 +304,38 @@ entries were historical connection/permission records. A single request for
 source/host role did not change the actual role. The test now waits briefly
 for attachment and reports the enumerated devices instead of a generic
 NoSuchElementException. The Pixel test awaits a working host connection.
-Firmware remains 0.1.16-rxdiag; the unflashed UART-counter experiment was
-removed. The original policy packet failure remains unresolved.
+The q256 Pixel capture later isolated transport loss. For sequence 62, the
+host recorded a 206-byte TX line while the firmware received 78 bytes; the
+missing range was bytes `[64,192)`. Sequence 1208 reproduced the same
+128-byte deletion (`208` TX, `80` RX, `[64,192)`), and sequence 911 lost
+`[65,193)` plus its newline, joining it to sequence 912. The host
+uses the actual four-decimal formatter, so these captures point to transport
+loss rather than target construction. The q256 run accumulated 46 firmware
+missed-feedback periods; the counter is cumulative, so this is not 1,242
+independent missed frames.
+
+Firmware `0.1.17` was then flashed app-only at `0x10000`; esptool verified
+SHA256 `2af466ed7ab6e70007e17fbebf1788cf747cbd25282b3d84bed52af3cfbb8a51`,
+with NVS preserved. It lowers the UART FIFO interrupt threshold to 32 bytes and adds atomic UART error
+counters. The corrected Pixel test APK is SHA256
+`a8b3b0a381f93251b0b330b7e558ee2083922434e420b754734fd6fa3a77dc99`;
+the production q256 APK is SHA256
+`6d0e38683aea511bfc1fc8260b54274c622b629f86fe08e4c4780c7affa05491`.
+
+The monitor timing diagnostic now reports inference timing separately from
+end-to-end frame work. Its q256 baseline measured about 48.29 Hz and ended
+with complete feedback, but the physical walking result is still unverified.
+Two subsequent Pixel monitor runs confirmed `0.1.17-rxdiag`, the configured
+FIFO threshold, and initial UART counters `[0,0,0,0]`. Both stopped at tick 10
+on a 61–62 ms firmware sample interval, after queued startup frames were sent
+in a burst. Moving reference/session setup before monitor admission did not
+resolve it. The latest installed test APK has SHA256
+`673e99111d29c03056f70c8e17e3342299d23e15ce84975e8d83c55319151968`.
+Neither run completed the 50 Hz acceptance check or established sustained
+transport reliability. Closing counter capture failed and remains under
+investigation. No motor targets were written.
+
+Battery telemetry reached 6.4 V, below the configured 6.6 V critical threshold.
+Powered tests stopped pending a charged battery. The app was reopened disarmed.
+The receive fix is installed, but the original walking retry remains blocked
+by the unresolved startup timing failure; no successful physical retry is claimed.

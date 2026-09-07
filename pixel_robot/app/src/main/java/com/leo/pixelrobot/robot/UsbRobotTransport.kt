@@ -29,10 +29,9 @@ class UsbRobotTransport(
             runCatching { openedPort.rts = false }
             port = openedPort
             ioManager = SerialInputOutputManager(openedPort, this).also {
-                // Keep reads queued while the listener decodes a packet. At
-                // 2 Mbps, re-submitting a single 64-byte request can lose data.
-                // Retain endpoint-sized reads so padded frames arrive promptly.
-                it.setReadQueue(64)
+                // Queue 16 KiB of endpoint-sized reads to absorb bursts while
+                // decoding JSON, without waiting for a larger packet to fill.
+                it.setReadQueue(256)
                 it.setWriteBufferSize(WRITE_BUFFER_BYTES)
                 it.start()
             }

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <atomic>
 #include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
@@ -67,6 +68,17 @@ static constexpr uint8_t MAX_SERVOS = 12;
 static constexpr uint8_t MAX_PROGRAM_STEPS = 24;
 static constexpr size_t SERIAL_JSON_CAPACITY = 6144;
 static constexpr size_t SERIAL_RX_BUFFER_BYTES = 8192;
+std::atomic<uint32_t> serialErrorCounts[4];
+bool serialFifoThresholdConfigured = false;
+void recordSerialError(hardwareSerial_error_t error) {
+  switch (error) {
+    case UART_FIFO_OVF_ERROR: serialErrorCounts[0].fetch_add(1, std::memory_order_relaxed); break;
+    case UART_BUFFER_FULL_ERROR: serialErrorCounts[1].fetch_add(1, std::memory_order_relaxed); break;
+    case UART_FRAME_ERROR: serialErrorCounts[2].fetch_add(1, std::memory_order_relaxed); break;
+    case UART_PARITY_ERROR: serialErrorCounts[3].fetch_add(1, std::memory_order_relaxed); break;
+    default: break;
+  }
+}
 static constexpr uint32_t STATE_INTERVAL_MS = 500;
 static constexpr uint8_t CONFIG_VERSION = 2;
 static constexpr uint16_t DEFAULT_MONITOR_INTERVAL_MS = 250;
@@ -1497,6 +1509,10 @@ void sendPolicyFrameTargetCountError(
   diagnostic["received_bytes"] = rawLine.length();
   diagnostic["parsed_target_count"] = targets.size();
   diagnostic["overflowed"] = doc.overflowed();
+  diagnostic["uart_fifo_overflow_count"] = serialErrorCounts[0].load(std::memory_order_relaxed);
+  diagnostic["uart_buffer_full_count"] = serialErrorCounts[1].load(std::memory_order_relaxed);
+  diagnostic["uart_frame_error_count"] = serialErrorCounts[2].load(std::memory_order_relaxed);
+  diagnostic["uart_parity_error_count"] = serialErrorCounts[3].load(std::memory_order_relaxed);
   const size_t kept = min(rawLine.length(), static_cast<size_t>(512));
   diagnostic["raw_line_truncated"] = kept < rawLine.length();
   diagnostic["raw_line"] = rawLine.substring(0, kept);
@@ -2747,6 +2763,9 @@ void handleCommand(const String &line) {
     response["policyServoSpeedStepsPerSecond"] = POLICY_SERVO_SPEED_STEPS_S;
     response["policyServoAcceleration"] = POLICY_SERVO_ACCELERATION;
     response["serialRxBufferBytes"] = serialRxBufferBytes;
+    response["serialFifoThresholdConfigured"] = serialFifoThresholdConfigured;
+    JsonArray serialErrors = response["serialErrorCounts"].to<JsonArray>();
+    for (uint8_t i = 0; i < 4; i++) serialErrors.add(serialErrorCounts[i].load(std::memory_order_relaxed));
     addServoBatteryToJson(response);
     JsonObject imu = response["imu"].to<JsonObject>();
     imu["available"] = imuState.available;
@@ -3053,6 +3072,9 @@ void setup() {
   serialRxBufferBytes = Serial.setRxBufferSize(SERIAL_RX_BUFFER_BYTES);
   Serial.setTxBufferSize(2048);
   Serial.begin(2000000);
+  // Drain the hardware FIFO sooner at 2 Mbps during bidirectional policy IO.
+  serialFifoThresholdConfigured = Serial.setRxFIFOFull(32);
+  Serial.onReceiveError(recordSerialError);
   inputLine.reserve(SERIAL_JSON_CAPACITY);
   delay(300);
   loadConfig();
