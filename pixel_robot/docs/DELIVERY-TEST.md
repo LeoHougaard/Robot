@@ -354,3 +354,11 @@ operation. The monitor diagnostic retains its strict timing acceptance gates.
 The focused sensor test passed for a 62 ms gap, clock rollover, duplicate and
 reversed timestamps, and a rejected 121 ms gap. The older recorded-data parity
 fixture still fails at frame zero as previously documented; it was not weakened.
+
+Pixel installation was verified as version 0.2.10/code 12. Signed APK SHA256:
+`64bb228d19de539ead704d7192f77da4e89b53c2eff06c0acc090f1415477bf2`.
+The APK's eight DEX hashes match the current local build. Installation used
+`adb install -r`, preserving application data. On the Pixel,
+`InstalledPolicyFrameTest` and `OnnxPolicyParityTest` both passed, exercising
+60 complete epoch-3750 frames and the actor reference vectors without USB or
+motor commands. A powered walking retry with this version has not been run.
