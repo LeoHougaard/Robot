@@ -48,10 +48,41 @@ class PhysicalCommandAuthorityTest {
         assertTrue(runCatching { authority.write(lease, identity, null) { fail() } }.isFailure)
         now = 101L
         assertTrue(runCatching { authority.write(lease, identity, null) { fail() } }.isFailure)
-        for (duration in listOf(0, -1, 5001))
+        for (duration in listOf(0, -1, 1001, 5000, 5001))
             assertTrue(runCatching { authority.authorizeOperatorTrial(true, true, identity, motion, duration) }.isFailure)
         assertTrue(runCatching { authority.authorizeOperatorTrial(true, true, identity, motion.copy(forward = Float.NaN), 100) }.isFailure)
         assertTrue(runCatching { authority.authorizeOperatorTrial(true, true, identity, motion.copy(roll = .1f), 100) }.isFailure)
+    }
+    @Test fun minimumAndMaximumLeaseExpireAtExactBoundary() {
+        for (duration in listOf(1, 1000)) {
+            var now = 10_000_000L
+            val authority = PhysicalCommandAuthority { now }
+            val lease = authority.authorizeOperatorTrial(true, true, identity, motion, duration)
+            now += duration * 1_000_000L - 1
+            var writes = 0
+            assertFalse(authority.expired())
+            authority.write(lease, identity, now) { writes++ }
+            now++
+            assertTrue(authority.expired())
+            assertTrue(runCatching { authority.write(lease, identity, now) { writes++ } }.isFailure)
+            assertEquals(1, writes)
+        }
+    }
+    @Test fun oversizedReplacementCannotExtendOrReplaceExistingLease() {
+        var now = 0L
+        val authority = PhysicalCommandAuthority { now }
+        val lease = authority.authorizeOperatorTrial(true, true, identity, motion, 1000)
+        now = 500_000_000L
+        for (duration in listOf(1001, 5000, Int.MAX_VALUE))
+            assertTrue(runCatching {
+                authority.authorizeOperatorTrial(true, true, identity, motion, duration)
+            }.isFailure)
+        var writes = 0
+        authority.write(lease, identity, now) { writes++ }
+        now = 1_000_000_000L
+        assertTrue(authority.expired())
+        assertTrue(runCatching { authority.write(lease, identity, now) { writes++ } }.isFailure)
+        assertEquals(1, writes)
     }
     @Test(timeout = 5000) fun revocationIsOrderedAfterAnAlreadyStartedWrite() {
         val authority = PhysicalCommandAuthority { 0L }

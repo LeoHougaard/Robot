@@ -139,7 +139,9 @@ writes, late completion, disconnect, resumed operations, queue bounds and copied
 records, plus close after a completed safety barrier. `PolicyOperationTest` and
 `PhysicalCommandAuthorityTest` exercise final-write cancellation, independent
 operator approval/readiness, asset identity, monotonic expiry and feedback age.
-The operator lease has named body velocity fields and neutral posture; it is
+The operator lease lasts 1..1000 ms, has named body velocity fields and neutral
+posture, and rejects longer requests without replacing or extending an existing
+lease. Final writes fail at the exact deadline. It is
 never constructed from a shadow grant or model callback. There is no UI or HTTP
 route that starts this operator-only trial.
 

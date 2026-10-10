@@ -6,6 +6,8 @@ class PhysicalCommandAuthority(private val clockNs: () -> Long) {
         internal val generation: Long, internal val loadedIdentity: String,
         internal val deadlineNs: Long, val motion: MotionRequest,
     )
+    companion object { const val MAX_LEASE_MS = 1_000 }
+
     private var generation = 0L
     private var current: Lease? = null
     private var lastClockNs = 0L
@@ -16,7 +18,7 @@ class PhysicalCommandAuthority(private val clockNs: () -> Long) {
     ): Lease {
         check(operatorApproved && physicalReadinessVerified) { "Physical operator approval and readiness required" }
         require(loadedIdentity.matches(Regex("[a-f0-9]{64}")))
-        require(durationMs in 1..5_000)
+        require(durationMs in 1..MAX_LEASE_MS) { "Physical velocity lease must be 1..1000 ms" }
         require(listOf(motion.forward, motion.lateral, motion.yawRate).all { it.isFinite() })
         require(motion.heightOffset == 0f && motion.roll == 0f && motion.pitch == 0f)
         val deadline = Math.addExact(now(), durationMs * 1_000_000L)

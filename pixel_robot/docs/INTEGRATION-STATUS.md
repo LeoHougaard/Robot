@@ -58,7 +58,9 @@ decoder/provider checks, BAML generation consistency and CPU actor/runtime
 parity. CRLF handling was corrected without relaxing substantive source checks.
 
 Independent operator leases, final-write fencing and the bounded USB writer are
-implemented and host-tested; see [HOST-TESTS.md](HOST-TESTS.md). No shadow-to-motion
+implemented and host-tested; see [HOST-TESTS.md](HOST-TESTS.md).
+Operator-only named-axis velocity leases are bounded to 1..1000 ms. This bound
+does not change shadow-preview duration limits or grant model-driven authority. No shadow-to-motion
 route was added. The actor and calibration remain V22 epoch 3750, 428 inputs,
 `cad_drives_v1`, 2 Mbaud, unpromoted. The separate older Pixel Robot controller
 uses 180 inputs and 921600 baud; these bundles must not be interchanged.
