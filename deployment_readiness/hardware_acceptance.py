@@ -254,6 +254,8 @@ def analyze_records(records: list[dict], *, evidence_kind: str = "unknown",
     chunk_errors = []
     startup_invalid, startup_bytes, startup_start_ns = 0, 0, None
     authenticated_abort = False
+    authenticated_abort_position = None
+    first_tx_delimiter = None
     startup_window_ms = None
     startup_bytes_at_ack = None
     for record in records:
@@ -277,6 +279,9 @@ def analyze_records(records: list[dict], *, evidence_kind: str = "unknown",
                 received = data.get("received_monotonic_ns")
                 if received is not None and (not uint(received, 2**63-1) or received > ns):
                     raise ValueError("invalid callback timestamp")
+                callback_ns = ns if received is None else received
+                if direction == "tx" and first_tx_delimiter is None and b"\n" in chunk:
+                    first_tx_delimiter = (record["record_index"], chunk.index(b"\n"), callback_ns)
                 decoded = decoders[direction].feed(chunk)
                 if direction == "rx":
                     callback_ns = ns if received is None else received
@@ -293,6 +298,8 @@ def analyze_records(records: list[dict], *, evidence_kind: str = "unknown",
                             startup_window_ms = (callback_ns - startup_start_ns) / 1e6
                             startup_bytes_at_ack = startup_bytes + offset
                             authenticated_abort = (0 <= startup_window_ms <= 750 and startup_bytes_at_ack <= 65536 and startup_invalid <= 32)
+                            if authenticated_abort:
+                                authenticated_abort_position = (record["record_index"], offset - 1, callback_ns)
                     startup_bytes += len(chunk)
                 for message in decoded:
                     if not isinstance(message.get("type" if direction == "rx" else "cmd"), str):
@@ -329,10 +336,19 @@ def analyze_records(records: list[dict], *, evidence_kind: str = "unknown",
     nonce = decoders["tx"].abort_nonce
     matching_abort = [(m,t) for m,t,_ in rx if m.get("type") == "serial_abort" and
                       m.get("version") == 2 and m.get("nonce") == nonce and nonce is not None]
-    handshake_ordered = authenticated_abort and bool(matching_abort) and bool(tx) and matching_abort[0][1] <= tx[0][1]
-    check("input_abort_handshake", "PASS" if nonce and handshake_ordered else "BLOCKED",
+    # A decoded command only identifies its terminating LF. The earlier LF that
+    # releases the startup nonce must also follow the ACK. Tied timestamps need
+    # distinct ordered records; no time equality can repair reversed byte order.
+    ack_before_delimiter = (authenticated_abort_position is not None and first_tx_delimiter is not None and
+                           authenticated_abort_position[0] < first_tx_delimiter[0] and
+                           authenticated_abort_position[2] <= first_tx_delimiter[2])
+    handshake_ordered = authenticated_abort and bool(matching_abort) and bool(tx) and ack_before_delimiter
+    reversed_delimiter = authenticated_abort and first_tx_delimiter is not None and not ack_before_delimiter
+    check("input_abort_handshake", "PASS" if nonce and handshake_ordered else "FAIL" if reversed_delimiter else "BLOCKED",
           "Requires raw initial CAN+32hex (no LF), matching v2 nonce ACK, then LF/first command. Parsed logs cannot establish handshake bytes.",
-          challenge_observed=nonce is not None, matching_ack_before_first_command=handshake_ordered)
+          challenge_observed=nonce is not None, matching_ack_before_first_command=handshake_ordered,
+          matching_ack_before_first_delimiter=ack_before_delimiter,
+          matching_ack_position=authenticated_abort_position, first_tx_delimiter_position=first_tx_delimiter)
     def safe_command(message):
         return (message.get("cmd") in SAFE_CAPTURE_COMMANDS or
                 message == {"cmd": "servo_torque", "all": True, "enabled": False})

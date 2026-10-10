@@ -81,6 +81,68 @@ class PhysicalIntentAuthorityTest {
         assertEquals("cancelled", a.submit(h, raw()) { false }.state)
         assertNull(a.status().command)
     }
+    @Test fun decodingCrossingProviderCutoffNeverClaimsPublication() {
+        for (overrunNs in listOf(0L, 1L, 10_000_000L)) {
+            now = 1_000_000_000L
+            var checkingSubmit = false
+            var clockReads = 0
+            var cutoff = 0L
+            val a = PhysicalIntentAuthority(qualified) {
+                if (checkingSubmit && ++clockReads == 2) now = cutoff + overrunNs
+                now
+            }
+            enable(a); val h = begin(a); cutoff = h.providerDeadlineMs * 1_000_000
+            now = cutoff - 10_000_000; checkingSubmit = true
+            var claims = 0
+            assertEquals("cancelled", a.submit(h, raw()) { claims++; true }.state)
+            assertEquals(0, claims)
+            assertTrue(now < h.expiresAtMs * 1_000_000)
+            assertNull(a.status().command); assertNotNull(a.takeStopRequest())
+        }
+    }
+    @Test fun publicationClaimCrossingExactProviderCutoffCannotCreateLease() {
+        for (overrunNs in listOf(0L, 1L, 10_000_000L)) {
+            now = 1_000_000_000L
+            val a = authority(); enable(a); val h = begin(a)
+            val cutoff = h.providerDeadlineMs * 1_000_000
+            now = cutoff - 1
+            assertEquals("cancelled", a.submit(h, raw()) { now = cutoff + overrunNs; true }.state)
+            assertTrue(now < h.expiresAtMs * 1_000_000)
+            assertNull(a.status().command); assertNotNull(a.takeStopRequest())
+        }
+    }
+    @Test fun invalidIntentCannotClaimPublication() {
+        for (bad in listOf("{}", raw(1001), raw().replace("0.02", "0.05"))) {
+            now = 1_000_000_000L
+            val a = authority(); enable(a); val h = begin(a); var claims = 0
+            assertEquals("cancelled", a.submit(h, bad) { claims++; true }.state)
+            assertEquals(0, claims)
+        }
+    }
+    @Test fun cancelledOrReplacedDuringPublicationCannotRestoreOldLease() {
+        for (replace in listOf(false, true)) {
+            now = 1_000_000_000L
+            val a = authority(); enable(a); val old = begin(a)
+            var replacement: PhysicalRequestHandle? = null
+            val result = a.submit(old, raw()) {
+                a.cancel(a.status().generation)
+                if (replace) {
+                    a.takeStopRequest(); a.resetForExplicitManualOperation()
+                    enable(a); replacement = begin(a)
+                }
+                true
+            }
+            assertEquals(if (replace) "pending" else "cancelled", result.state)
+            assertNull(result.command)
+            if (replace) {
+                assertEquals(replacement!!.requestId, result.requestId)
+                var staleClaims = 0
+                assertEquals("pending", a.submit(old, raw()) { staleClaims++; true }.state)
+                assertEquals(0, staleClaims)
+                assertEquals("leased", a.submit(replacement!!, raw()).state)
+            }
+        }
+    }
     @Test fun originalAuthorityBoundsLateCommandEvenBeforeProviderCutoff() {
         val a = authority(); enable(a); now += 9_900_000_000
         val handle = begin(a)

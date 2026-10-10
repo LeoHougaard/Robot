@@ -242,6 +242,47 @@ class AcceptanceTests(unittest.TestCase):
     def test_stale_nonce_ack_does_not_pass(self):
         r,m=next(messages(self.records)); m["nonce"]="b"*32; edit_message(r,m)
         self.assertEqual(gate(run(self.records),"input_abort_handshake")["status"],"BLOCKED")
+    def test_startup_delimiter_before_ack_fails_even_before_first_command(self):
+        self.records[2], self.records[3] = self.records[3], self.records[2]
+        for index, record in enumerate(self.records):
+            record["record_index"] = index
+            if 1 <= index <= 8:
+                record["host_monotonic_ns"] = index - 1
+                record["data"]["received_monotonic_ns"] = index - 1
+        report = run(self.records)
+        self.assertEqual(gate(report,"input_abort_handshake")["status"],"FAIL")
+        self.assertEqual(report["status"],"FAIL")
+    def test_equal_timestamps_cannot_repair_reversed_delimiter_records(self):
+        self.records[2], self.records[3] = self.records[3], self.records[2]
+        for index, record in enumerate(self.records): record["record_index"] = index
+        self.assertEqual(gate(run(self.records),"input_abort_handshake")["status"],"FAIL")
+    def test_delimiter_in_same_challenge_chunk_fails(self):
+        self.records[1]["data"]["hex"] += "0a"
+        self.records.pop(3)
+        for index, record in enumerate(self.records): record["record_index"] = index
+        self.assertEqual(gate(run(self.records),"input_abort_handshake")["status"],"FAIL")
+    def test_split_challenge_cannot_hide_early_delimiter(self):
+        first = copy.deepcopy(self.records[1]); second = copy.deepcopy(first)
+        first["data"]["hex"] = (b"\x18" + b"a"*16).hex()
+        second["data"]["hex"] = (b"a"*16).hex()
+        self.records[1:4] = [first, second, self.records[3], self.records[2]]
+        for index, record in enumerate(self.records): record["record_index"] = index
+        self.assertEqual(gate(run(self.records),"input_abort_handshake")["status"],"FAIL")
+    def test_split_challenge_and_split_ack_preserve_valid_record_order(self):
+        first = copy.deepcopy(self.records[1]); second = copy.deepcopy(first)
+        first["data"]["hex"] = (b"\x18" + b"a"*16).hex()
+        second["data"]["hex"] = (b"a"*16).hex()
+        ack = bytes.fromhex(self.records[2]["data"]["hex"])
+        left = copy.deepcopy(self.records[2]); right = copy.deepcopy(left)
+        left["data"]["hex"] = ack[:20].hex(); right["data"]["hex"] = ack[20:].hex()
+        self.records[1:3] = [first, second, left, right]
+        for index, record in enumerate(self.records): record["record_index"] = index
+        self.assertEqual(run(self.records)["status"],"PASS")
+    def test_callback_time_reversal_blocks_ack_before_delimiter_claim(self):
+        for record in self.records[1:9]: record["host_monotonic_ns"] = 10
+        self.records[2]["data"]["received_monotonic_ns"] = 4
+        self.records[3]["data"]["received_monotonic_ns"] = 3
+        self.assertEqual(gate(run(self.records),"input_abort_handshake")["status"],"FAIL")
     def test_bounded_midstream_attach_fragment_before_nonce_ack_is_reported(self):
         self.records[2]["data"]["hex"] = b'old partial}\n'.hex()+self.records[2]["data"]["hex"]
         result=gate(run(self.records),"byte_framing")

@@ -131,7 +131,9 @@ class PhysicalIntentAuthority(val binding: PhysicalPolicyBinding, private val cl
     @Synchronized fun submit(handle: PhysicalRequestHandle, raw: String, claimPublication: () -> Boolean = { true }): PhysicalIntentStatus {
         val at = now(); pollAt(at)
         if (request !== handle || state != "pending" || operation == null) return view()
-        if (at / 1_000_000 >= handle.providerDeadlineMs || !claimPublication()) {
+        val admittedGeneration = generation
+        val admittedOperation = operation
+        if (at / 1_000_000 >= handle.providerDeadlineMs) {
             revokeLocked("provider_result_late_or_cancelled"); return view()
         }
         val intent = try { ShadowIntentDecoder.parse(raw) } catch (_: Exception) {
@@ -147,9 +149,26 @@ class PhysicalIntentAuthority(val binding: PhysicalPolicyBinding, private val cl
         if (!binding.capabilities.accepts(intent) || intent.durationMs > binding.capabilities.maxDurationMs) {
             revokeLocked("outside_qualified_command_or_duration_bounds"); return view()
         }
-        val completedAt = now(); pollAt(completedAt)
-        if (state != "pending" || operation == null) return view()
+        fun stillPending() = request === handle && state == "pending" && !closed &&
+            operation === admittedOperation && generation == admittedGeneration
+        val decodedAt = now(); pollAt(decodedAt)
+        if (!stillPending()) return view()
+        if (decodedAt / 1_000_000 >= handle.providerDeadlineMs) {
+            revokeLocked("provider_result_late_or_cancelled"); return view()
+        }
         val durationNs = intent.durationMs * 1_000_000L
+        if (requireNotNull(expiresAtNs) - decodedAt < durationNs) {
+            revokeLocked("command_outlives_original_authority_deadline"); return view()
+        }
+        // Decode and validate before claiming publication, which cancels the provider
+        // timer. Recheck ownership and both deadlines after that external callback:
+        // a successful claim is not permission to publish a late/replaced request.
+        val claimed = claimPublication()
+        val completedAt = now(); pollAt(completedAt)
+        if (!stillPending()) return view()
+        if (!claimed || completedAt / 1_000_000 >= handle.providerDeadlineMs) {
+            revokeLocked("provider_result_late_or_cancelled"); return view()
+        }
         if (requireNotNull(expiresAtNs) - completedAt < durationNs) {
             revokeLocked("command_outlives_original_authority_deadline"); return view()
         }

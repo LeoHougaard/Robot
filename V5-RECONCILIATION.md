@@ -1,5 +1,8 @@
 # V5 reconciliation on LEO-PC
 
+Subsequent independent review corrections and final validation are recorded in
+[REVIEW-FIXES-20261010.md](REVIEW-FIXES-20261010.md).
+
 Branch `review/robot-v5-reconciled` starts at
 `6daea82f515e8e5352321172ec96b486ba6d5bb9`. The reference is Library version 4,
 `robot-llm-hardening-v5`, ZIP SHA256
