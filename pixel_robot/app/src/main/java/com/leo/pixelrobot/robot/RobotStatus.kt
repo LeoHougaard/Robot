@@ -2,6 +2,11 @@ package com.leo.pixelrobot.robot
 
 import org.json.JSONObject
 
+internal const val STOP_REQUEST_DETAIL = "Stop requested; torque-off receipt unverified"
+
+/** Enqueueing safety commands cannot acknowledge a firmware state change. */
+internal fun RobotStatus.withStopRequested(): RobotStatus = copy(detail = STOP_REQUEST_DETAIL)
+
 enum class LinkState {
     SEARCHING,
     PERMISSION_REQUIRED,
@@ -210,4 +215,3 @@ data class ServoTelemetry(
         private const val POSITION_MAX = 4_095f
     }
 }
-

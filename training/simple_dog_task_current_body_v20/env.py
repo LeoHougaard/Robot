@@ -41,6 +41,13 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
             value = value.detach()
             return {"min": float(value.amin().item()), "max": float(value.amax().item())}
         return {
+            "timing_history_normalized": bounds(self._timing_history),
+            "timing_feature_model": ("independent_feature_perturbation_v1"
+                                     if self.cfg.timing_feature_perturbation_enabled
+                                     and self.cfg.domain_randomization_enabled
+                                     else "fixed_control_interval"),
+            "sensor_sample_interval_ms": self.step_dt * 1000.,
+            "variable_action_hold_physics": False,
             "current_effort_scale": bounds(getattr(self, "_current_effort_scale", None)),
             "current_dropout_probability": bounds(getattr(self, "_current_dropout_probability", None)),
             "current_delay_steps": bounds(getattr(self, "_current_delay", None)),
@@ -128,8 +135,14 @@ class DeliveryEnv(SimpleDogCurrentBodyV4Env):
         self._current_history[:, -1] = current_frame
         self._current_history[fresh] = current_frame[fresh, None, :]
         self._current_history_ready[:] = True
-        # Every sampled observation here is actually 20 ms apart. Delayed
-        # actuation is modeled causally; it does not falsify this timestamp.
+        # Sensor derivatives/filters above still use the real fixed step_dt.
+        # Feature perturbation is explicit opt-in. Existing Delivery/Stride
+        # presets retain their historical fixed timestamp, even if an inherited
+        # cfg lists wider bounds. Opt-in does not age samples or vary holds.
+        self._update_timing_history(
+            fresh, perturb=(self.cfg.timing_feature_perturbation_enabled
+                            and self.cfg.domain_randomization_enabled),
+        )
         history = torch.cat((self._observation_history, self._current_history, self._timing_history), dim=-1)
         observation = torch.cat((history[:, self.cfg.selected_history_indices].flatten(1),
                                  self._commands, self._posture_commands), dim=-1)

@@ -1,0 +1,50 @@
+{
+  "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/LoadedPolicyAssets.kt": {
+    "sha256": "42da24bdb01681f3d498717b009413138bcf5bbb161d704dbda4b8bf58222f0e"
+  },
+  "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/OnnxPolicy.kt": {
+    "sha256": "7a16f9b89474f0883c0d1f9b7b76efef07cd497f0c7f69e2ff283c91f616ce52"
+  },
+  "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/PolicyContract.kt": {
+    "sha256": "1621a0ad6635e9d54b0746f5f763d0292ed7aa5ac344b38df0c6382c84e47d2f"
+  },
+  "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/RobotCalibration.kt": {
+    "sha256": "5f4fb445b0e7ba86b63330c0dfeab20745a3dd7e513e6faf8b25de200e804894"
+  },
+  "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/StrideReference.kt": {
+    "sha256": "b6c2e44e521b319ef292fc39b56d578ae81a1df5df15bfd30ebbb90eecbfc3db"
+  },
+  "robot_dog/policy_runtime/run_policy.py": {
+    "sha256": "ebe9103b744749b7b137261e1d6ecc3e002195ca85cbcfd655fbfa3505935687",
+    "symbols": [
+      "NumpyPolicy",
+      "RobotCalibration",
+      "CONTROL_HZ",
+      "POLICY_FRAME_SIZE",
+      "POLICY_HISTORY",
+      "EXPECTED_PROFILE_ID",
+      "EXPECTED_PROFILE_SHA256",
+      "EXPECTED_ACTION_DELTA_LIMIT",
+      "EXPECTED_COMMAND_SMOOTHING_S",
+      "POLICY_JOINT_SEMANTICS",
+      "POLICY_SERVO_IDS",
+      "FOUR_BAR_KNEE_PARENTS"
+    ]
+  },
+  "robot_llm/contract.py": {
+    "sha256": "67a70bc2c137ae4027ec7f7331177631be00175013fb1d89df653e76e7091ff1",
+    "symbols": [
+      "finite_number",
+      "integer",
+      "text_field",
+      "MAX_DURATION_MS"
+    ]
+  },
+  "robot_llm/supervisor.py": {
+    "sha256": "219eacaa1a103898ffa8f37a8e7e8f544a0dd8250b50fc372f434e27e2ace60e",
+    "symbols": [
+      "CapabilitySnapshot",
+      "_sha"
+    ]
+  }
+}

@@ -109,7 +109,7 @@ class PolicyContract private constructor(value: JSONObject) {
             require(currentBiasMilliamps.all { it >= 0f })
             require(currentScaleMilliamps.all { it > 0f })
             require(currentClipNormalized.all { it > 0f })
-            require(currentStepMilliamps > 0f)
+            require(currentStepMilliamps.isFinite() && currentStepMilliamps > 0f)
             val posture = value.getJSONObject("posture_command_contract")
             val height = posture.getJSONArray("height_offset_m").pair()
             val roll = posture.getJSONArray("roll_rad").pair()

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, pi, sqrt
+from math import atan2, cos, hypot, isfinite, pi
 
 
 def wrap_angle(angle: float) -> float:
     """Wrap radians to [-pi, pi)."""
-
+    if not isfinite(angle):
+        raise ValueError("yaw angle must be finite")
     return (angle + pi) % (2.0 * pi) - pi
 
 
@@ -47,12 +48,19 @@ class GoalController:
 
     def __init__(self, config: GoalControllerConfig | None = None):
         self.config = config or GoalControllerConfig()
+        for name, value in vars(self.config).items():
+            if not isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
 
     def command(self, pose: Pose2D, goal: Pose2D) -> BodyCommand:
         cfg = self.config
+        if not all(isfinite(value) for value in (*vars(pose).values(), *vars(goal).values())):
+            raise ValueError("pose and goal must contain finite world coordinates and yaw radians")
         dx = goal.x - pose.x
         dy = goal.y - pose.y
-        distance = sqrt(dx * dx + dy * dy)
+        if not isfinite(dx) or not isfinite(dy):
+            raise ValueError("goal displacement must be finite")
+        distance = hypot(dx, dy)
 
         if distance <= cfg.position_tolerance_m:
             yaw_error = wrap_angle(goal.yaw - pose.yaw)

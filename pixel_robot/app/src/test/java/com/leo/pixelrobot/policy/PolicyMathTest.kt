@@ -9,6 +9,28 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class PolicyMathTest {
+    // Historical algorithms need an explicit synthetic V2 contract. Deriving
+    // these cases from the shipped V22 bundle silently mixes incompatible
+    // history, stride and joint-coordinate contracts as the bundle evolves.
+    private fun legacyMetadata(): JSONObject = JSONObject()
+        .put("profile_id", "assembly-four-leg-linkage-12dof")
+        .put("profile_sha256", "0".repeat(64))
+        .put("weights_sha256", "1".repeat(64))
+        .put("control_hz", 50).put("command_smoothing_time_s", .4)
+        .put("observation_builder", "v2_180")
+        .put("observation_size", 180).put("observation_history", 4).put("action_size", 12)
+        .put("validated_command_limits", JSONObject()
+            .put("forward_m_s", listOf(0.0, .22)).put("lateral_m_s", listOf(0.0, 0.0))
+            .put("yaw_rate_rad_s", listOf(-.25, .25)))
+        .put("action_contract", JSONObject()
+            .put("actor_output_clip", listOf(-1.0, 1.0))
+            .put("applied_normalized_clip_by_joint", List(12) { 1.0 })
+            .put("low_pass_alpha", .2).put("applied_normalized_slew_limit", .2)
+            .put("position_target_scale_rad", .3))
+        .put("stationary_action_contract", JSONObject()
+            .put("behavior", "slew_to_validated_four_foot_stance_action")
+            .put("planar_command_deadband_m_s", .01).put("yaw_command_deadband_rad_s", .01)
+            .put("normalized_stance_action", List(12) { 0.0 }))
     private val calibration by lazy {
         RobotCalibration.parse(
             File("src/main/assets/assembly-four-leg-linkage-12dof.calibration.json").readText(),
@@ -138,7 +160,7 @@ class PolicyMathTest {
 
     @Test
     fun legacyPolicyContractPreservesDeployedActionMath() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
         metadata.remove("action_contract")
         metadata.remove("stationary_action_contract")
         metadata.put("action_clip", JSONArray(listOf(-1.0, 1.0)))
@@ -157,7 +179,7 @@ class PolicyMathTest {
 
     @Test
     fun v2PolicyContractMatchesIsaacActionOrder() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
         metadata.put("schema_version", 2)
         metadata.put("command_smoothing_time_s", 0.4)
         metadata.put(
@@ -207,7 +229,7 @@ class PolicyMathTest {
 
     @Test
     fun calibrated25HzPolicyControlsRuntimeTiming() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
             .put("control_hz", 25)
         val contract = PolicyContract.parse(metadata.toString())
         assertEquals(25, contract.controlHz)
@@ -217,7 +239,7 @@ class PolicyMathTest {
 
     @Test
     fun currentV3ObservationHoldsMissingCurrentAndClearsValidity() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
             .put("schema_version", 3)
             .put("observation_size", 279)
             .put("observation_builder", "current_v3_279")
@@ -272,7 +294,7 @@ class PolicyMathTest {
     }
 
     private fun checkCurrentBodyLayout(builderName: String, indices: List<Int>) {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
             .put("schema_version", 4)
             .put("observation_size", 426)
             .put("observation_history", 24)

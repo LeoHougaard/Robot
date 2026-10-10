@@ -44,7 +44,7 @@ parser.add_argument("--stair-tread-mm", type=int, choices=(150, 175, 200, 225, 2
 parser.add_argument("--variation", choices=("nominal", "v20-train-envelope"), default="nominal",
                     help="Enable the documented V20 physical/sensor randomization envelope")
 parser.add_argument("--timing-assessment", action="store_true",
-                    help="Use the existing 18..39 ms V4 timing/sensor-age assessment bounds")
+                    help="Perturb actor timing features over 18..39 ms and enable action delay; fixed-rate physics")
 parser.add_argument("--start-stationary", action="store_true",
                     help="Command-screen variant: stand for the first four seconds before requesting motion")
 parser.add_argument("--command-index", type=int, help="Select one slow command for a single-robot video")
@@ -161,6 +161,7 @@ from isaaclab_tasks.utils import parse_env_cfg
 from isaaclab.utils.math import quat_apply
 from initialize_delivery_stride import build_actor
 from delivery_sole_geometry import sole_points
+from delivery_contract import timing_feature_coverage
 importlib.import_module("simple_dog_task_current_body_" + args.family)
 
 
@@ -230,6 +231,7 @@ def evaluate():
         # These are the existing V4 training bounds, selected from the
         # Aug-29 feedback timing (median 23 ms, p95 31 ms, max 39 ms).
         cfg.timing_interval_ms = (18., 39.)
+        cfg.timing_feature_perturbation_enabled = True
         cfg.action_delay_steps = (0, 1)
     cfg.episode_length_s = args.seconds + 10.
     if args.commands:
@@ -376,6 +378,9 @@ def evaluate():
         previous_foot_z = initial_foot_z.clone()
         swing_baseline_z.copy_(initial_foot_z)
         swing_peak_z.copy_(initial_foot_z)
+        timing_min = torch.tensor(float("inf"), device=base.device)
+        timing_max = torch.tensor(-float("inf"), device=base.device)
+        timing_count = 0
         with torch.inference_mode():
             for step in range(total_steps):
                 assert obs["policy"].shape == (args.num_envs, 428)
@@ -383,6 +388,12 @@ def evaluate():
                 assert torch.equal(obs["policy"][:, 420:423], base._commands)
                 if not torch.isfinite(obs["policy"]).all():
                     raise RuntimeError("nonfinite actor observation")
+                # Inspect the six selected timing slots actually consumed by
+                # this actor, rather than claiming coverage from cfg alone.
+                timing_values = obs["policy"][:, :420].reshape(args.num_envs, 6, 70)[:, :, -1]
+                timing_min = torch.minimum(timing_min, timing_values.amin())
+                timing_max = torch.maximum(timing_max, timing_values.amax())
+                timing_count += timing_values.numel()
                 residual = actor(dict(is_train=False, prev_actions=None,
                                       obs=obs["policy"], rnn_states=None))["mus"]
                 if not torch.isfinite(residual).all():
@@ -458,6 +469,12 @@ def evaluate():
                         window_sum.zero_()
                         window_steps = 0
                 previous_contact = contact
+        timing_coverage = timing_feature_coverage(
+            float(timing_min), float(timing_max), timing_count,
+            interval_ms=cfg.timing_interval_ms, reference_ms=cfg.timing_reference_ms,
+            randomized=(cfg.domain_randomization_enabled and cfg.timing_feature_perturbation_enabled),
+        )
+        timing_coverage["sensor_sample_interval_ms"] = base.step_dt * 1000.
         rows = []
         for i, values in enumerate((sums / measured_steps).cpu().tolist()):
             row = dict(zip(("mean_forward_m_s", "mean_abs_lateral_m_s", "mean_tilt_rad",
@@ -522,10 +539,12 @@ def evaluate():
                     sole_point_identity="lowest collision-mesh material point within 0.5 mm of profile up_axis minimum",
                     variation=("v20-train-envelope" if args.variation != "nominal" else "nominal"),
                     timing_assessment=bool(args.timing_assessment),
+                    timing_feature_coverage=timing_coverage,
                     variation_config=(dict(domain_randomization_enabled=cfg.domain_randomization_enabled,
                                            observation_noise_enabled=cfg.observation_noise_enabled,
                                            action_delay_steps=list(cfg.action_delay_steps),
                                            timing_interval_ms=list(cfg.timing_interval_ms),
+                                           timing_feature_perturbation_enabled=cfg.timing_feature_perturbation_enabled,
                                            base_mass_scale=list(cfg.base_mass_scale),
                                            link_mass_scale=list(cfg.link_mass_scale),
                                            independent_inertia_scale=list(cfg.independent_inertia_scale),
@@ -548,8 +567,12 @@ def evaluate():
                                       if args.variation != "nominal" else None),
                     realized_snapshots=(dict(initial=variation_initial, after_reset=variation_after_reset)
                                         if args.variation != "nominal" else None),
-                    limitation=("exploratory rough terrain screen with Sustained physical/sensor variation and 18..39 ms sensor age; physics remains 20 ms; no deployment acceptance"
-                                if args.stage == "rough" else (("timing assessment uses existing V4 bounds (18..39 ms) and one-frame action delay; timing input is sensor age only, physics remains 20 ms"
+                    limitation=(("exploratory rough terrain screen with Sustained physical/sensor variation; "
+                                 + ("independent 18..39 ms timing-feature perturbation enabled; "
+                                    if cfg.timing_feature_perturbation_enabled else
+                                    "fixed timing features; inherited 18..39 ms bounds are inactive; ")
+                                 + "sensor sampling and physics remain 20 ms; no variable action-hold coverage or deployment acceptance")
+                                if args.stage == "rough" else (("timing assessment uses independent V4 timing-feature perturbation (18..39 ms) and one-frame action delay; sensor sampling and physics remain 20 ms; no variable action-hold coverage"
                                  if args.timing_assessment else "slow isolated command screen; flat physical/sensor variation only; no timing interval variation because V20Train documents (20,20), no deployment acceptance")
                                 if args.variation != "nominal" else ("slow isolated command screen only; no mixed commands, terrain, model variation or deployment acceptance"
                                 if args.commands else "acquisition comparison only; no turning, stopping, terrain or deployment acceptance"))))

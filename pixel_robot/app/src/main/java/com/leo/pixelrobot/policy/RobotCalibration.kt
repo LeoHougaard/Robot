@@ -32,6 +32,7 @@ class RobotCalibration private constructor(value: JSONObject) {
             servoIds[index] = joint.getInt("servo_id")
             zeros[index] = joint.finiteFloat("zero_deg")
             degreesPerRadian[index] = joint.finiteFloat("servo_degrees_per_policy_radian")
+            require(degreesPerRadian[index] != 0f) { "servo calibration scale must be nonzero" }
             minimums[index] = joint.finiteFloat("min_deg")
             maximums[index] = joint.finiteFloat("max_deg")
             require(minimums[index] < zeros[index] && zeros[index] < maximums[index])

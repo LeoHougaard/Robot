@@ -420,6 +420,34 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
         self._latest_normalized_current = held
         return held, validity.float()
 
+    def _update_timing_history(self, fresh: torch.Tensor, *, perturb: bool | None = None) -> None:
+        """Append one timing-feature sample for the observation being built.
+
+        This is feature perturbation only: it neither ages the other sensors
+        nor changes the physics/control interval or action-hold duration.
+        Observation overrides must call it once, using their pre-update reset
+        mask, so initialized ones cannot silently replace the requested stress.
+        """
+        interval = torch.full(
+            (self.num_envs, 1), self.cfg.timing_reference_ms,
+            dtype=self._timing_history.dtype, device=self.device,
+        )
+        if perturb is None:
+            # Preserve V4's original sampler, including its RNG consumption.
+            interval.uniform_(*self.cfg.timing_interval_ms)
+            if not self.cfg.domain_randomization_enabled:
+                interval.fill_(self.cfg.timing_reference_ms)
+        elif perturb:
+            low, high = self.cfg.timing_interval_ms
+            if low == high:
+                interval.fill_(low)
+            else:
+                interval.uniform_(low, high)
+        timing = interval / self.cfg.timing_reference_ms
+        self._timing_history = torch.roll(self._timing_history, shifts=-1, dims=1)
+        self._timing_history[:, -1] = timing
+        self._timing_history[fresh] = timing[fresh, None, :]
+
     def _get_observations(self) -> dict:
         difficulty = self._difficulty_fraction()
         angular_velocity = self._semantic_vector_b(
@@ -486,22 +514,10 @@ class SimpleDogCurrentBodyV4Env(SimpleDogCurrentV3Env):
             self._current_history, shifts=-1, dims=1
         )
         self._current_history[:, -1] = current_frame
-        interval = torch.empty(
-            self.num_envs, 1, device=self.device
-        ).uniform_(*self.cfg.timing_interval_ms)
-        if not self.cfg.domain_randomization_enabled:
-            interval.fill_(self.cfg.timing_reference_ms)
-        timing = interval / self.cfg.timing_reference_ms
-        self._timing_history = torch.roll(
-            self._timing_history, shifts=-1, dims=1
-        )
-        self._timing_history[:, -1] = timing
         fresh = ~self._current_history_ready
+        self._update_timing_history(fresh)
         if torch.any(fresh):
             self._current_history[fresh] = current_frame[fresh].unsqueeze(1).expand(
-                -1, self.cfg.observation_history_length, -1
-            )
-            self._timing_history[fresh] = timing[fresh].unsqueeze(1).expand(
                 -1, self.cfg.observation_history_length, -1
             )
             self._current_history_ready[fresh] = True

@@ -1,5 +1,7 @@
 """Fixed V20 command screen, declared before its first PPO run (SI units)."""
 
+import math
+
 SEGMENTS = (
     ("stand", 150, 0., 0., 0., 0., 0., 0.),
     ("forward", 250, .08, 0., 0., 0., 0., 0.),
@@ -26,3 +28,28 @@ SEGMENTS = (
 HISTORY_INDICES = (0, 10, 20, 21, 22, 23)
 BUILDER = "current_body_v20_426"
 CONTROL_HZ = 50
+
+
+def timing_feature_coverage(observed_min, observed_max, sample_count, *,
+                            interval_ms, reference_ms, randomized):
+    """Validate realized actor features, not just the configured stress label.
+
+    These extrema summarize timing slots actually sent to the actor. Passing
+    proves feature exposure only, never variable-rate sensor/physics coverage.
+    """
+    low, high = interval_ms if randomized else (reference_ms, reference_ms)
+    if not (math.isfinite(reference_ms) and reference_ms > 0.
+            and math.isfinite(low) and math.isfinite(high) and 0. < low <= high):
+        raise ValueError("invalid timing-feature interval or reference")
+    if sample_count <= 0 or not (math.isfinite(observed_min) and math.isfinite(observed_max)):
+        raise RuntimeError("missing or nonfinite actor timing-feature coverage")
+    expected_min, expected_max = low / reference_ms, high / reference_ms
+    if not (expected_min - 1e-6 <= observed_min <= observed_max <= expected_max + 1e-6):
+        raise RuntimeError("actor timing features are outside the configured bounds")
+    varied = observed_max - observed_min > 1e-6
+    if low != high and not varied:
+        raise RuntimeError("timing-feature stress requested but actor timing input did not vary")
+    return dict(model=("independent_feature_perturbation_v1" if randomized else "fixed_control_interval"),
+                observed_min_normalized=observed_min, observed_max_normalized=observed_max,
+                actor_timing_values_checked=sample_count, varied=varied,
+                variable_sensor_sampling=False, variable_action_hold_physics=False)

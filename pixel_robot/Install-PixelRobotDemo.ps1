@@ -3,6 +3,7 @@ param(
     [string]$Serial,
     [switch]$SkipBuild,
     [switch]$BuildOnly,
+    [switch]$ReviewInstall,
     [switch]$AllowUsbAdb,
     [switch]$SkipDeviceTests,
     [switch]$NoBrowserForward
@@ -12,11 +13,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = $PSScriptRoot
+$appPackage = if ($ReviewInstall) { 'com.leo.pixelrobot.review' } else { 'com.leo.pixelrobot' }
 $apkPath = Join-Path $projectRoot 'app\build\outputs\apk\debug\app-debug.apk'
 $testApkPath = Join-Path $projectRoot 'app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk'
 
 if (-not $SkipBuild) {
     $gradleTasks = @('test', 'assembleDebug')
+    if ($ReviewInstall) { $gradleTasks = @('-ProbotReviewInstall=true') + $gradleTasks }
     if (-not $SkipDeviceTests) {
         $gradleTasks += 'assembleAndroidTest'
     }
@@ -95,7 +98,7 @@ if (-not $SkipDeviceTests) {
         throw "Instrumentation APK installation failed with exit code $LASTEXITCODE."
     }
     $instrumentationOutput = & $adb -s $selectedSerial shell am instrument -w `
-        com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner 2>&1
+        "$appPackage.test/androidx.test.runner.AndroidJUnitRunner" 2>&1
     $instrumentationText = $instrumentationOutput -join [Environment]::NewLine
     Write-Host $instrumentationText
     if ($LASTEXITCODE -ne 0 -or $instrumentationText -notmatch '(?m)^OK \(') {
@@ -110,13 +113,13 @@ if (-not $NoBrowserForward) {
     }
 }
 
-& $adb -s $selectedSerial shell am start -n com.leo.pixelrobot/.MainActivity
+& $adb -s $selectedSerial shell am start -n "$appPackage/com.leo.pixelrobot.MainActivity"
 if ($LASTEXITCODE -ne 0) {
     throw "Pixel Robot did not launch."
 }
 
 Write-Host "Pixel Robot is installed and open on $selectedSerial."
-Write-Host "Connect the ESP32 to the Pixel, accept the USB permission prompt, and place the robot in a clear floor area."
+Write-Host "Physical tests require separate operator approval and verified hardware readiness."
 if (-not $NoBrowserForward) {
     Write-Host "Optional mirrored control page: http://127.0.0.1:8767/"
 }

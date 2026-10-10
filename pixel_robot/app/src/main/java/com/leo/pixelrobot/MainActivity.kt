@@ -183,6 +183,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        robotService?.onShadowOperatorBackgrounded()
         statusJob?.cancel()
         statusJob = null
         policyStatusJob?.cancel()

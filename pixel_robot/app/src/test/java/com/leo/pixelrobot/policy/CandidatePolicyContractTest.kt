@@ -9,6 +9,16 @@ class CandidatePolicyContractTest {
     private val metadataFile = File("src/main/assets/policy_metadata.json")
 
     @Test
+    fun nonFiniteCurrentScaleAndZeroServoScaleFailBeforeStartup() {
+        val metadata = JSONObject(metadataFile.readText())
+        metadata.getJSONObject("current_observation_contract").put("current_step_ma", "Infinity")
+        assertTrue(runCatching { PolicyContract.parse(metadata.toString()) }.isFailure)
+        val calibration = JSONObject(File("src/main/assets/assembly-four-leg-linkage-12dof.calibration.json").readText())
+        calibration.getJSONArray("joints").getJSONObject(0).put("servo_degrees_per_policy_radian", 0)
+        assertTrue(runCatching { RobotCalibration.parse(calibration.toString()) }.isFailure)
+    }
+
+    @Test
     fun exactCandidatePassesLiveActivationGuard() {
         PolicyContract.parse(metadataFile.readText()).requireLiveActivationCandidate()
     }

@@ -52,22 +52,25 @@ class PolicyController(
     calibrationOverrideJson: String? = null,
     private val recorder: RunSessionRecorder,
     private val send: (ByteArray) -> Unit,
+    loadedAssets: LoadedPolicyAssets? = null,
+    private val guardedSend: (ByteArray, (() -> Unit) -> Unit) -> Unit = { bytes, gate -> gate { send(bytes) } },
 ) : Closeable {
-    private val contract = PolicyContract.load(assets)
-    private var calibration = RobotCalibration.load(assets, contract.profileId, calibrationOverrideJson,
+    private val bundle = loadedAssets ?: LoadedPolicyAssets.load(assets, calibrationOverrideJson)
+    private val contract = bundle.contract
+    private var calibration = RobotCalibration.load(assets, contract.profileId, bundle.calibrationJson,
         contract.jointCoordinateConvention).also(contract::requireCalibration)
+    // Validate reference assets before allocating the native ONNX session.
+    private val frameSession = PolicyFrameSession(contract, bundle.reference())
     private val policy = OnnxPolicy(
         assets,
         contract.profileId,
         contract.profileSha256,
         contract.weightsSha256,
         contract.observationSize,
+        loadedAssets = bundle,
     )
-    private val frameSession = PolicyFrameSession(contract, if (contract.usesStrideReference) {
-        assets.open("stride_reference.json").use { it.readBytes() }
-    } else null)
     private data class Received(val message: JSONObject, val receivedNs: Long)
-    private var lastFeedbackReceivedNs = 0L
+    @Volatile private var lastFeedbackReceivedNs = 0L
     private val messages = Channel<Received>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val request = AtomicReference(MotionRequest())
     private val mutableStatus = MutableStateFlow(
@@ -75,8 +78,29 @@ class PolicyController(
     )
     val status: StateFlow<PolicyRuntimeStatus> = mutableStatus.asStateFlow()
     private val operation = PolicyOperation()
+    private val physicalAuthority = PhysicalCommandAuthority(SystemClock::elapsedRealtimeNanos)
+    private val loadedIdentity by lazy { bundle.shadowCapabilities().digest }
+    @Volatile private var physicalLease: PhysicalCommandAuthority.Lease? = null
+
+    /** Trusted native operator integration only. Never called by shadow routes or callbacks. */
+    fun startOperatorLeasedTrial(operatorApproved: Boolean, physicalReadinessVerified: Boolean,
+                                forward: Float, lateral: Float, yawRate: Float, durationMs: Int) {
+        contract.requireRequest(forward, lateral, yawRate)
+        val motion = MotionRequest(forward = forward, lateral = lateral, yawRate = yawRate)
+        operation.start(scope, prepare = {
+            physicalLease = physicalAuthority.authorizeOperatorTrial(operatorApproved, physicalReadinessVerified,
+                loadedIdentity, motion, durationMs)
+            request.set(motion)
+        }) { while (messages.tryReceive().isSuccess) Unit; run() }
+    }
+
+    fun pollPhysicalLease() {
+        if (physicalLease != null && runCatching { physicalAuthority.expired() }.getOrDefault(true))
+            stop("Physical command lease expired")
+    }
 
     fun updateFullRequest(next: MotionRequest) {
+        if (physicalLease != null) stop("Manual command replaced leased trial")
         contract.requireRequest(next.forward, next.lateral, next.yawRate)
         contract.requirePosture(next.heightOffset, next.roll, next.pitch)
         request.set(next)
@@ -86,6 +110,7 @@ class PolicyController(
     }
 
     fun updateRequest(forward: Float, yawRate: Float, lateral: Float = 0f) {
+        if (physicalLease != null) stop("Manual command replaced leased trial")
         contract.requireRequest(forward, lateral, yawRate)
         request.updateAndGet { it.copy(forward = forward, lateral = lateral, yawRate = yawRate) }
         runCatching { recorder.recordEvent(
@@ -95,6 +120,7 @@ class PolicyController(
     }
 
     fun updatePosture(heightOffset: Float, roll: Float, pitch: Float) {
+        if (physicalLease != null) stop("Manual posture replaced leased trial")
         contract.requirePosture(heightOffset, roll, pitch)
         request.updateAndGet {
             it.copy(heightOffset = heightOffset, roll = roll, pitch = pitch)
@@ -125,9 +151,9 @@ class PolicyController(
         }
     }
 
-    fun startPolicy() {
+    fun startPolicy(nextRequest: MotionRequest? = null) {
         runCatching {
-            val initialRequest = request.get()
+            val initialRequest = nextRequest ?: request.get()
             recorder.recordEvent(
                 "policy_start_requested",
                 JSONObject()
@@ -136,7 +162,9 @@ class PolicyController(
                     .put("yaw_rate_rad_s", initialRequest.yawRate),
             )
         }
-        operation.start(scope) {
+        operation.start(scope, prepare = {
+            if (nextRequest != null) updateFullRequest(nextRequest)
+        }) {
             while (messages.tryReceive().isSuccess) Unit
             run()
         }
@@ -157,8 +185,12 @@ class PolicyController(
     }
 
     fun stop(reason: String = "Stop requested") {
-        request.set(MotionRequest())
-        operation.stop(reason) { safeDisarm(reason) }
+        physicalAuthority.revoke()
+        physicalLease = null
+        operation.stop(reason) {
+            request.set(MotionRequest())
+            safeDisarm(reason)
+        }
     }
 
     private suspend fun run() {
@@ -166,9 +198,10 @@ class PolicyController(
         val startedFromHeldPose = mutableStatus.value.holdingPose
         var armAttempted = false
         val sensors = PolicySensors(calibration, contract.controlFrameSeconds)
-        var command = floatArrayOf(request.get().forward, request.get().lateral, request.get().yawRate)
+        val initialRequest = request.get()
+        var command = floatArrayOf(initialRequest.forward, initialRequest.lateral, initialRequest.yawRate)
         var postureCommand = floatArrayOf(
-            request.get().heightOffset, request.get().roll, request.get().pitch,
+            initialRequest.heightOffset, initialRequest.roll, initialRequest.pitch,
         )
         var filteredAction = FloatArray(ACTION_COUNT)
         var appliedAction = FloatArray(ACTION_COUNT)
@@ -346,6 +379,7 @@ class PolicyController(
                 safeDisarm("Policy stopped: feedback timeout")
             }
         } catch (cancelled: CancellationException) {
+            safeDisarm(cancelled.message ?: "Policy operation cancelled")
             throw cancelled
         } catch (error: Throwable) {
             if (startedFromHeldPose && !armAttempted) {
@@ -419,6 +453,7 @@ class PolicyController(
             )
             recorder.recordEvent("stand_complete")
         } catch (cancelled: CancellationException) {
+            safeDisarm(cancelled.message ?: "Stand operation cancelled")
             throw cancelled
         } catch (error: Throwable) {
             safeDisarm("Stand failed: ${error.detail()}")
@@ -480,7 +515,20 @@ class PolicyController(
     }
 
     private suspend fun sendForOperation(bytes: ByteArray) {
-        operation.send { send(bytes) }
+        val lease = physicalLease
+        val isFrame = JSONObject(bytes.toString(Charsets.UTF_8)).optString("cmd") == "policy_frame"
+        val frameFeedbackNs = lastFeedbackReceivedNs
+        operation.dispatch { operationGate ->
+            guardedSend(bytes) { write ->
+                operationGate {
+                    if (isFrame) check(isFreshFeedbackTimestamp(frameFeedbackNs, SystemClock.elapsedRealtimeNanos())) {
+                        "queued policy frame outlived feedback"
+                    }
+                    if (lease == null) write() else physicalAuthority.write(lease, loadedIdentity,
+                        if (isFrame) frameFeedbackNs else null, write)
+                }
+            }
+        }
     }
 
     private suspend fun awaitMessage(
@@ -618,6 +666,8 @@ class PolicyController(
     }
 
     override fun close() {
+        physicalAuthority.revoke()
+        physicalLease = null
         operation.close({ safeDisarm("Runtime closed") }, { policy.close() })
     }
 
@@ -649,22 +699,6 @@ private fun JSONObject.servoAnglesById(): Map<Int, Float> {
     val angles = getJSONArray("angles_deg").floatArray()
     require(ids.size == 12 && angles.size == 12)
     return ids.indices.associate { ids[it] to angles[it] }
-}
-
-internal fun coalescePolicyAngles(next: JSONObject, previous: JSONObject): JSONObject {
-    if (next.optBoolean("feedback_complete", false)) return next
-    val nextAngles = next.getJSONArray("angles_deg")
-    val previousAngles = previous.getJSONArray("angles_deg")
-    require(nextAngles.length() == 12 && previousAngles.length() == 12) {
-        "policy feedback must contain 12 servo angles"
-    }
-    val merged = JSONObject(next.toString())
-    val mergedAngles = merged.getJSONArray("angles_deg")
-    repeat(12) { index ->
-        if (mergedAngles.isNull(index)) mergedAngles.put(index, previousAngles.getDouble(index))
-    }
-    merged.put("feedback_coalesced", true)
-    return merged
 }
 
 private fun JSONArray.floatArray(): FloatArray = FloatArray(length()) { index ->

@@ -49,11 +49,41 @@ FR/FL/BR/BL joint order, converted from measured degrees to signed policy
 radians, and inverse-transformed through the four-bar mapping. A missing servo
 feedback bit disarms the transport rather than reusing a commanded angle.
 
-Run the pure goal-controller tests from this directory:
+Run every offline host test from this directory:
 
 ```powershell
-python -m unittest -v test_goal_controller.py test_policy_runtime.py
+python -m unittest discover -v -p "test_*.py"
 ```
+
+The offline suite uses the bundled **legacy assembly-1 180-input actor** on
+CPU and an explicitly motor-disabled, fragmented-byte fake transport. It runs
+the production parser, calibration, control loop, history/filter logic and
+shutdown verification without opening any serial device or network connection.
+It covers startup, invalid feedback, cancellation, disconnect/restart, command
+and sensor units, oversized/partial UART lines, one-way feedback loss, clock
+wrap and inference overruns. NumPy is required; pyserial is optional for these
+tests and required only at the actual USB transport boundary. This is software
+regression evidence, not motor, gait, sensor-quality or physical safety approval,
+and it does not qualify the current Pixel/V20 actor.
+
+The host refuses another target when no advancing IMU sample timestamp has
+arrived for **120 ms**, including a second check after inference. This fixed
+deadline allows six 20 ms feedback periods and complements the firmware's
+independent 120 ms incoming-command watchdog: a working transmit direction
+must not keep the robot running on stale receive data. Replayed sample times
+cannot renew the deadline; newer samples with a repeated command sequence can.
+The current firmware's `tick=0` arm response was captured before configuration
+writes, so the host waits for a newer periodic tick and sample before inference.
+Legacy responses without a `tick` field retain the immediate sequence-zero
+startup contract. Neither path changes protocol fields, baud rate, joint order,
+calibration, command envelope or model weights.
+
+Cancellation is checked before arming and before each target write. A lost
+torque-enable acknowledgement during standing still triggers torque-off
+verification. Any failed shutdown verification reports an error rather than
+claiming that physical torque is disabled. A disconnected cable can prevent
+those requests from reaching the controller; software tests cannot prove that
+the physical robot stopped or that a held pose is safe.
 
 For the live applied-versus-measured 3D comparison, session recording, and the
 ordered physical checks for current sim-to-real failures, see

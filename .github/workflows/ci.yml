@@ -8,44 +8,34 @@ permissions:
   contents: read
 
 jobs:
-  source-checks:
+  offline-validation:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Parse Python sources
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+      - name: Install pinned offline test dependencies
         run: |
-          python - <<'PY'
-          import ast
-          from pathlib import Path
-
-          files = sorted(Path(".").rglob("*.py"))
-          for path in files:
-              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-          print(f"Parsed {len(files)} Python files.")
-          PY
-
-      - name: Run deterministic autoresearch tests
-        run: python -m unittest discover -s autoresearch -p "test_*.py"
-
-      - name: Run control-center tests
-        run: python -m unittest discover -s control_center -p "test_*.py"
-
-      - name: Run deterministic policy-contract tests
-        working-directory: training
-        run: |
-          python -m unittest test_evaluate_simple_dog_policy.py
-          python -m unittest test_export_v2_policy.py
-
-      - name: Run Onshape mate-planner tests
-        working-directory: onshape_mate_mirror
-        run: python -m unittest test_onshape_mate_mirror.py
-
-      - name: Check Bash syntax
-        run: |
-          find . -type f -name "*.sh" -print0 |
-            xargs -0 -n1 bash -n
+          python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r validation/requirements.txt
+      - name: Prepare checksum-pinned Kotlin host test dependencies
+        run: python pixel_robot/tools/run_host_kotlin_tests.py --download-only
+      - name: Run the canonical offline validation plan
+        run: python -m validation --profile offline --base-ref HEAD --output validation/results/ci
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-validation-evidence
+          path: validation/results/ci/
+          if-no-files-found: warn
+          retention-days: 7

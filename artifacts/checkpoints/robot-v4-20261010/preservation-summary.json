@@ -1,0 +1,67 @@
+{
+  "branch": "review/robot-v4",
+  "excluded_prefixes": {
+    ".tooling/": {
+      "bytes": 18684778,
+      "file_count": 21
+    },
+    "pixel_robot/.gradle/": {
+      "bytes": 2648474,
+      "file_count": 15
+    },
+    "pixel_robot/.tooling/": {
+      "bytes": 114438999,
+      "file_count": 861
+    },
+    "pixel_robot/app/build/": {
+      "bytes": 336696712,
+      "file_count": 1405
+    },
+    "robot_llm/__pycache__/": {
+      "bytes": 41554,
+      "file_count": 3
+    },
+    "validation/results/": {
+      "bytes": 2668361,
+      "file_count": 178
+    }
+  },
+  "initial_counts": {
+    "changed_paths": 132,
+    "staged": 121,
+    "unstaged": 21,
+    "untracked": 7
+  },
+  "initial_head": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+  "initial_index_patch": {
+    "path": ".tooling/checkpoint-initial-index.patch",
+    "sha256": "372ff79fd11b364949567a0ffa70fc2fca8bd790b26de12aaedb787776cabd58"
+  },
+  "initial_index_tree": "a314e14f06b38d66daa3c5055cbc0c18e6296529",
+  "initial_worktree_patch": {
+    "path": ".tooling/checkpoint-initial-worktree.patch",
+    "sha256": "f6363195ca0419c9b37ddb25b994a593cefe6ee5d3b62e35d091517a9a5ebb3f"
+  },
+  "preserved_local_manifest": {
+    "bytes": 475178878,
+    "file_count": 2483,
+    "path": ".tooling/checkpoint-preservation-20261010.json",
+    "scope": "Exact relative paths and SHA-256 hashes; excludes manifest itself",
+    "sha256": "f729739dcb156ca5be8fc8f9dbd87e62ecf935fc995849c06365a2a36854880d"
+  },
+  "private_absolute_paths": "Existing repository/backend locations and phone model location were reviewed as operational context; curated metadata uses relative evidence paths",
+  "reviewed_file_manifest": {
+    "path": ".tooling/checkpoint-reviewed-files.json",
+    "sha256": "b4074cf3fd18106e0239aaa2b2ad0c7dec006ede3d8f9a716e4df52c37c2ef41"
+  },
+  "schema_version": 1,
+  "secret_screen": {
+    "limitations": "Pattern checks and contextual review, not a guarantee that every possible credential format is detected",
+    "private_key_or_recognizable_live_token_matches": 0,
+    "quoted_secret_assignment_matches": 0,
+    "states": [
+      "initial_index",
+      "working_files"
+    ]
+  }
+}

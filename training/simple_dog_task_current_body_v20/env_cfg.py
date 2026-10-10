@@ -106,6 +106,10 @@ class DeliveryTrainCfg(SimpleDogCurrentBodyV4HardEnvCfg):
     actuator_residual_mad_rad = (0.,) * 12
     action_delay_steps = (0, 0)
     timing_interval_ms = (20., 20.)
+    # Existing Delivery/Stride checkpoints saw fixed 20 ms timing features.
+    # Wider inherited bounds alone must not change that training contract.
+    # Explicit opt-in perturbs the feature only, not sensor/physics cadence.
+    timing_feature_perturbation_enabled = False
     base_mass_scale = (.90, 1.10)
     base_mass_delta_kg = (0., .05)
     link_mass_scale = (.90, 1.10)

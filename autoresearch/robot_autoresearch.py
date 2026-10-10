@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 import base64
 import fcntl
+import hashlib
+import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -66,6 +69,10 @@ RANGES: dict[str, tuple[float, float]] = {
     "foot_slip_penalty_scale": (-6.0, 0.0),
     "undesired_contact_penalty_scale": (-5.0, 0.0),
 }
+
+QWEN_CONTRACT_VERSION = 1
+MAX_QWEN_CONTENT_BYTES = 64 * 1024
+MAX_QWEN_RESPONSE_BYTES = 1024 * 1024
 
 STOP_REQUESTED = False
 
@@ -235,6 +242,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
             f"[1, {min(chunks, 10)}]."
         )
     data["evaluation_candidates_per_cycle"] = evaluation_candidates
+    response_format = data.get("qwen_response_format", "json_object")
+    if response_format not in ("json_object", "json_schema"):
+        raise SupervisorError("qwen_response_format must be json_object or json_schema.")
+    data["qwen_response_format"] = response_format
     data["tuning"] = validate_full_tuning(data["tuning"])
     return data
 
@@ -403,6 +414,7 @@ def parse_play_metrics(console: Path, terrain_level: float = 3.0) -> dict[str, A
 
 
 def extract_json(text: str) -> dict[str, Any]:
+    """Read trusted subprocess output that may include log lines, never Qwen."""
     try:
         value = json.loads(text)
         if isinstance(value, dict):
@@ -419,7 +431,180 @@ def extract_json(text: str) -> dict[str, Any]:
             continue
         if isinstance(value, dict):
             return value
-    raise SupervisorError("Qwen did not return a JSON decision object.")
+    raise SupervisorError("Subprocess output did not contain a JSON object.")
+
+
+def qwen_decision_schema() -> dict[str, Any]:
+    """Single structural contract for the prompt, local gate, and opt-in provider.
+
+    The range, step-size, and cross-parameter safety authority remains
+    bounded_tuning. Schema-valid advice is not evidence of semantic correctness.
+    Keep this in the deployed supervisor so no new deployment files are needed.
+    """
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "action", "confidence", "summary", "visual_findings", "tuning_changes"
+        ],
+        "properties": {
+            "action": {"type": "string", "enum": ["continue", "hold", "escalate"]},
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "summary": {"type": "string", "minLength": 1},
+            "visual_findings": {
+                "type": "array", "items": {"type": "string", "minLength": 1}
+            },
+            "tuning_changes": {
+                "type": "object",
+                "additionalProperties": False,
+                "maxProperties": 2,
+                "properties": {key: {"type": "number"} for key in RANGES},
+            },
+            "codex_request": {"type": "string"},
+        },
+    }
+
+
+def qwen_response_format(mode: str) -> dict[str, Any]:
+    if mode == "json_object":
+        return {"type": "json_object"}
+    if mode == "json_schema":
+        # Explicit vLLM/OpenAI-compatible syntax, not a claim that the deployed
+        # server supports it. Do not silently downgrade on a provider error.
+        return {
+            "type": "json_schema",
+            "json_schema": {"name": "robot_evolution", "schema": qwen_decision_schema()},
+        }
+    raise SupervisorError("qwen_response_format must be json_object or json_schema.")
+
+
+def strict_qwen_json(text: str) -> Any:
+    """Consume the whole JSON document, rejecting ambiguous/non-JSON numbers."""
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError(f"duplicate object key: {key!r}")
+            result[key] = value
+        return result
+
+    def constant(value: str) -> Any:
+        raise ValueError(f"non-finite number: {value}")
+
+    def number(value: str) -> float:
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError("non-finite number")
+        return result
+
+    try:
+        return json.loads(
+            text, object_pairs_hook=pairs, parse_constant=constant, parse_float=number
+        )
+    except (ValueError, RecursionError) as exc:
+        raise SupervisorError(f"Invalid Qwen JSON: {exc}") from exc
+
+
+def _validate_qwen_value(value: Any, schema: dict[str, Any], path: str) -> None:
+    """Validate only the small schema vocabulary generated above (no dependency)."""
+    kind = schema["type"]
+    supported = {
+        "object": {"type", "additionalProperties", "required", "properties", "maxProperties"},
+        "array": {"type", "items"},
+        "string": {"type", "enum", "minLength"},
+        "number": {"type", "minimum", "maximum"},
+    }
+    if kind not in supported or set(schema) - supported[kind]:
+        raise SupervisorError("Unsupported local Qwen contract schema vocabulary.")
+    if kind == "object" and schema.get("additionalProperties") is not False:
+        raise SupervisorError("Local Qwen contract objects must reject extra fields.")
+    valid_type = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "number": type(value) in (int, float),
+    }[kind]
+    if not valid_type:
+        raise SupervisorError(f"Invalid Qwen decision: {path} must be {kind}.")
+    if "enum" in schema and value not in schema["enum"]:
+        raise SupervisorError(f"Invalid Qwen decision: unsupported {path}.")
+    if kind == "object":
+        properties = schema["properties"]
+        missing = set(schema.get("required", [])) - set(value)
+        unknown = set(value) - set(properties)
+        if missing or unknown:
+            raise SupervisorError(
+                f"Invalid Qwen decision: {path} fields "
+                f"missing={sorted(missing)}, unexpected={sorted(unknown)}."
+            )
+        if len(value) > schema.get("maxProperties", len(value)):
+            raise SupervisorError(f"Invalid Qwen decision: too many {path} entries.")
+        for key, item in value.items():
+            _validate_qwen_value(item, properties[key], f"{path}.{key}")
+    elif kind == "array":
+        for index, item in enumerate(value):
+            _validate_qwen_value(item, schema["items"], f"{path}[{index}]")
+    elif kind == "string":
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise SupervisorError(
+                f"Invalid Qwen decision: {path} contains invalid Unicode."
+            ) from exc
+        if len(value.strip()) < schema.get("minLength", 0):
+            raise SupervisorError(f"Invalid Qwen decision: {path} must not be blank.")
+    elif kind == "number":
+        try:
+            finite = math.isfinite(value)
+        except OverflowError:
+            finite = False
+        if not finite or not schema.get("minimum", value) <= value <= schema.get(
+            "maximum", value
+        ):
+            raise SupervisorError(f"Invalid Qwen decision: {path} is out of bounds.")
+
+
+def parse_qwen_decision(raw: str) -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise SupervisorError("Invalid Qwen decision: content must be a string.")
+    try:
+        size = len(raw.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise SupervisorError("Invalid Qwen decision: invalid Unicode content.") from exc
+    if size > MAX_QWEN_CONTENT_BYTES:
+        raise SupervisorError("Invalid Qwen decision: content exceeds 64 KiB.")
+    decision = strict_qwen_json(raw)
+    _validate_qwen_value(decision, qwen_decision_schema(), "decision")
+    if decision["action"] == "escalate":
+        if not decision.get("codex_request", "").strip():
+            raise SupervisorError("Invalid Qwen decision: escalate needs codex_request.")
+    elif decision.get("codex_request", ""):
+        raise SupervisorError("Invalid Qwen decision: codex_request requires escalate.")
+    return decision
+
+
+def qwen_message(body: Any) -> dict[str, Any]:
+    """Accept a single completed assistant message, never a tool/reasoning variant."""
+    if not isinstance(body, dict) or body.get("error") is not None:
+        raise SupervisorError("Invalid Qwen response: expected a completion object.")
+    choices = body.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise SupervisorError("Invalid Qwen response: expected exactly one choice.")
+    choice = choices[0]
+    if not isinstance(choice, dict) or choice.get("finish_reason") != "stop":
+        raise SupervisorError("Invalid Qwen response: completion did not finish with stop.")
+    message = choice.get("message")
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        raise SupervisorError("Invalid Qwen response: expected an assistant message.")
+    if (
+        message.get("tool_calls") not in (None, [])
+        or message.get("function_call") is not None
+        or message.get("refusal") not in (None, "")
+    ):
+        raise SupervisorError("Invalid Qwen response: tools/functions/refusals are not advice.")
+    if not isinstance(message.get("content"), str) or not message["content"].strip():
+        raise SupervisorError("Invalid Qwen response: expected nonempty content text.")
+    return message
 
 
 def bounded_tuning(
@@ -956,13 +1141,20 @@ class Supervisor:
         self, metrics: dict[str, Any], video: Path | None
     ) -> tuple[dict[str, Any], str]:
         prompt_path = AUTORESEARCH_ROOT / "prompts" / "evolution.md"
+        prompt = prompt_path.read_text(encoding="utf-8")
+        schema = qwen_decision_schema()
+        current_tuning = DEFAULTS | self.state["tuning"]
         content: list[dict[str, Any]] = [
             {
                 "type": "text",
                 "text": (
-                    prompt_path.read_text(encoding="utf-8")
+                    prompt
+                    + "\n\nDecision JSON Schema:\n"
+                    + json.dumps(schema, indent=2)
+                    + "\n\nAllowed tuning ranges (minimum, maximum):\n"
+                    + json.dumps(RANGES, indent=2)
                     + "\n\nCurrent tuning:\n"
-                    + json.dumps(DEFAULTS | self.state["tuning"], indent=2)
+                    + json.dumps(current_tuning, indent=2)
                     + "\n\nTraining metrics:\n"
                     + json.dumps(metrics, indent=2)
                 ),
@@ -973,12 +1165,23 @@ class Supervisor:
             if video
             else None
         )
+        visual_evidence: dict[str, Any] = {
+            "video": str(video) if video else None,
+            "contact_sheet": str(contact_sheet) if contact_sheet else None,
+            "supplied": False,
+        }
         if (
             contact_sheet
             and contact_sheet.is_file()
             and contact_sheet.stat().st_size <= 25 * 1024 * 1024
         ):
-            encoded = base64.b64encode(contact_sheet.read_bytes()).decode("ascii")
+            image_bytes = contact_sheet.read_bytes()
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            visual_evidence.update(
+                supplied=True,
+                bytes=len(image_bytes),
+                sha256=hashlib.sha256(image_bytes).hexdigest(),
+            )
             content.append(
                 {
                     "type": "image_url",
@@ -994,56 +1197,82 @@ class Supervisor:
             "messages": [{"role": "user", "content": content}],
             "max_tokens": 4096,
             "temperature": 0.1,
-            "response_format": {"type": "json_object"},
+            "response_format": qwen_response_format(
+                self.manifest.get("qwen_response_format", "json_object")
+            ),
             # Qwen3 reasoning can consume the whole output budget and leave
-            # content empty. Decisions need concise machine-readable JSON.
+            # content empty. Only content is accepted, even if this is ignored.
             "chat_template_kwargs": {"enable_thinking": False},
         }
+        request_bytes = json.dumps(payload).encode("utf-8")
+        endpoint = MODEL_URL + "/chat/completions"
+        evidence_path = self.run_dir / f"cycle-{self.state['cycle']}-qwen.json"
+        evidence: dict[str, Any] = {
+            "contract_version": QWEN_CONTRACT_VERSION,
+            "created_at": utc_now(),
+            "run_id": self.run_id,
+            "cycle": self.state["cycle"],
+            "schema": schema,
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "request": {
+                "endpoint": endpoint,
+                "model": payload["model"],
+                "response_format": payload["response_format"],
+                "max_tokens": payload["max_tokens"],
+                "temperature": payload["temperature"],
+                "chat_template_kwargs": payload["chat_template_kwargs"],
+                "text": content[0]["text"],
+                "sha256": hashlib.sha256(request_bytes).hexdigest(),
+            },
+            "inputs": {
+                "checkpoint": self.state.get("checkpoint"),
+                "candidate_checkpoint": self.state.get("candidate_checkpoint"),
+                "current_tuning": current_tuning,
+                "metrics": metrics,
+                "visual_evidence": visual_evidence,
+            },
+            "validation": {"status": "pending"},
+        }
+        atomic_json(evidence_path, evidence)
         request = urllib.request.Request(
-            MODEL_URL + "/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
+            endpoint,
+            data=request_bytes,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         try:
             with urllib.request.urlopen(request, timeout=900) as response:
-                body = json.load(response)
+                response_bytes = response.read(MAX_QWEN_RESPONSE_BYTES + 1)
         except (
-            urllib.error.URLError,
-            TimeoutError,
-            OSError,
-            json.JSONDecodeError,
+            urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException
         ) as exc:
-            raise SupervisorError(f"Qwen analysis request failed: {exc}") from exc
-        message = body["choices"][0]["message"]
-        raw_value = (
-            message.get("content")
-            or message.get("reasoning_content")
-            or message.get("reasoning")
-            or ""
+            reason = f"Qwen analysis request failed: {exc}"
+            evidence["validation"] = {"status": "request_failed", "error": reason}
+            atomic_json(evidence_path, evidence)
+            raise SupervisorError(reason) from exc
+        # Keep bounded raw evidence even when the provider response is invalid.
+        evidence["response_text"] = response_bytes[:MAX_QWEN_RESPONSE_BYTES].decode(
+            "utf-8", errors="replace"
         )
-        if isinstance(raw_value, str):
-            raw = raw_value
-        elif isinstance(raw_value, dict):
-            raw = json.dumps(raw_value)
-        elif isinstance(raw_value, list):
-            raw = "\n".join(
-                str(item.get("text", ""))
-                if isinstance(item, dict)
-                else str(item)
-                for item in raw_value
-            )
-        else:
-            raw = str(raw_value)
-        atomic_json(
-            self.run_dir / f"cycle-{self.state['cycle']}-qwen.json",
-            {"raw": raw, "message": message},
-        )
-        decision = extract_json(raw)
-        atomic_json(
-            self.run_dir / f"cycle-{self.state['cycle']}-qwen.json",
-            {"decision": decision, "raw": raw, "message": message},
-        )
+        evidence["response_truncated"] = len(response_bytes) > MAX_QWEN_RESPONSE_BYTES
+        try:
+            if evidence["response_truncated"]:
+                raise SupervisorError("Invalid Qwen response: exceeds 1 MiB.")
+            try:
+                response_text = response_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise SupervisorError("Invalid Qwen response: invalid UTF-8.") from exc
+            body = strict_qwen_json(response_text)
+            message = qwen_message(body)
+            raw = message["content"]
+            evidence.update(raw=raw, message=message)
+            decision = parse_qwen_decision(raw)
+        except SupervisorError as exc:
+            evidence["validation"] = {"status": "rejected", "error": str(exc)}
+            atomic_json(evidence_path, evidence)
+            raise
+        evidence.update(decision=decision, validation={"status": "accepted"})
+        atomic_json(evidence_path, evidence)
         return decision, raw
 
     def write_escalation(self, reason: str, decision: dict[str, Any] | None) -> None:
@@ -1321,6 +1550,7 @@ class Supervisor:
             )
 
             self.stop_owned()
+            tuning_before_advice = current_tuning.copy()
             decision: dict[str, Any] | None = None
             action = "skipped"
             notes: list[str] = []
@@ -1344,9 +1574,15 @@ class Supervisor:
                 if decision is not None:
                     action = str(decision.get("action"))
                     if action == "continue":
-                        current_tuning, notes = bounded_tuning(
-                            current_tuning, decision.get("tuning_changes", {})
-                        )
+                        try:
+                            current_tuning, notes = bounded_tuning(
+                                current_tuning, decision.get("tuning_changes", {})
+                            )
+                        except SupervisorError as exc:
+                            # A conflicting model proposal is an advisory too;
+                            # keep the prior tuning and finish the PPO budget.
+                            notes = [f"rejected tuning_changes: {exc}"]
+                            self.write_advisory(str(exc), decision)
                     elif action in {"hold", "escalate"}:
                         self.write_advisory(
                             str(
@@ -1365,6 +1601,16 @@ class Supervisor:
                     "Qwen analysis cap reached; continuing deterministic "
                     "training/evaluation from the preserved best."
                 )
+            atomic_json(
+                self.run_dir / f"cycle-{cycle}-evolution.json",
+                {
+                    "qwen_action": action,
+                    "proposed_tuning": decision.get("tuning_changes") if decision else None,
+                    "tuning_before": tuning_before_advice,
+                    "tuning_after": current_tuning,
+                    "validation_notes": notes,
+                },
+            )
             self.state["tuning"] = current_tuning
             self.update(
                 "cycle_complete",

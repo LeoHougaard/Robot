@@ -1,0 +1,4 @@
+# Regenerate using the exact version in requirements-baml.txt.
+baml_client/
+.venv-baml/
+results/

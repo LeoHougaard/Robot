@@ -1,0 +1,25 @@
+{
+  "description": "Synthetic shadow-evaluation capability fixture; not a promoted robot bundle.",
+  "profile_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "checkpoint_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "weights_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "deployment_tier": "synthetic-shadow-only",
+  "promoted": false,
+  "physical_transport_verified": false,
+  "validated_command_limits": {
+    "forward_m_s": [
+      -0.04,
+      0.04
+    ],
+    "lateral_m_s": [
+      -0.02,
+      0.02
+    ],
+    "yaw_rate_rad_s": [
+      -0.1,
+      0.1
+    ]
+  },
+  "max_duration_ms": 1000,
+  "schema_version": 2
+}

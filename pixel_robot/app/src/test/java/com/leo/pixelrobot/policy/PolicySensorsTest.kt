@@ -1,6 +1,7 @@
 package com.leo.pixelrobot.policy
 
 import java.io.File
+import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -8,13 +9,26 @@ import org.junit.Test
 
 class PolicySensorsTest {
     private fun fixture() = JSONObject(requireNotNull(javaClass.getResource("/delivery_sensor_reference.json")).readText())
-    private fun calibration() = RobotCalibration.parse(File("src/main/assets/assembly-four-leg-linkage-12dof.calibration.json").readText())
+    private fun calibration() = RobotCalibration.parse(File("src/test/resources/legacy-assembly-four-leg-linkage-12dof.calibration.json").readText())
+
+    @Test
+    fun sensorFixtureBindsTheOriginalWindowsCalibrationBytes() {
+        // The fixture generator hashed its Windows CRLF checkout; Git stores
+        // the same calibration as LF. Verify that exact, reversible encoding.
+        val source = File("src/test/resources/legacy-assembly-four-leg-linkage-12dof.calibration.json").readText()
+        val windowsBytes = source.replace("\r\n", "\n").replace("\n", "\r\n").toByteArray(Charsets.UTF_8)
+        val hash = MessageDigest.getInstance("SHA-256").digest(windowsBytes)
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(fixture().getString("calibration_sha256"), hash)
+    }
 
     @Test
     fun rawSamplesMatchTrainingObservationsAcrossWrapJitterAndCurrentLoss() {
         val fixture = fixture()
         val contract = PolicyContract.parse(fixture.getJSONObject("metadata").toString())
-        val sensors = PolicySensors(calibration(), contract.controlFrameSeconds)
+        val calibration = calibration()
+        contract.requireCalibration(calibration)
+        val sensors = PolicySensors(calibration, contract.controlFrameSeconds)
         val session = PolicyFrameSession(contract)
         val frames = fixture.getJSONArray("frames")
         repeat(frames.length()) { index ->

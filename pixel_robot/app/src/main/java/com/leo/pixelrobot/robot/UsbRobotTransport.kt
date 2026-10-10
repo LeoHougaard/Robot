@@ -4,7 +4,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
-import com.hoho.android.usbserial.util.SerialInputOutputManager
+import org.json.JSONObject
 import java.io.Closeable
 
 class UsbRobotTransport(
@@ -12,9 +12,11 @@ class UsbRobotTransport(
     private val device: UsbDevice,
     private val onBytes: (ByteArray) -> Unit,
     private val onFailure: (Throwable) -> Unit,
-) : Closeable, SerialInputOutputManager.Listener {
+) : Closeable {
     private var port: UsbSerialPort? = null
-    private var ioManager: SerialInputOutputManager? = null
+    private var writer: BoundedSerialWriter? = null
+    @Volatile private var reading = false
+    private var reader: Thread? = null
 
     fun open() {
         check(port == null) { "USB transport is already open" }
@@ -28,12 +30,20 @@ class UsbRobotTransport(
             runCatching { openedPort.dtr = false }
             runCatching { openedPort.rts = false }
             port = openedPort
-            ioManager = SerialInputOutputManager(openedPort, this).also {
-                // Queue 16 KiB of endpoint-sized reads to absorb bursts while
-                // decoding JSON, without waiting for a larger packet to fill.
-                it.setReadQueue(256)
-                it.setWriteBufferSize(WRITE_BUFFER_BYTES)
-                it.start()
+            openedPort.setReadQueue(256, openedPort.readEndpoint.maxPacketSize)
+            writer = BoundedSerialWriter(openedPort::write, { reading = false; openedPort.close() }, onFailure)
+            reading = true
+            reader = Thread({
+                val buffer = ByteArray(openedPort.readEndpoint.maxPacketSize)
+                try {
+                    while (reading) {
+                        val count = openedPort.read(buffer, 100)
+                        if (reading && count > 0) onBytes(buffer.copyOf(count))
+                    }
+                } catch (error: Throwable) { if (reading) onFailure(error) }
+            }, "pixel-usb-reader").apply {
+                isDaemon = true
+                start()
             }
         } catch (error: Throwable) {
             connection.close()
@@ -42,26 +52,37 @@ class UsbRobotTransport(
     }
 
     @Synchronized
-    fun write(bytes: ByteArray) {
-        ioManager?.writeAsync(bytes) ?: error("USB serial is not open")
+    fun write(bytes: ByteArray, gate: (() -> Unit) -> Unit = { it() }) {
+        val active = checkNotNull(writer) { "USB serial is not open" }
+        val command = JSONObject(bytes.toString(Charsets.UTF_8))
+        when (command.optString("cmd")) {
+            "stop" -> active.stop(safetyRecords())
+            "policy_arm", "program_start" -> { active.resume(); active.enqueue(bytes, gate = gate) }
+            "servo_torque" -> {
+                if (command.optBoolean("enabled")) active.resume()
+                // stop() already includes torque-off. Repeated safety commands share its barrier.
+                if (command.optBoolean("enabled")) active.enqueue(bytes, gate = gate)
+                else active.stop(safetyRecords())
+            }
+            "policy_disarm" -> active.stop(safetyRecords())
+            else -> active.enqueue(bytes, allowWhileStopped = command.optString("cmd") !in
+                setOf("policy_frame", "play", "servo", "move"), gate = gate)
+        }
     }
-
-    override fun onNewData(data: ByteArray) = onBytes(data)
-
-    override fun onRunError(error: Exception) = onFailure(error)
 
     @Synchronized
     override fun close() {
-        ioManager?.stop()
-        ioManager = null
-        runCatching { port?.close() }
+        writer?.stop(safetyRecords(), close = true)
+        writer = null
         port = null
     }
+
+    private fun safetyRecords() = listOf(RobotProtocol.command("stop"),
+        RobotProtocol.command("policy_disarm"), RobotProtocol.torqueAll(false))
 
     companion object {
         const val ROBOT_VENDOR_ID = 0x10C4
         const val ROBOT_PRODUCT_ID = 0xEA60
         const val BAUD = 2_000_000
-        private const val WRITE_BUFFER_BYTES = 16 * 1024
     }
 }

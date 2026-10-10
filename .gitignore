@@ -49,6 +49,7 @@ artifacts/historical-runtime-*/
 artifacts/inward-knee-core-[0-9]*.png
 
 # Temporary files
+/.tooling/
 *.tmp
 *.log
 *.pid

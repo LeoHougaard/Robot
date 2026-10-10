@@ -68,12 +68,12 @@ class AutoresearchGateTests(unittest.TestCase):
                 (Path(directory) / "cycle-2-codex-advisory.md").is_file()
             )
 
-    def test_extracts_json_from_reasoning_wrapper(self) -> None:
-        decision = subject.extract_json(
-            "analysis first\n```json\n"
-            '{"action":"continue","tuning_changes":{}}\n```'
+    def test_extracts_metrics_json_from_subprocess_log_wrapper(self) -> None:
+        metrics = subject.extract_json(
+            "subprocess log line\n"
+            '{"sample_count":100}\n'
         )
-        self.assertEqual(decision["action"], "continue")
+        self.assertEqual(metrics["sample_count"], 100)
 
     def test_limits_tuning_to_two_changes(self) -> None:
         tuning, notes = subject.bounded_tuning(

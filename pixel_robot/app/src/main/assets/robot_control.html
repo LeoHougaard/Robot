@@ -65,6 +65,15 @@
     .telemetry-value span { display: block; color: var(--muted); font-size: 12px; }
     .telemetry-value strong { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; }
     #servo-torque { color: var(--accent); font-size: 28px; }
+    .shadow-panel { border-color: #42627a; }
+    .shadow-panel h2 { margin-top: 6px; }
+    #shadow-form { display: grid; gap: 10px; margin-top: 16px; }
+    #shadow-form input:not([type="checkbox"]), #shadow-form textarea { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #11171a; color: var(--text); font: inherit; }
+    .shadow-check { display: flex; align-items: flex-start; gap: 10px; color: var(--muted); }
+    #shadow-submit { background: var(--blue); }
+    #shadow-stop { background: var(--amber); }
+    #shadow-status { margin-top: 14px; color: var(--blue); }
+    #shadow-result { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
     @media (max-width: 620px) {
       .status-grid { grid-template-columns: 1fr; }
       .buttons { grid-template-columns: 1fr; }
@@ -159,6 +168,29 @@
       <button id="download-capture" disabled>Download training capture</button>
       <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
       <p class="restriction">The controls use the installed policy's tested command limits.</p>
+    </section>
+    <section class="panel shadow-panel" aria-labelledby="shadow-title">
+      <p class="eyebrow">SHADOW ONLY · No robot motion</p>
+      <h2 id="shadow-title">Text intent preview</h2>
+      <p class="restriction">Submitting sends your text and a fixed intent-format instruction to your selected HTTPS or phone-local endpoint. No camera, telemetry, bundle, calibration, capability binding or credentials are sent. This preview never arms or moves the robot.</p>
+      <form id="shadow-form" autocomplete="off">
+        <label for="shadow-endpoint">OpenAI-compatible base URL (HTTPS or literal loopback, ending in /v1)</label>
+        <input id="shadow-endpoint" type="url" maxlength="1000" placeholder="https://your-provider.example/v1" spellcheck="false" autocomplete="off" required>
+        <label for="shadow-model">Exact model name</label>
+        <input id="shadow-model" type="text" maxlength="256" placeholder="Enter a model name" spellcheck="false" autocomplete="off" required>
+        <label for="shadow-text">Operator text (up to 2,000 characters)</label>
+        <textarea id="shadow-text" rows="3" maxlength="4000" placeholder="Enter one request to preview" autocomplete="off" required></textarea>
+        <label class="shadow-check"><input id="shadow-network" type="checkbox"> Send this text to my selected endpoint when I submit</label>
+        <label class="shadow-check"><input id="shadow-unqualified" type="checkbox"> Allow an unqualified bundle for this SHADOW preview only</label>
+        <div class="buttons">
+          <button id="shadow-submit" type="submit" disabled>Submit SHADOW preview</button>
+          <button id="shadow-cancel" type="button" disabled>Cancel preview</button>
+          <button id="shadow-stop" type="button">Stop SHADOW session</button>
+        </div>
+      </form>
+      <p id="shadow-status" role="status" aria-live="polite">No endpoint selected. Network is off until you opt in and submit.</p>
+      <pre id="shadow-result" aria-label="Shadow-only result"></pre>
+      <p class="restriction">A preview is not task completion or permission to move. Shadow Stop is model-independent and does not confirm physical stopping. Use the separate Stop + torque off control for the physical robot. Endpoint and text are not saved by this page; your provider may retain submitted text. Credentials are unsupported. Requests have an 8-second result deadline; cancellation discards late output, while an in-flight network operation may take longer to exit.</p>
     </section>
   </main>
   <script>
@@ -341,6 +373,98 @@
     });
     renderValues();
     poll();
+    // This panel never calls the live start, command, stand, or reconnect APIs.
+    (() => {
+      const token = "__PIXEL_SHADOW_TOKEN__";
+      const get = name => document.getElementById(`shadow-${name}`);
+      const fields = Object.fromEntries(["form", "endpoint", "model", "text", "network", "unqualified", "submit", "cancel", "stop", "status", "result"].map(name => [name, get(name)]));
+      let busy = false, active = false, suppressResult = true, mutationPending = false, expectedRequest = null, epoch = 0, disposed = false, polling = false;
+      function configured() {
+        try {
+          const url = new URL(fields.endpoint.value);
+          const local = url.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(url.hostname);
+          return token && (url.protocol === "https:" || local) && !url.username && !url.password && !url.search && !url.hash && /\/v1\/?$/.test(url.pathname) &&
+            fields.model.value.trim() && fields.text.value.trim() && [...fields.text.value].length <= 2000 && fields.network.checked;
+        } catch { return false; }
+      }
+      function buttons() {
+        fields.submit.disabled = busy || mutationPending || !configured();
+        fields.cancel.disabled = !active;
+        fields.stop.disabled = !token;
+      }
+      function display(result) {
+        busy = result.provider_state === "requesting";
+        const state = result.service || {};
+        if (expectedRequest && state.request_id !== expectedRequest) suppressResult = true;
+        active = busy || state.state === "pending" || state.state === "shadow_accepted";
+        fields.status.textContent = `SHADOW · provider: ${result.provider_state || "unknown"} · host: ${state.state || "unknown"}${result.provider_error ? ` · ${result.provider_error}` : ""}`;
+        // Never interpret model strings as HTML, script, routes, or authority.
+        fields.result.textContent = suppressResult ? "Preview cleared locally. Submit explicitly to show a new result." : JSON.stringify({ state: state.state, reason: state.reason, question: state.question, unsupported_reason: state.unsupported_reason,
+          preview: state.preview, physical_execution: false, physical_stop_confirmed: false }, null, 2);
+        buttons();
+      }
+      async function api(path, body, keepalive = false) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        try {
+          const response = await fetch(`/api/shadow/${path}`, { method: body === undefined ? "GET" : "POST", cache: "no-store",
+            headers: { "Content-Type": "application/json", "X-Pixel-Shadow-Token": token },
+            body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal, keepalive });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error("Shadow service rejected the request. Check the local connection and fields.");
+          return result;
+        } finally { clearTimeout(timeout); }
+      }
+      async function cancel(stop = false, keepalive = false) {
+        const ticket = ++epoch;
+        busy = false; active = false; suppressResult = true; mutationPending = true; expectedRequest = null; buttons();
+        fields.status.textContent = stop ? "Stopping SHADOW session…" : "Cancelling SHADOW preview…";
+        fields.result.textContent = "";
+        try {
+          const result = await api(stop ? "stop" : "cancel", {}, keepalive);
+          if (ticket === epoch && !disposed) display(result);
+        } catch {
+          if (ticket === epoch && !disposed) fields.status.textContent = "Could not verify SHADOW cancellation. Late output stays blocked locally; the host request expires independently.";
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); } }
+      }
+      fields.form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (busy || mutationPending || !configured()) return;
+        const ticket = ++epoch;
+        busy = true; active = true; mutationPending = true; suppressResult = true; expectedRequest = null; buttons(); fields.result.textContent = "";
+        fields.status.textContent = "SHADOW request pending. Nothing is sent to the robot.";
+        try {
+          const result = await api("request", { endpoint: fields.endpoint.value, model: fields.model.value,
+            text: fields.text.value, allow_network: fields.network.checked, allow_unqualified_metadata: fields.unqualified.checked });
+          if (ticket === epoch && !disposed) {
+            expectedRequest = result.service?.request_id || null;
+            suppressResult = !expectedRequest;
+            display(result);
+          }
+        } catch {
+          if (ticket === epoch && !disposed) { busy = false; buttons(); fields.status.textContent = "SHADOW request failed or response unavailable. No physical execution. Cancel to revoke any pending host preview."; fields.cancel.disabled = false; }
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); if (!expectedRequest) fields.cancel.disabled = false; } }
+      });
+      fields.cancel.addEventListener("click", () => cancel());
+      fields.stop.addEventListener("click", () => cancel(true));
+      for (const name of ["endpoint", "model", "text", "network", "unqualified"]) fields[name].addEventListener("input", () => {
+        if (name === "endpoint" || name === "model" || name === "text") fields.network.checked = false;
+        if (active) cancel();
+        buttons();
+      });
+      async function pollShadow() {
+        if (disposed || !token || polling) return;
+        if (mutationPending) { setTimeout(pollShadow, 500); return; }
+        polling = true; const ticket = epoch;
+        try { const result = await api("status"); if (ticket === epoch && !disposed) display(result); }
+        catch { if (ticket === epoch && busy) fields.status.textContent = "SHADOW status unavailable. The host deadline still applies; Cancel and Stop remain available."; }
+        finally { polling = false; if (!disposed) setTimeout(pollShadow, 500); }
+      }
+      window.addEventListener("pagehide", () => { if (active) cancel(false, true); disposed = true; epoch++; });
+      document.addEventListener("visibilitychange", () => { if (document.hidden && active) cancel(false, true); });
+      window.addEventListener("pageshow", event => { if (event.persisted) { disposed = false; epoch++; busy = false; active = false; mutationPending = false; expectedRequest = null; suppressResult = true; fields.network.checked = false; buttons(); pollShadow(); } });
+      buttons(); pollShadow();
+    })();
   </script>
 </body>
 </html>
