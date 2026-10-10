@@ -1,6 +1,6 @@
 {
   "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/LoadedPolicyAssets.kt": {
-    "sha256": "42da24bdb01681f3d498717b009413138bcf5bbb161d704dbda4b8bf58222f0e"
+    "sha256": "8cf5f7340ab985fefd91969d49b9c5e24f82f61558393f870d0d842c78ef6577"
   },
   "pixel_robot/app/src/main/java/com/leo/pixelrobot/policy/OnnxPolicy.kt": {
     "sha256": "7a16f9b89474f0883c0d1f9b7b76efef07cd497f0c7f69e2ff283c91f616ce52"

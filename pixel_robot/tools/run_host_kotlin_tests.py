@@ -2,9 +2,10 @@
 """Compile and execute production Kotlin host tests without Android SDK or devices.
 
 Network access is opt-in: --download-only prepares pinned Maven Central jars.
-The Android AssetManager/SystemClock shims deliberately throw. Controller and
-ONNX code are compile-only; HTTP route tests use ephemeral loopback sockets
-and fake callbacks. Android lifecycle and USB are excluded.
+The Android/AndroidX/USB API shims deliberately throw. Controller, ONNX,
+RobotService and UsbRobotTransport are compile-only; HTTP route tests use
+ephemeral loopback sockets and fake callbacks. MainActivity/resources remain
+placeholders. Real Android API compatibility, lifecycle and USB are unverified.
 Neither an Android build nor device behavior is covered by a host test pass.
 """
 from __future__ import annotations
@@ -23,7 +24,10 @@ import zipfile
 
 PIXEL = Path(__file__).resolve().parents[1]
 HOST = PIXEL / "tools" / "host_kotlin"
-EXCLUDED = {"MainActivity.kt", "RobotService.kt", "UsbRobotTransport.kt"}
+EXCLUDED = {"MainActivity.kt"}
+INSTRUMENTATION_COMPILE_ONLY = (
+    "app/src/androidTest/java/com/leo/pixelrobot/policy/Installed3750MonitorTransportTest.kt",
+)
 SCOPE = "pixel-production-kotlin-host-unit-tests"
 
 
@@ -71,8 +75,12 @@ def dependencies(cache, download):
 def compile_sources(cache, jars, rebuild=False):
     production = sorted(p for p in (PIXEL / "app/src/main/java").rglob("*.kt") if p.name not in EXCLUDED)
     tests = sorted((PIXEL / "app/src/test/java").rglob("*Test.kt"))
-    sources = production + tests + sorted(HOST.glob("*.kt"))
-    fingerprint_inputs = sources + [HOST / "dependencies.json"]
+    # Explicitly type-check this device harness but never include it in `tests`
+    # or the JUnit class list. Its Android boundaries are signature-only shims.
+    instrumentation = [PIXEL / name for name in INSTRUMENTATION_COMPILE_ONLY]
+    sources = production + tests + instrumentation + sorted(HOST.rglob("*.kt"))
+    # Cache identity also binds this compiler's flags/discovery/publication code.
+    fingerprint_inputs = sources + [HOST / "dependencies.json", Path(__file__).resolve()]
     def source_fingerprint():
         return hashlib.sha256("\n".join(str(p.relative_to(PIXEL)) + ":" + digest(p) for p in fingerprint_inputs).encode()).hexdigest()
     fingerprint = source_fingerprint()
@@ -132,8 +140,15 @@ def main(argv=None):
     report = {"schema_version": 1, "scope": SCOPE, "status": "blocked", "test_count": 0,
               "hardware_access": False, "android_build_verified": False,
               "excluded_sources": sorted(EXCLUDED),
-              "compile_only_android_boundaries": ["AssetManager", "SystemClock"],
-              "compile_only_production_sources": ["PolicyController.kt", "OnnxPolicy.kt"]}
+              "compile_only_android_boundaries": ["AssetManager", "SystemClock", "android_compile/* (throwing Android/AndroidX/USB signatures and MainActivity/resource placeholders)",
+                  "android_test_compile/* (throwing instrumentation signatures, never executed)"],
+              "compile_only_production_sources": ["PolicyController.kt", "OnnxPolicy.kt", "RobotService.kt", "UsbRobotTransport.kt"],
+              "android_api_compatibility_verified": False,
+              "android_lifecycle_verified": False,
+              "usb_driver_verified": False,
+              "main_activity_compiled": False,
+              "android_instrumentation_verified": False,
+              "compile_only_instrumentation_sources": list(INSTRUMENTATION_COMPILE_ONLY)}
     code = 2
     try:
         jars = dependencies(args.cache_dir.resolve(), args.download or args.download_only)

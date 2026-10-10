@@ -1,4 +1,4 @@
-﻿package com.leo.pixelrobot.policy
+package com.leo.pixelrobot.policy
 
 import android.content.Context
 import android.hardware.usb.UsbManager
@@ -9,6 +9,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.leo.pixelrobot.robot.JsonLineDecoder
 import com.leo.pixelrobot.robot.RobotProtocol
 import com.leo.pixelrobot.robot.RunSessionRecorder
+import com.leo.pixelrobot.robot.RawUsbCaptureRecorder
+import com.leo.pixelrobot.robot.UsbSafetyWriteOutcome
 import com.leo.pixelrobot.robot.UsbRobotTransport
 import java.io.File
 import java.security.MessageDigest
@@ -24,7 +26,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Explicit hardware diagnostic: no arm, torque, configuration or motion commands. */
+/** Operator-gated torque-off diagnostic. Never arms/enables torque; teardown explicitly disables torque. */
 @RunWith(AndroidJUnit4::class)
 class Installed3750MonitorTransportTest {
     @Test
@@ -80,6 +82,14 @@ class Installed3750MonitorTransportTest {
                 .put("weights_sha256", contract.weightsSha256).put("observation_size", contract.observationSize)
         })
         check(recorder.start("motor_disabled_transport").active)
+        val rawCapture = RawUsbCaptureRecorder(
+            File(context.filesDir, "transport_diagnostics/raw-usb-${java.util.UUID.randomUUID()}.jsonl"),
+            synthetic = false,
+            context = JSONObject().put("mode", "operator_torque_off_no_motor_position_writes")
+                .put("weights_sha256", contract.weightsSha256)
+                .put("usb_vendor_id", selectedDevice.vendorId).put("usb_product_id", selectedDevice.productId),
+            clock = SystemClock::elapsedRealtimeNanos,
+        )
         val transport = UsbRobotTransport(manager, selectedDevice, { bytes ->
             val receivedNs = SystemClock.elapsedRealtimeNanos()
             runCatching {
@@ -98,7 +108,9 @@ class Installed3750MonitorTransportTest {
                     }
                 }
             }.onFailure { failure.compareAndSet(null, it) }
-        }, { failure.compareAndSet(null, it) })
+        }, { failure.compareAndSet(null, it) }, onWireBytes = { direction, bytes, callbackNs ->
+            rawCapture.record(direction, bytes, callbackNs)
+        })
         fun send(message: JSONObject) {
             val bytes = (message.toString() + "\n").toByteArray()
             recorder.recordRobotTx(bytes)
@@ -143,7 +155,9 @@ class Installed3750MonitorTransportTest {
             val hello = receive("hello").first
             firmwareVersion = hello.optString("version", "unknown")
             check(!hello.getBoolean("policyArmed") && !hello.optBoolean("policyMonitoring"))
-            check(hello.optBoolean("supportsTorqueOffPolicyMonitor")) { "Flash firmware 0.1.15 or later first" }
+            check(hello.getString("version") == "0.1.18-transportguard") { "Expected explicitly installed paired .18 candidate" }
+            check(hello.optBoolean("supportsSerialInputAbort") && hello.optInt("serialInputAbortVersion") == 2)
+            check(hello.optBoolean("supportsTorqueOffPolicyMonitor")) { "Torque-off monitoring capability missing" }
             check(hello.getInt("policyFeedbackIntervalMs") == 20)
             serialErrorsBefore = hello.optJSONArray("serialErrorCounts")?.let { array ->
                 LongArray(array.length()) { array.getLong(it) }
@@ -295,8 +309,33 @@ class Installed3750MonitorTransportTest {
             runCatching {
                 send(JSONObject().put("cmd", "policy_disarm"))
                 receive("policy_monitor_stopped")
+                // Bracket every raw monitor sample, including the final drain.
+                send(JSONObject().put("cmd", "hello"))
+                postHello = receive("hello", ignoreStickyFailure = true).first
             }
-            transport.close()
+            // close() alone returns before native I/O has quiesced. Observe both
+            // futures with bounded waits; a timeout remains failed evidence and
+            // must never authorize a replacement connection.
+            val teardownEvidence = JSONObject().put("quiesced", false)
+                .put("host_write_outcome", "UNKNOWN").put("firmware_acknowledged", false)
+            runCatching {
+                val teardown = transport.closeAsync()
+                val safety = teardown.outcome.get(2, TimeUnit.SECONDS)
+                teardownEvidence.put("host_write_outcome", safety.outcome.name)
+                    .put("prior_write_in_flight", safety.priorWriteInFlight)
+                    .put("discarded_queued_records", safety.discardedQueuedRecords)
+                teardown.quiesced.get(2, TimeUnit.SECONDS)
+                teardownEvidence.put("quiesced", true)
+                check(safety.outcome == UsbSafetyWriteOutcome.HOST_WRITE_COMPLETED) {
+                    "Safety bytes were not confirmed written by the host: ${safety.outcome}"
+                }
+            }.onFailure {
+                rawCapture.invalidate("transport teardown incomplete: ${it.javaClass.simpleName}")
+                teardownEvidence.put("error", it.toString())
+                outcome = "failed"
+            }
+            val rawSaved = rawCapture.finish(outcome, teardownEvidence)
+            if (!rawSaved.complete) outcome = "failed"
             loadedPolicy?.close()
             if (!reportWritten) {
                 File(context.filesDir, "motor-disabled-transport-result.json").writeText(
@@ -312,9 +351,24 @@ class Installed3750MonitorTransportTest {
                         .toString(2),
                 )
             }
+            // Link the two real captures and retain teardown observations even if
+            // timing assertions failed. The raw capture is the acceptance CLI input.
+            val summaryFile = File(context.filesDir, "motor-disabled-transport-result.json")
+            val summary = runCatching { JSONObject(summaryFile.readText()) }.getOrElse { JSONObject() }
+            summary.put("outcome", outcome).put("raw_capture_file", rawSaved.file.name)
+                .put("raw_capture_complete", rawSaved.complete)
+                .put("raw_capture_dropped_records", rawSaved.droppedRecords)
+                .put("raw_capture_error", rawSaved.error ?: JSONObject.NULL)
+                .put("transport_teardown", teardownEvidence)
+            summaryFile.writeText(summary.toString(2))
             val saved = recorder.finish(outcome, "read-only feedback, inference and USB; no motor target writes")
             recorder.close()
             check(saved.error == null) { "transport recording incomplete: ${saved.error}" }
+            check(rawSaved.complete) { "raw USB capture incomplete: ${rawSaved.error}" }
+            check(teardownEvidence.getBoolean("quiesced") &&
+                teardownEvidence.getString("host_write_outcome") == "HOST_WRITE_COMPLETED") {
+                "USB teardown was not confirmed; no reconnect or physical safety claim"
+            }
         }
     }
 }

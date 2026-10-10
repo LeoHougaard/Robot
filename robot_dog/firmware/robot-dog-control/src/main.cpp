@@ -11,6 +11,8 @@
 #include "AK09918.h"
 #include "QMI8658.h"
 #include "PeriodicDeadline.h"
+#include "JsonCommandBoundary.h"
+#include "SerialInputAbort.h"
 
 #ifndef ROBOT_DOG_VERSION
 #define ROBOT_DOG_VERSION "dev"
@@ -797,6 +799,7 @@ bool hasServoBatteryVoltage = false;
 uint32_t servoBatterySampleMs = 0;
 String inputLine;
 bool discardInputLine = false;
+SerialInputAbort serialInputAbort;
 size_t serialRxBufferBytes = 0;
 NetworkMessage networkMessages[NET_MESSAGE_LOG_SIZE];
 uint32_t networkMessageSeq = 0;
@@ -1525,6 +1528,13 @@ void handlePolicyFrame(
   JsonDocument &doc, bool monitorOnly = false, const String &receivedLine = String()) {
   if (monitorOnly ? !policyControl.monitoring : !policyControl.armed) {
     sendError("policy is not armed");
+    return;
+  }
+  // pollSerial runs before the loop watchdog. A delayed frame must not
+  // refresh an already-expired deadline and silently keep policy armed.
+  if (!monitorOnly && millis() - policyControl.lastFrameAt > POLICY_FRAME_TIMEOUT_MS) {
+    disarmPolicy("frame timeout; holding last targets", true);
+    sendError("policy frame arrived after timeout; explicit re-arm required");
     return;
   }
   if (!doc["seq"].is<uint32_t>()) { sendError("policy frame sequence must be an unsigned integer"); return; }
@@ -2718,6 +2728,10 @@ void runProgram() {
 }
 
 void handleCommand(const String &line) {
+  if (!hasSingleJsonCommandObject(line.c_str(), line.length())) {
+    if (!policyControl.armed) sendError("invalid json: expected one complete command object");
+    return;
+  }
   DynamicJsonDocument doc(SERIAL_JSON_CAPACITY);
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
@@ -2758,6 +2772,8 @@ void handleCommand(const String &line) {
     response["policyArmed"] = policyControl.armed;
     response["policyMonitoring"] = policyControl.monitoring;
     response["supportsTorqueOffPolicyMonitor"] = true;
+    response["supportsSerialInputAbort"] = true;
+    response["serialInputAbortVersion"] = 2;
     response["policyFrameTimeoutMs"] = POLICY_FRAME_TIMEOUT_MS;
     response["policyFeedbackIntervalMs"] = POLICY_FEEDBACK_INTERVAL_MS;
     response["policyServoSpeedStepsPerSecond"] = POLICY_SERVO_SPEED_STEPS_S;
@@ -3035,6 +3051,29 @@ void setupWebServer() {
 void pollSerial() {
   while (Serial.available()) {
     char c = static_cast<char>(Serial.read());
+    // CAN aborts a previous USB connection's pending line, even if that line
+    // already contains a complete command but lost its newline. A bare LF
+    // would execute it. Ignore everything through the next LF to resync.
+    if (static_cast<uint8_t>(c) == 0x18) {
+      inputLine = "";
+      discardInputLine = true;
+      serialInputAbort.begin();
+      continue;
+    }
+    if (serialInputAbort.collecting) {
+      // The host sends CAN + 32 lowercase hex characters, with no LF, and
+      // requires its fresh nonce echoed before it sends any delimiter.
+      // Older firmware cannot acknowledge this. Truncated or damaged
+      // challenges yield no reply and leave the command line discarded.
+      if (serialInputAbort.consume(c)) {
+        StaticJsonDocument<192> response;
+        response["type"] = "serial_abort";
+        response["version"] = 2;
+        response["nonce"] = serialInputAbort.nonce;
+        sendJson(response);
+      }
+      continue;
+    }
     if (c == '\r') continue;
     if (c == '\n') {
       if (discardInputLine) {

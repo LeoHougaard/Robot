@@ -1,7 +1,8 @@
 # Hardware-free Kotlin verification
 
 The host runner compiles the real production policy math, command-operation
-arbiter, feedback gates, protocol, recorder and capture code, then runs the
+arbiter, feedback gates, bounded USB writer, physical-intent authority, protocol,
+recorder and capture code, then runs the
 repository's JUnit tests. It requires Java 17 or newer and Python 3.10 or newer.
 It does not need Gradle, javac, an Android SDK, an emulator, a phone or a robot.
 
@@ -42,21 +43,44 @@ build rather than compiling again inside a request timeout.
 ## What this does not establish
 
 `PolicyController` and `OnnxPolicy` are compiled against the exact Android ONNX
-Runtime 1.26.0 API, but are not executed by the host unit suite. The production
+Runtime 1.26.0 API, but are not executed by the host unit suite. `RobotService`
+and `UsbRobotTransport` are now also compiled to catch internal Kotlin wiring
+errors, against explicit throwing Android/AndroidX/USB signature shims under
+`tools/host_kotlin/android_compile`. Those shims are not real framework or USB
+driver implementations and cannot verify library compatibility. `MainActivity`
+and generated resources are type placeholders; the real Activity, CameraX,
+view binding, resources and packaging remain uncompiled. Reports retain explicit
+false Android API/lifecycle, USB driver, MainActivity and app-build verification
+flags. No Android SDK or license acceptance is part of this host check.
+
+`Installed3750MonitorTransportTest.kt` is separately listed as compile-only. Its
+instrumentation signatures are throwing shims under `android_test_compile`, and
+the runner never adds this class to the JUnit execution list. This catches typed
+raw-capture/transport wiring only. `android_instrumentation_verified` stays false;
+no installed application, device harness or USB capture is executed here.
+
+The production
 `RobotControlServer` is exercised on ephemeral loopback sockets with injected
 page bytes and fake callbacks; its Android asset-loading branch is untested.
 Provider HTTP behavior uses an in-memory fake OkHttp boundary, never an external
 endpoint. The minimal host `AssetManager` and `SystemClock` definitions deliberately
-throw if invoked, rather than impersonating Android behavior. Android service,
-UI and USB implementation files are excluded. No Android ONNX native library
+throw if invoked, rather than impersonating Android behavior. No Android ONNX native library
 is loaded by this runner.
 
-The separate canonical `pixel-web-ui` check requires Node 24.19.0 and runs the
-actual shadow-panel script from `robot_control.html` with authored DOM/fetch
-stubs. `node pixel_robot/tools/test_shadow_ui.cjs --output /tmp/shadow-ui.json`
+The separate canonical `pixel-web-ui` and `pixel-physical-ui` checks require
+Node 24.19.0 and run the actual separate panel scripts from `robot_control.html`
+with authored DOM/fetch stubs.
+`node pixel_robot/tools/test_shadow_ui.cjs --output /tmp/shadow-ui.json`
 retains source hashes, exact test IDs and the zero-skip result. It needs no npm
 packages or browser. It does not execute the existing live-control script or
-establish Android WebView rendering/lifecycle behavior.
+establish Android WebView rendering/lifecycle behavior. The corresponding
+physical-panel command is `node pixel_robot/tools/test_physical_ui.cjs --output
+/tmp/physical-ui.json`; its result explicitly reports no physical execution.
+That suite additionally extracts the narrow manual HTTP helper, status/button
+logic and page exit/restoration callbacks to verify operator-token headers,
+local denial when a token is absent, generation-bound pending Start/Stand,
+and an authenticated keepalive Stop. It does not run the full manual controller
+script, a browser, or any live bridge endpoint.
 
 This is not an Android app build, Android lifecycle test, Pixel timing test,
 USB test, firmware test, hardware safety qualification, or walking evaluation.
@@ -124,30 +148,63 @@ asset mismatch, or calibrated target violations return a sanitized failure
 and terminate nonzero. This is an evidence adapter for synthetic/replay
 inference, never a controller endpoint and never motion authorization.
 
-## Owned USB writer and remaining device evidence
+## Bounded USB ordering, startup and teardown
 
-`UsbRobotTransport` now uses one application-owned `BoundedSerialWriter`, with
-a 16 KiB queue, copied records, cancellation generations, a 40 ms normal write
-deadline and a 150 ms safety barrier. Stop discards pending older commands and
-waits for the current driver write to end before attempting stop/disarm/torque-off.
-A stalled driver closes the port and reports receipt unknown. Teardown runs in
-the background and preserves the port for that bounded attempt. Reconnect and
-late open/read callbacks are fenced by the service's transport generation.
+`UsbRobotTransport` now routes every native write through the production
+`BoundedUsbWriter`; the third-party `SerialInputOutputManager` is read-only and
+its private `writeAsync` buffer is never used. Host tests execute the real pure
+writer and startup fence. The Android adapter/service compile against throwing
+API signatures; neither the actual driver nor Android lifecycle is executed.
 
-`BoundedSerialWriterTest` exercises queued and in-flight cancellation, stalled
-writes, late completion, disconnect, resumed operations, queue bounds and copied
-records, plus close after a completed safety barrier. `PolicyOperationTest` and
-`PhysicalCommandAuthorityTest` exercise final-write cancellation, independent
-operator approval/readiness, asset identity, monotonic expiry and feedback age.
-The operator lease lasts 1..1000 ms, has named body velocity fields and neutral
-posture, and rejects longer requests without replacing or extending an existing
-lease. Final writes fail at the exact deadline. It is
-never constructed from a shadow grant or model callback. There is no UI or HTTP
-route that starts this operator-only trial.
+- Ordinary pending storage is bounded to 64 records / 16 KiB, with a 6,144-byte
+  maximum record. Overflow raises explicit backpressure. Records are copied on
+  admission. A separate reserved slot contains the fixed stop/disarm/torque-off
+  batch, so ordinary saturation cannot prevent its admission
+- Opaque generations belong to one writer instance. Stop, close, failure and a
+  new operation revoke queued old work. No operation can rebind old queued bytes
+  to a replacement USB connection. After Stop, ordinary writes remain rejected
+  until an explicit new operation advances generation
+- The deferred controller/physical-authority check encloses only the final
+  in-flight claim, with no writer lock held while acquiring authority locks.
+  Blocking native I/O executes after those locks are released. Stop cannot
+  recall a claimed write; it waits for that write to finish successfully before
+  attempting safety. A rejected/expired final claim instead requests safety
+- Each native write has a 100 ms driver timeout plus an independent watchdog.
+  Stop has a 500 ms whole-attempt deadline. Failure/timeout may leave partial
+  JSON, so the writer closes instead of appending a safety batch to that unknown
+  prefix. Main-thread stop/close calls only schedule background work
+- `UsbTeardown.outcome` is a bounded host result; even `HOST_WRITE_COMPLETED`
+  always has `firmwareAcknowledged=false`. `quiesced` succeeds only after the
+  actual old port close and in-flight native write have both returned. A stuck
+  write/close leaves reconnect blocked, and a close error completes it
+  exceptionally. The service never substitutes a deadline result for quiescence
 
-Driver completion is not firmware receipt or physical torque-off. The firmware
-watchdog may stop policy frames while retaining torque. Pixel/ESP32 acceptance
-still requires motor-disabled communication, acknowledgement/readback evidence,
-50 Hz timing measurements, app destruction, unplug/replug and link-fault tests.
-Physical trials require Leo's separate approval. The phone was disconnected
-from the robot during these checks; see [INTEGRATION-STATUS.md](INTEGRATION-STATUS.md).
+Unknown firmware is fenced before the first input delimiter: startup sends
+ASCII CAN (0x18) plus a fresh 32-character lowercase-hex nonce, with **no LF**.
+The paired firmware clears its partial input at CAN and acknowledges the exact
+nonce as `serial_abort`, version 2. Only that exact current response permits the
+first LF and ordinary hello/commands. Pre-request, stale, malformed or truncated
+acknowledgements do not grant readiness. After 750 ms without a matching ACK,
+startup closes without a newline-bearing safety batch. This prevents reconnect
+from accidentally completing an older buffered arm/torque JSON command. Older
+firmware is deliberately rejected; migration requires separately authorized,
+motor-power-off firmware deployment, not a fallback to the old parser.
+
+The host suites cover queue limits, selected/queued/in-flight races, timeout
+versus completion, generation-safe reconnect, reentrant/cross-thread stop,
+blocked native write/close, rejected executors/schedulers, faulty deadline
+cancellation, stale authority callbacks and nonce/framing faults. Their clocks,
+executors and sinks are fake; latch-based tests control actual test-thread
+interleavings without claiming device scheduling or serial delivery timing.
+
+Still required under separate authorization: actual Android build/lifecycle,
+paired Pixel/ESP32 startup and unplug/replug traces, 50 Hz timing under load,
+firmware acknowledgements and torque-register readback. The optional raw-wire
+observer records RX before filtering and exact native TX **attempts** (including
+startup and safety framing); TX capture does not establish transmission or
+receipt. The firmware watchdog may retain servo torque while stopping stale
+policy frames. No host test or teardown future proves physical torque-off.
+
+## Local reconciliation status
+
+The prior local Android and device integration evidence remains in INTEGRATION-STATUS.md and the checkpoint handoff. It predates this V5 reconciliation and does not validate the new transport protocol. The one-second operator-only PhysicalCommandAuthority remains available alongside the separate one-shot PhysicalIntentAuthority. Both require independent authority; the bundle remains unpromoted and physical transport unverified. Current reconciliation results are recorded in V5-RECONCILIATION.md.

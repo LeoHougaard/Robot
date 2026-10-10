@@ -387,7 +387,10 @@ class RunnerTests(unittest.TestCase):
             "compiled_production_sources": ["Production.kt"], "source_fingerprint": "a" * 64, "java_version": "OpenJDK 17",
             "test_classes": ["ExampleTest"], "test_ids": [f"ExampleTest.test_{i}" for i in range(10)],
             "finished_test_ids": [f"ExampleTest.test_{i}" for i in range(10)],
-            "hardware_access": False, "android_build_verified": False}
+            "hardware_access": False, "android_build_verified": False,
+            "android_api_compatibility_verified": False, "android_lifecycle_verified": False,
+            "usb_driver_verified": False, "main_activity_compiled": False,
+            "android_instrumentation_verified": False}
 
     def test_host_pass_remains_software_only(self):
         status, details = checks.validate_host_report(self.host_result(), returncode=0,
@@ -400,7 +403,12 @@ class RunnerTests(unittest.TestCase):
         for update in ({"status": "setup_complete"}, {"test_count": 0}, {"test_count": True},
                 {"ignored": 1}, {"assumption_failures": 1}, {"assumption_failures": None}, {"failures": ["failed"]}, {"scope": "android-verified"},
                 {"hardware_access": True}, {"android_build_verified": True},
-                {"compiled_production_sources": []}, {"source_fingerprint": ""}, {"java_version": ""},
+                {"android_api_compatibility_verified": True}, {"android_lifecycle_verified": True},
+                {"usb_driver_verified": True}, {"main_activity_compiled": True},
+                {"android_instrumentation_verified": True},
+                {"compiled_production_sources": []}, {"compiled_production_sources": "Production.kt"},
+                {"compiled_production_sources": [None]}, {"source_fingerprint": ""},
+                {"source_fingerprint": "x" * 64}, {"java_version": ""},
                 {"test_ids": []}, {"test_ids": ["duplicate"] * 10}, {"finished_test_ids": []}, {"test_classes": None}):
             with self.subTest(update=update):
                 report = dict(self.host_result(), **update)
@@ -414,6 +422,29 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(checks.validate_host_report(report, returncode=0,
                 scope="pixel-production-kotlin-host-unit-tests", minimum=10,
                 required_classes=("AddedTest",))[0], "FAIL")
+
+    def test_required_production_integration_sources_cannot_be_excluded(self):
+        report = self.host_result()
+        validate = lambda sources: checks.validate_host_report(report, returncode=0,
+            scope="pixel-production-kotlin-host-unit-tests", minimum=10,
+            required_production_sources=sources)[0]
+        self.assertEqual(validate(("Production.kt",)), "PASS")
+        self.assertEqual(validate(("RobotService.kt",)), "FAIL")
+
+    def test_host_suite_floors_cannot_be_replaced_by_unrelated_tests(self):
+        report = self.host_result()
+        validate = lambda floors: checks.validate_host_report(report, returncode=0,
+            scope="pixel-production-kotlin-host-unit-tests", minimum=10,
+            required_class_minima=floors)[0]
+        self.assertEqual(validate({"ExampleTest": 10}), "PASS")
+        self.assertEqual(validate({"ExampleTest": 11}), "FAIL")
+        self.assertEqual(validate({"MissingSuite": 1}), "FAIL")
+
+    def test_compile_only_device_harness_cannot_appear_as_executed_host_coverage(self):
+        report = self.host_result()
+        status, _ = checks.validate_host_report(report, returncode=0,
+            scope="pixel-production-kotlin-host-unit-tests", minimum=10, forbidden_classes=("ExampleTest",))
+        self.assertEqual(status, "FAIL")
 
     def test_missing_or_wrong_node_version_is_blocked(self):
         with patch.object(runner.shutil, "which", return_value=None):
@@ -499,6 +530,74 @@ class RunnerTests(unittest.TestCase):
         with patch.object(checks, "shadow_script_digests", side_effect=[{"a": "old"}, {"a": "new"}]), \
                 patch.object(checks.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
             status, _ = checks.pixel_web_ui_check(self.root / "report.json", ["--node", "node"])
+        self.assertEqual(status, "BLOCKED")
+
+    def test_physical_ui_is_required_offline_but_not_in_stdlib_core(self):
+        args = self.cycle_args("offline", ())
+        names = lambda profile: {row["name"] for row in runner.build_plan(profile, args.interpreters)}
+        self.assertIn("pixel-physical-ui", names("offline"))
+        self.assertNotIn("pixel-physical-ui", names("core"))
+        self.assertIn("pixel-web-ui", names("offline"))
+
+    def test_preflight_discovery_keeps_repository_cwd_for_isolated_cli_children(self):
+        with patch.object(checks, "unit_suite", return_value=("PASS", {})) as suite:
+            checks.dispatch("preflight-unit", self.root / "artifact.json", self.root / "manifest.json", ())
+        start, pattern, minimum, modules, required, excluded, cwd_root = suite.call_args.args
+        self.assertEqual(start, "deployment_readiness")
+        self.assertEqual(pattern, "test_*.py")
+        self.assertEqual(modules, ())
+        self.assertIn("test_preflight", required)
+        self.assertIn("test_hardware_acceptance", required)
+        self.assertTrue(cwd_root)
+
+    def test_physical_ui_alone_fingerprints_node(self):
+        args = self.cycle_args("offline", ("pixel-physical-ui",))
+        with patch.object(runner, "probe_node", return_value={"status": "PASS", "binary_sha256": "a"}):
+            self.assertEqual(runner.toolchain_snapshot(args)["node"]["binary_sha256"], "a")
+
+    def test_missing_node_blocks_physical_ui_without_running(self):
+        args = self.cycle_args("offline", ("pixel-physical-ui",))
+        with patch.object(runner, "source_snapshot", return_value=self.snapshot("same")), \
+                patch.object(runner, "probe_python", return_value={"status": "PASS", "packages": {}}), \
+                patch.object(runner, "probe_node", return_value={"status": "BLOCKED", "reason": "Node missing"}), \
+                patch.object(runner, "execute_command", side_effect=AssertionError("must not run")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            report = runner.run_cycle(args, 1)
+        self.assertEqual(report["status"], "BLOCKED")
+        self.assertIn("Node", report["steps"][0]["reason"])
+
+    def test_physical_ui_requires_its_own_scope_and_no_physical_execution(self):
+        report = dict(self.web_ui_result(), scope="pixel-production-physical-panel-dom-stub-tests",
+                      physical_execution=False, manual_request_boundary_executed=True)
+        expected = {key: value for key, value in report.items() if key.endswith("_sha256")}
+        validate = lambda value: checks.validate_web_ui_report(value, returncode=0,
+            expected_digests=expected, minimum=40, physical=True)[0]
+        self.assertEqual(validate(report), "PASS")
+        for update in ({"scope": "pixel-production-shadow-panel-dom-stub-tests"},
+                {"physical_execution": True}, {"physical_execution": None},
+                {"manual_request_boundary_executed": False},
+                {"hardware_access": True}, {"network_access": True}, {"android_webview_verified": True},
+                {"test_count": 0}, {"passed_test_ids": []}, {"skipped": 1}):
+            with self.subTest(update=update):
+                self.assertEqual(validate(dict(report, **update)), "FAIL")
+
+    def test_physical_ui_source_hash_is_separate_and_preserves_crlf(self):
+        html = self.root / "pixel_robot/app/src/main/assets/robot_control.html"
+        script = self.root / "pixel_robot/tools/test_physical_ui.cjs"
+        html.parent.mkdir(parents=True); script.parent.mkdir(parents=True)
+        marker = b"// Physical experiment panel: explicit one-shot operator authority."
+        html.write_bytes(b"<script>" + marker + b"\r\n(() => {})();\r\n</script>")
+        script.write_bytes(b"physical fixture")
+        before = checks.physical_script_digests(self.root)
+        html.write_bytes(html.read_bytes().replace(b"\r\n", b"\n"))
+        self.assertNotEqual(before["production_script_sha256"], checks.physical_script_digests(self.root)["production_script_sha256"])
+        html.write_bytes(marker + marker + b"</script>")
+        with self.assertRaises(ValueError): checks.physical_script_digests(self.root)
+
+    def test_physical_ui_source_change_during_child_blocks_even_exit_zero(self):
+        with patch.object(checks, "physical_script_digests", side_effect=[{"a": "old"}, {"a": "new"}]), \
+                patch.object(checks.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            status, _ = checks.pixel_physical_ui_check(self.root / "report.json", ["--node", "node"])
         self.assertEqual(status, "BLOCKED")
 
     def test_missing_host_dependencies_stay_blocked(self):
@@ -588,6 +687,37 @@ class RunnerTests(unittest.TestCase):
         self.assertNotEqual(before["headers_sha256"], after["headers_sha256"])
         args.profile = "offline"
         self.assertEqual(runner.firmware_snapshot(args), {})
+
+    @staticmethod
+    def firmware_replay_result():
+        scenarios = [{"name": name, "status": "passed"} for name in sorted(checks.FIRMWARE_REPLAY_SCENARIOS)]
+        return {"schema_version": 1, "status": "passed", "exit_code": 0,
+            "scenario_count": len(scenarios), "passed": len(scenarios), "failed": 0, "skipped": 0,
+            "scenarios": scenarios, "physical_execution": False, "hardware_qualification": False,
+            "source_sha256": {"src/main.cpp": "a" * 64}}
+
+    def test_firmware_replay_requires_all_named_scenarios_and_no_skips(self):
+        report = self.firmware_replay_result()
+        validate = lambda value: checks.validate_firmware_replay(value, returncode=0,
+            expected_hashes=report["source_sha256"])
+        self.assertTrue(validate(report))
+        for update in ({"scenario_count": True}, {"skipped": 1}, {"failed": 1},
+                {"scenarios": []}, {"scenarios": report["scenarios"][:-1]},
+                {"scenarios": report["scenarios"] + report["scenarios"][:1]},
+                {"scenarios": [{"name": "unreviewed", "status": "passed"}]},
+                {"passed": 0}, {"status": "failed"}, {"exit_code": 1}):
+            with self.subTest(update=update):
+                self.assertFalse(validate(dict(report, **update)))
+
+    def test_firmware_replay_requires_bound_source_and_no_hardware_claim(self):
+        report = self.firmware_replay_result()
+        for update in ({"source_sha256": {}}, {"physical_execution": True},
+                {"hardware_qualification": True}, {"hardware_qualification": None}):
+            with self.subTest(update=update):
+                self.assertFalse(checks.validate_firmware_replay(dict(report, **update), returncode=0,
+                    expected_hashes=report["source_sha256"]))
+        self.assertFalse(checks.validate_firmware_replay(report, returncode=1,
+            expected_hashes=report["source_sha256"]))
 
     def test_firmware_header_directory_symlink_cannot_escape_fingerprint(self):
         args = self.cycle_args("firmware-host", ())

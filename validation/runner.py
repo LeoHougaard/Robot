@@ -24,6 +24,7 @@ from . import REPORT_VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE_VERSION = "24.19.0"
+NODE_STEPS = {"pixel-web-ui", "pixel-physical-ui"}
 STATUSES = {"PASS", "FAIL", "BLOCKED", "TIMEOUT", "SKIPPED"}
 EXTERNAL = {
     "live-model": "No live model was measured. Supply an existing completion-inclusive report, holdout corpus, capabilities, and explicit criteria to the read-only live-model profile.",
@@ -50,7 +51,7 @@ STEPS = (
     Step("control-unit"), Step("policy-unit"), Step("onshape-unit"),
     Step("pixel-tools-unit"), Step("preflight-unit"),
     Step("policy-runtime-unit", "runtime", 120, ("numpy==2.2.6",)),
-    Step("pixel-jvm", "base", 420), Step("pixel-web-ui"),
+    Step("pixel-jvm", "base", 420), Step("pixel-web-ui"), Step("pixel-physical-ui"),
     Step("pixel-runtime", "runtime", 300, ("numpy==2.2.6", "onnxruntime==1.24.3"), ("pixel-jvm",)),
     Step("fixtures"), Step("offline-guard-probe"), Step("bash-syntax"),
     Step("baml-generate", "baml", 120, ("baml-py==0.226.2", "pydantic==2.11.7")),
@@ -191,7 +192,7 @@ def toolchain_snapshot(args):
     plan = build_plan(args.profile, args.interpreters, selected=args.steps)
     names = {row["name"] for row in plan}
     result = {}
-    if "pixel-web-ui" in names:
+    if names & NODE_STEPS:
         result["node"] = probe_node(args.node)
     if not names & {"pixel-jvm", "pixel-runtime"}:
         return result
@@ -416,7 +417,7 @@ def aggregate(results):
 
 def build_plan(profile, interpreters, *, selected=(), timeout=None):
     chosen = list(STEPS if profile in ("offline", "all") else
-                  (step for step in STEPS if step.interpreter == "base" and step.name not in {"pixel-jvm", "pixel-web-ui"}) if profile == "core" else ())
+                  (step for step in STEPS if step.interpreter == "base" and step.name not in ({"pixel-jvm"} | NODE_STEPS)) if profile == "core" else ())
     if profile in ("live-model", "all"): chosen.append(LIVE_STEP)
     if profile in ("pixel-capture", "all"): chosen.append(CAPTURE_STEP)
     if profile in ("firmware-host", "all"): chosen.append(FIRMWARE_HOST_STEP)
@@ -473,7 +474,7 @@ def run_cycle(args, cycle, *, deadline=None):
         if step is None: step = next(step for step in STEPS if step.name == name)
         row = {"name": name, "required": True, "status": "BLOCKED"}
         problem = dependency_problem(step, probes[step.interpreter])
-        if name == "pixel-web-ui" and report["toolchains"].get("node", {}).get("status") != "PASS":
+        if name in NODE_STEPS and report["toolchains"].get("node", {}).get("status") != "PASS":
             problem = report["toolchains"].get("node", {}).get("reason", "Node prerequisite unavailable")
         if name == "live-model" and not all(input_before.get(key, {}).get("sha256") for key in LIVE_INPUTS):
             problem = "requires readable --model-report, --corpus, --capabilities, --criteria; never starts inference"
@@ -502,7 +503,7 @@ def run_cycle(args, cycle, *, deadline=None):
                 command.extend(["--corpus-role", args.corpus_role])
             if name in ("pixel-jvm", "pixel-runtime") and args.jvm_cache is not None:
                 command.extend(["--jvm-cache", str(args.jvm_cache.absolute())])
-            if name == "pixel-web-ui":
+            if name in NODE_STEPS:
                 command.extend(["--node", report["toolchains"]["node"]["path"]])
             if name == "firmware-host":
                 command.extend(["--firmware-json-include", str(args.firmware_json_include.absolute()),

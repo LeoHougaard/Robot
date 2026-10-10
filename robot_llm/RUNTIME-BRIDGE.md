@@ -209,28 +209,64 @@ used by the controller/ONNX loader. Host tests exercise the pure coordinator and
 provider seams; they do not establish a full Android build, on-device lifecycle,
 real inference endpoint compatibility, or physical transport behavior.
 
-### Operator lease and device acceptance
+### Separate one-shot physical integration
 
-The Android controller now has a separate operator-owned physical lease. Both
-operator approval and verified physical readiness are required. The lease binds
-the loaded asset identity, named forward/lateral/yaw request, neutral posture,
-generation and finite monotonic expiry. Controller operation cancellation,
-lease identity/deadline and original feedback freshness are checked at the
-actual bounded serial write. Expiry invokes the independent stop/disarm path.
-No model callback or shadow grant creates this authority or starts a controller.
+The Android app now has a distinct operator-owned physical text-intent path.
+See [PHYSICAL-INTENT.md](../pixel_robot/docs/PHYSICAL-INTENT.md) and
+[FIRST-ROBOT-TEST.md](../pixel_robot/docs/FIRST-ROBOT-TEST.md). The compute-only
+bridge and SHADOW grants still provide no actuator permission.
 
-The USB transport now has one owned bounded writer and ordered background
-teardown. Its completion means driver-written with firmware receipt unknown.
-Host tests verify ordering; the Android build and six non-actuating Pixel tests
-passed. See [integration evidence and remaining gates](../pixel_robot/docs/INTEGRATION-STATUS.md).
+- `PhysicalIntentAuthority` binds the exact loaded metadata, manifest, ONNX,
+  stride-reference and effective-calibration bytes to one existing manually
+  started controller operation. Both promotion and transport-verification
+  claims are required, alongside existing candidate/calibration validation.
+  The checked-in unpromoted, transport-unverified bundle remains blocked.
+- One explicit enable permits one separately submitted raw text request within
+  an original 10-second phone-monotonic deadline. Provider publication has an
+  8-second ceiling; a command must fit the remaining authority and last at most
+  1,000 ms. No provider completion starts, arms, restarts or renews a controller.
+- Controller consumption uses named `forward`, `lateral`, `yawRate` fields and
+  neutral posture. The legacy update signature remains forward/yaw/lateral;
+  no positional conversion is introduced. Bounds are rejected rather than
+  widened or clamped. Manual controls remain an independently requested mode.
+- Before the bounded USB writer claims a frame for dispatch, it rechecks the
+  operation owner, one-use frame/lease identity, generation, immutable bundle,
+  deadline and complete accepted feedback received within 40 ms. Controller
+  acknowledgements must refer to a known current or immediately previous issued
+  command; fresh ticks reporting an older frozen command stop the operation.
+  One frame of lag permits the firmware's independent 20 ms feedback/parser
+  scheduling race. Receipt time is not an absolute sensor-age attestation or
+  proof of mechanical target arrival. Operation, authority and writer locks
+  cover this short claim, never blocking native I/O.
+  An already-claimed write cannot be recalled; host completion is not a firmware
+  receipt. Cancellation, expiry, failure, manual takeover and lifecycle/link
+  loss revoke authority and request the existing stop/disarm/torque-off path.
+  Zero velocity is never represented as immediate mechanical stopping.
+- All local HTTP mutations, including legacy manual routes, require the
+  loopback/origin/per-server-token fence. Start/Stand additionally consume an
+  exact `expected_manual_generation`; STOP and native interruptions invalidate
+  pending starts. A delayed response or page restoration cannot re-arm a policy.
+  Native manual controls retain their separately explicit operator actions.
 
-Robot-connected communication, firmware acknowledgements, watchdog/torque-off,
-50 Hz timing, reconnect and approved physical trials remain outstanding. Keep
-the bundle unpromoted and transport-unverified until those acceptance checks
-pass. The Pixel is currently attached to the computer, not the robot.
+Hardware-free tests execute the production authority, bounded writer, request
+parser, provider seams and loopback route logic with synthetic clocks/fake I/O.
+The real service, controller and USB adapter compile against throwing host API
+shims; this catches internal Kotlin wiring, not Android API compatibility or
+lifecycle execution. UI tests use DOM/fetch stubs, not a rendered WebView.
 
-The current joined tests already cover the production observation, actor,
-stride and calibration computation, so those parts should not be reimplemented
-for the UI integration. Goal navigation is additional work: `goal_controller.py`
-uses world `x/y/yaw`, needs fresh external localization, and is not included in
-the accepted body-velocity language contract.
+Still required: approved full Android build and device lifecycle tests; exact
+installed bundle and calibration/provenance review; authorized real-provider
+compatibility/model qualification; motor-disabled transport and firmware abort,
+watchdog, acknowledgement and torque-readback checks; measured scheduling and
+loss behavior; independent physical stop arrangements and explicit operator
+approval for any physical trial. No offline test changes promotion flags or
+certifies these gates. A metadata hash proves identity, not those measurements.
+
+The existing production observation, actor, stride and calibration computation
+is reused. Goal navigation remains additional work: `goal_controller.py` uses
+world x/y/yaw and requires fresh external localization. It is outside the
+accepted body-velocity intent contract; this integration is not rover support.
+
+## Local reconciliation status
+
+The prior local Android and device integration evidence remains in INTEGRATION-STATUS.md and the checkpoint handoff. It predates this V5 reconciliation and does not validate the new transport protocol. The one-second operator-only PhysicalCommandAuthority remains available alongside the separate one-shot PhysicalIntentAuthority. Both require independent authority; the bundle remains unpromoted and physical transport unverified. Current reconciliation results are recorded in V5-RECONCILIATION.md.

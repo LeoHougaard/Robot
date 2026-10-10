@@ -60,6 +60,29 @@ class PolicyOperation {
         }
     }
 
+    /** Capture coroutine ownership now and recheck it at actual USB dispatch, not enqueue. */
+    suspend fun enqueue(write: (((() -> Unit) -> Unit)) -> Unit) {
+        val context = currentCoroutineContext()
+        val guard: ((() -> Unit) -> Unit) = { claim ->
+            synchronized(this) {
+                context.ensureActive()
+                check(!closed && job?.isActive == true && context[Owner] === owner) {
+                    "queued_write_operation_expired_or_replaced"
+                }
+                claim()
+            }
+        }
+        guard { write(guard) }
+    }
+
+    /** Manual source revoke + mutation is atomic with physical enable and dispatch. */
+    @Synchronized fun mutateRequest(action: () -> Unit) { action() }
+
+    @Synchronized fun <T> withCurrentIdentity(action: (Any) -> T): T {
+        check(!closed && job?.isActive == true) { "manually_started_active_policy_required" }
+        return action(requireNotNull(owner))
+    }
+
     @Synchronized
     fun stop(reason: String, disarm: () -> Unit) {
         job?.cancel(CancellationException(reason))

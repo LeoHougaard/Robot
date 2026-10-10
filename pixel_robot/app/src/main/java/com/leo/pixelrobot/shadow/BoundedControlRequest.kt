@@ -42,7 +42,7 @@ internal data class BoundedControlRequest(val method: String, val path: String,
                 require(Regex("0|[1-9][0-9]*").matches(it)); it.toInt()
             } ?: 0
             val path = first[1].substringBefore('?')
-            require(length in 0..if (path.startsWith("/api/shadow/")) 16_384 else 4096)
+            require(length in 0..if (path.startsWith("/api/shadow/") || path.startsWith("/api/physical/")) 16_384 else 4096)
             val bytes = ByteArray(length)
             var offset = 0
             while (offset < length) {

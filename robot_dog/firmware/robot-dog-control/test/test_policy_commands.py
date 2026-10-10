@@ -12,6 +12,7 @@ import tempfile
 
 PRELUDE = r'''
 #include <ArduinoJson.h>
+#include "SerialInputAbort.h"
 #include <cassert>
 #include <algorithm>
 #include <atomic>
@@ -74,6 +75,7 @@ JsonDocument frame() {
 SERIAL_PRELUDE = r'''
 String inputLine;
 bool discardInputLine=false;
+SerialInputAbort serialInputAbort;
 struct SerialInput {
  std::deque<char> data;
  bool available() { return !data.empty(); }
@@ -145,6 +147,6 @@ if __name__ == "__main__":
         root = Path(directory)
         cpp, exe = root / "policy_commands.cpp", root / "policy_commands.exe"
         cpp.write_text(PRELUDE + handlers + watchdog + SERIAL_PRELUDE + framing + TESTS)
-        subprocess.run([args.compiler, "-std=c++17", "-O2", "-I", str(args.json_include), str(cpp), "-o", str(exe)], check=True)
+        subprocess.run([args.compiler, "-std=c++17", "-O2", "-I", str(args.json_include), "-I", str(Path(__file__).resolve().parents[1] / "include"), str(cpp), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
     print("Production policy handlers, UART framing, watchdog and read-only monitor checks passed; fake bus only")

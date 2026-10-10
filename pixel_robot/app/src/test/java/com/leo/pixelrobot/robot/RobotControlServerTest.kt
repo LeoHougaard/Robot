@@ -9,14 +9,22 @@ import org.junit.Test
 
 /** Isolated loopback fake callbacks only. No Android assets, robot or provider endpoint. */
 class RobotControlServerTest {
+    private val tokens = java.util.concurrent.ConcurrentHashMap<RobotControlServer, String>()
     private fun server(stops: AtomicInteger = AtomicInteger(), shadow: ShadowProviderRunner<*>? = null, blockStand: () -> Unit = {}, latest: () -> java.io.File? = { null }) = RobotControlServer(
         null, { JSONObject().put("source", "fake") }, {}, blockStand, {}, { stops.incrementAndGet(); Unit }, {}, {}, latest, {}, {}, { null },
-        shadow, "<html>__PIXEL_SHADOW_TOKEN__</html>", 0).also { it.start() }
-    private fun request(server: RobotControlServer, path: String, body: String? = null, more: String = "", host: String = "127.0.0.1"): String =
+        shadow, "<html>__PIXEL_SHADOW_TOKEN__</html>", 0).also {
+            it.start()
+            tokens[it] = Regex("<html>([0-9a-f]{64})</html>").find(request(it, "/"))!!.groupValues[1]
+        }
+    private fun request(server: RobotControlServer, path: String, body: String? = null, more: String = "", host: String = "127.0.0.1", authorized: Boolean = true): String =
         Socket("127.0.0.1", server.boundPort).use { socket ->
             socket.soTimeout = 5000
-            val bytes = body?.toByteArray() ?: byteArrayOf()
-            val head = "${if (body == null) "GET" else "POST"} $path HTTP/1.1\r\nHost: $host:${server.boundPort}\r\nContent-Length: ${bytes.size}\r\n$more\r\n"
+            val submitted = if (authorized && body != null && path in listOf("/api/start", "/api/stand") &&
+                !body.contains("expected_manual_generation")) JSONObject(body).put("expected_manual_generation", server.manualGeneration).toString() else body
+            val bytes = submitted?.toByteArray() ?: byteArrayOf()
+            val auth = if (authorized && body != null && !path.startsWith("/api/shadow/") && !path.startsWith("/api/physical/"))
+                "X-Pixel-Shadow-Token: ${tokens.getValue(server)}\r\n" else ""
+            val head = "${if (body == null) "GET" else "POST"} $path HTTP/1.1\r\nHost: $host:${server.boundPort}\r\nContent-Length: ${bytes.size}\r\n$more$auth\r\n"
             socket.getOutputStream().write(head.toByteArray() + bytes)
             socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
@@ -92,4 +100,64 @@ class RobotControlServerTest {
             }
         }
     }
+    @Test fun everyManualMutationRequiresLocalOriginAndOperatorToken() {
+        val stops = AtomicInteger()
+        server(stops).use { server ->
+            val token = tokens.getValue(server)
+            for (path in listOf("/api/start", "/api/stand", "/api/command", "/api/stop", "/api/reconnect",
+                "/api/servo-telemetry", "/api/record/start", "/api/record/stop")) {
+                assertTrue(path, request(server, path, "{}", authorized = false).startsWith("HTTP/1.1 403"))
+                assertTrue(path, request(server, path, "{}", "Origin: https://attacker.invalid\r\n").startsWith("HTTP/1.1 403"))
+                assertTrue(path, request(server, path, "{}", host = "rebound.invalid").startsWith("HTTP/1.1 403"))
+                assertTrue(path, request(server, path, "{}", "Sec-Fetch-Site: cross-site\r\n").startsWith("HTTP/1.1 403"))
+            }
+            assertEquals(0, stops.get())
+            assertTrue(request(server, "/api/status").startsWith("HTTP/1.1 200"))
+            assertTrue(request(server, "/api/stop", "{}").startsWith("HTTP/1.1 200"))
+            assertEquals(1, stops.get())
+        }
+    }
+
+    @Test fun stopFencesDelayedStartAndStandAndEachAdmissionConsumesGeneration() {
+        var starts = 0
+        val s = RobotControlServer(null, { JSONObject() }, {}, { starts++ }, { starts++ }, {}, {}, {},
+            { null }, {}, {}, { null }, pageContent = "<html>__PIXEL_SHADOW_TOKEN__</html>", port = 0)
+        s.use { server ->
+            server.start()
+            tokens[server] = Regex("<html>([0-9a-f]{64})</html>").find(request(server, "/"))!!.groupValues[1]
+            val first = JSONObject().put("forward", 0).put("yaw_rate", 0).put("expected_manual_generation", 0).toString()
+            assertTrue(request(server, "/api/status").contains("\"manual_generation\":0"))
+            assertTrue(request(server, "/api/stop", "{}").startsWith("HTTP/1.1 200"))
+            assertTrue(request(server, "/api/start", first).startsWith("HTTP/1.1 400"))
+            assertTrue(request(server, "/api/stand", "{\"expected_manual_generation\":0}").startsWith("HTTP/1.1 400"))
+            assertEquals(0, starts)
+            assertTrue(request(server, "/api/start", JSONObject(first).put("expected_manual_generation", 1).toString()).startsWith("HTTP/1.1 200"))
+            assertEquals(1, starts)
+            assertTrue(request(server, "/api/start", JSONObject(first).put("expected_manual_generation", 1).toString()).startsWith("HTTP/1.1 400"))
+            assertEquals(1, starts)
+            server.invalidateManualOperations() // Native STOP/background/disconnect seam.
+            assertTrue(request(server, "/api/stand", "{\"expected_manual_generation\":2}").startsWith("HTTP/1.1 400"))
+        }
+    }
+
+    @Test fun startAndStandRequireStrictSafeGenerationBeforeAnyCallback() {
+        var starts = 0
+        val s = RobotControlServer(null, { JSONObject() }, {}, { starts++ }, { starts++ }, {}, {}, {},
+            { null }, {}, {}, { null }, pageContent = "<html>__PIXEL_SHADOW_TOKEN__</html>", port = 0)
+        s.use { server ->
+            server.start()
+            val token = Regex("<html>([0-9a-f]{64})</html>").find(request(server, "/"))!!.groupValues[1]
+            for (path in listOf("/api/start", "/api/stand")) {
+                for (value in listOf("null", "\"0\"", "0.5", "-1", "9007199254740992", "true")) {
+                    val body = "{\"forward\":0,\"yaw_rate\":0,\"expected_manual_generation\":$value}"
+                    assertTrue(request(server, path, body, "X-Pixel-Shadow-Token: $token\r\n", authorized = false).startsWith("HTTP/1.1 400"))
+                }
+                assertTrue(request(server, path, "{}", "X-Pixel-Shadow-Token: $token\r\n", authorized = false).startsWith("HTTP/1.1 400"))
+                assertTrue(request(server, path, "{\"expected_manual_generation\":0,\"expected_manual_generation\":0}",
+                    "X-Pixel-Shadow-Token: $token\r\n", authorized = false).startsWith("HTTP/1.1 400"))
+            }
+            assertEquals(0, starts); assertEquals(0L, server.manualGeneration)
+        }
+    }
+
 }

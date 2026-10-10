@@ -173,18 +173,32 @@ real `PolicyController` and `OnnxPolicy` boundaries without executing their
 Android-bound methods or loading Android ONNX native libraries. Loopback tests
 also execute the real `RobotControlServer` with injected page bytes and fake
 callbacks; its Android `AssetManager` page-loading path is not executed.
-`RobotService`, `MainActivity` and USB implementation are excluded. A host pass
-is **not** a full Android application compile or proof that lifecycle callbacks
-run on a device. The separate Android build, installation and six non-actuating
-device tests passed; see [INTEGRATION-STATUS.md](INTEGRATION-STATUS.md). The HTML
-also has offline DOM-stub tests. The real served panel was exercised through the
-collaborative browser, including an eight-second local-provider timeout.
-Browser screenshots were unavailable, so full rendered-browser visual QA is
-not claimed.
+The real `RobotService` and USB adapter now also compile against explicit,
+throwing Android/AndroidX/driver API shims. `MainActivity` is still excluded.
+Those shims catch internal Kotlin wiring; they do not validate actual Android
+API compatibility, resources, USB drivers or lifecycle callbacks. A host pass
+is **not** a full Android application build or device execution. An SDK/Gradle app build, installation and separately authorized
+device/provider evaluation remain distinct gates. The HTML has separate offline
+DOM-stub tests; these are not rendered-browser QA. In this environment the cloud
+browser returned `net::ERR_BLOCKED_BY_CLIENT` for the local preview URL, so no
+browser rendering pass is claimed.
 
 The earlier Python/JVM compute bridge remains an independent actor-computation
-verification path; this app preview does not claim to execute that bridge. Any
-physical command path now has a separate explicit operator lease and bounded
-serial writer, described in [HOST-TESTS.md](HOST-TESTS.md). Robot-connected timing,
-firmware acknowledgements and explicit physical trial authorization remain
-acceptance gates. None is supplied by a shadow grant.
+verification path; this app preview does not claim to execute that bridge.
+A distinct [one-shot physical operator path](PHYSICAL-INTENT.md) now supplies
+separate authority, bounded leased consumption and final dispatch checks. It
+never consumes a shadow grant or preview. The shipped bundle remains blocked
+there. Real Android/device/provider, firmware acknowledgement/watchdog,
+calibration/provenance, timing and physical-trial acceptance remain separate
+requirements; see [FIRST-ROBOT-TEST.md](FIRST-ROBOT-TEST.md).
+
+All HTTP mutations now require the local token/origin boundary, including
+legacy manual controls. Manual Start/Stand additionally require the current
+`expected_manual_generation` from `/api/status`; STOP invalidates queued starts.
+Existing clients must fetch a fresh page token and generation rather than
+relying on the former unauthenticated manual POST routes. The Android lifecycle
+test source has been updated for that contract, but has not been device-run.
+
+## Local reconciliation status
+
+The prior local Android and device integration evidence remains in INTEGRATION-STATUS.md and the checkpoint handoff. It predates this V5 reconciliation and does not validate the new transport protocol. The one-second operator-only PhysicalCommandAuthority remains available alongside the separate one-shot PhysicalIntentAuthority. Both require independent authority; the bundle remains unpromoted and physical transport unverified. Current reconciliation results are recorded in V5-RECONCILIATION.md.

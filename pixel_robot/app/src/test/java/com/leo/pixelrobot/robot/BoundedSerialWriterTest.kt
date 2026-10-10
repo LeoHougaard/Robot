@@ -59,14 +59,15 @@ class BoundedSerialWriterTest {
     }
     @Test(timeout = 5000) fun stalledWriteClosesWithoutConcurrentSafetyWriteOrLateSuccess() {
         val entered = CountDownLatch(1); val finish = CountDownLatch(1); val exited = CountDownLatch(1)
-        val closes = AtomicInteger(); val calls = AtomicInteger()
+        val closes = AtomicInteger(); val calls = AtomicInteger(); val closed = CountDownLatch(1)
         val writer = BoundedSerialWriter({ _, _ -> calls.incrementAndGet(); entered.countDown(); finish.await(); exited.countDown() },
-            { closes.incrementAndGet() }, {}, writeTimeoutMs = 30, stopTimeoutMs = 40)
+            { closes.incrementAndGet(); closed.countDown() }, {}, writeTimeoutMs = 30, stopTimeoutMs = 40)
         try {
             writer.enqueue("flight".toByteArray()); assertTrue(entered.await(1, TimeUnit.SECONDS))
             val result = writer.stop(safety(), close = true)
             assertEquals(BoundedSerialWriter.StopResult.FAILED_RECEIPT_UNKNOWN, result.get(1, TimeUnit.SECONDS))
             finish.countDown(); assertTrue(exited.await(1, TimeUnit.SECONDS))
+            assertTrue(closed.await(1, TimeUnit.SECONDS))
             assertEquals(1, calls.get()); assertEquals(1, closes.get())
             assertEquals(BoundedSerialWriter.StopResult.FAILED_RECEIPT_UNKNOWN, result.get())
         } finally { finish.countDown(); writer.close() }

@@ -44,6 +44,38 @@ class PolicyFeedbackGateTest {
         assertEquals(.02f, startupSensors.read(freshTickTwo, bias).dt, 1e-6f)
     }
 
+    @Test fun freshTicksDoNotExcuseAStuckAcknowledgedSequence() {
+        val feedback = JSONObject().put("type", "policy_state").put("armed", true).put("seq", 0)
+        for (issued in 1L..2L) {
+            feedback.put("tick", issued + 1)
+            assertTrue(isFreshPolicyState(feedback, issued, receivedNs = issued * 20_000_000,
+                nowNs = issued * 20_000_000))
+            val result = runCatching { requirePolicyAcknowledgement(issued, feedback.getLong("seq"), setOf(0, 1, 2)) }
+            assertEquals(issued == 1L, result.isSuccess)
+        }
+    }
+
+    @Test fun currentOrImmediatelyPreviousFrameIsAcceptedWithoutUnboundedHistory() {
+        val retained = mutableSetOf(0L)
+        for (issued in 1L..100L) {
+            retained += issued
+            requirePolicyAcknowledgement(issued, issued, retained)
+            val pipelineAck = issued - 1
+            requirePolicyAcknowledgement(issued, pipelineAck, retained)
+            retained.removeAll { it < pipelineAck - 2 } // Production retention rule.
+            assertTrue(retained.size <= 4)
+        }
+    }
+
+    @Test fun futureNegativeUnknownOrExcessivelyLaggedAcknowledgementsAreRejected() {
+        for ((issued, acknowledged, known) in listOf(
+            Triple(3L, 4L, setOf(4L)), Triple(3L, 1L, setOf(1L)),
+            Triple(3L, 2L, emptySet()), Triple(3L, -1L, setOf(-1L)),
+            Triple(-1L, 0L, setOf(0L)))) {
+            assertTrue(runCatching { requirePolicyAcknowledgement(issued, acknowledged, known) }.isFailure)
+        }
+    }
+
     private fun calibration() = RobotCalibration.parse(
         File("src/main/assets/assembly-four-leg-linkage-12dof.calibration.json").readText(),
     )

@@ -35,3 +35,22 @@ internal fun isFreshFeedbackTimestamp(
     nowNs: Long,
     maxAgeNs: Long = 40_000_000L,
 ): Boolean = nowNs >= receivedNs && nowNs - receivedNs <= maxAgeNs
+
+/** Firmware updates seq after accepting a target bus write; its 20 ms feedback
+ * scheduler may report the immediately preceding frame while a new frame is in
+ * transit. More than one outstanding frame is not accepted. Fresh callback/tick
+ * alone cannot turn a frozen applied sequence into progress or motor receipt.
+ */
+internal fun requirePolicyAcknowledgement(
+    issuedSequence: Long,
+    acknowledgedSequence: Long,
+    knownSequences: Set<Long>,
+) {
+    require(issuedSequence >= 0 && acknowledgedSequence >= 0 && acknowledgedSequence <= issuedSequence) {
+        "policy feedback references an invalid or future command sequence"
+    }
+    require(issuedSequence - acknowledgedSequence <= 1) {
+        "policy acknowledgement is more than one issued frame behind"
+    }
+    require(acknowledgedSequence in knownSequences) { "policy feedback references an unknown command sequence" }
+}

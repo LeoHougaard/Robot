@@ -33,7 +33,8 @@ Linux/macOS shell (the pinned Torch wheel must support your platform):
 ```sh
 python -m venv validation/.venv
 validation/.venv/bin/python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-validation/.venv/bin/python -m pip install -r validation/requirements.txt
+validation/.venv/bin/python -m pip install --index-url https://pypi.org/simple -r validation/requirements.txt
+validation/.venv/bin/python -m pip check
 validation/.venv/bin/python pixel_robot/tools/run_host_kotlin_tests.py --download-only
 validation/.venv/bin/python -m validation
 ```
@@ -43,7 +44,8 @@ Windows PowerShell:
 ```powershell
 py -3.12 -m venv validation/.venv
 validation/.venv/Scripts/python.exe -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-validation/.venv/Scripts/python.exe -m pip install -r validation/requirements.txt
+validation/.venv/Scripts/python.exe -m pip install --index-url https://pypi.org/simple -r validation/requirements.txt
+validation/.venv/Scripts/python.exe -m pip check
 validation/.venv/Scripts/python.exe pixel_robot/tools/run_host_kotlin_tests.py --download-only
 validation/.venv/Scripts/python.exe -m validation
 ```
@@ -92,18 +94,31 @@ The deterministic offline plan covers:
 7. Run the Onshape mate-planner suite (minimum 11)
 8. Discover portable Pixel capture/data-tool tests, excluding exactly the named
    original-walk capture test and recording that boundary (minimum 16)
-9. Run read-only deployment setup/preflight regression tests (minimum 65)
+9. Discover deployment setup/preflight and hardware-acceptance packet regression
+   tests (minimum 127), requiring both suites. These use authored local fixtures only; a
+   passing packet test does not establish that a robot has been accepted
 10. Discover the legacy 180-value Python policy runtime tests using NumPy and fake
     transports (minimum 87); no pyserial installation or serial port is required
 11. Fresh-compile and execute production Kotlin host/JUnit suites with the pinned
-    dependency cache (minimum 157, no ignored or assumption-aborted tests); report Java identity, source
+    dependency cache (minimum 268, no ignored or assumption-aborted tests); report Java identity, source
     fingerprint, production/excluded classes and pinned jar hashes
     plus executed/finished test IDs. Required V4 suites cover immutable loaded
     assets, request coordination, provider isolation and protected local routes.
+    The bounded USB writer, nonce-bound USB startup fence, raw-capture recorder,
+    manual-operation generation gate, physical-intent authority, physical HTTP request
+    boundary and final policy-operation guard suites are also mandatory.
+    Per-suite minimum execution counts also prevent unrelated new tests from
+    hiding reduced safety coverage. Their fake transports establish host ordering
+    and authority checks only.
     The host HTTP regression server binds only loopback with fake callbacks.
-12. Execute the real control HTML's shadow-panel inline JavaScript under Node with deterministic
-    DOM/fetch stubs (minimum 48); record actual HTML/script bytes and test IDs. This checks
-    preview-panel logic, not Android WebView rendering, device behavior or a live provider.
+12. Execute the real control HTML's separate shadow and physical-experiment panel
+    inline JavaScript under Node with deterministic DOM/fetch stubs; record each
+    actual HTML/script byte hash and complete test IDs independently. The shadow
+    panel requires at least 44 tests; the physical panel requires at least 144 in its own
+    `pixel-physical-ui` gate. Neither can substitute for the other. These check
+    panel logic and the extracted manual-request token/page-hide boundary, not the
+    full original live-control script, Android WebView rendering, device behavior,
+    physical execution or a live provider.
 13. Run the separate CPU ONNX/Pixel runtime integration checks using the actual
     checked-in actor, reference vectors and production Kotlin math peer (minimum 20),
     followed by a retained 200-frame authored-feedback demonstration with explicit
@@ -125,8 +140,15 @@ The deterministic offline plan covers:
 
 The Kotlin gate is a host compile/test boundary, not an Android APK build,
 Android lifecycle test or USB/device run. Its excluded-source list and compile-only Android API boundaries are retained.
-Compiling Controller/ONNX classes against stubbed Android APIs and exercising
-HTTP routes on host loopback does not mean those classes were exercised on Android.
+Compiling Controller/ONNX and real Service/USB integration classes against
+explicit throwing Android/AndroidX/USB signature shims, and exercising HTTP routes
+on host loopback, does not mean those classes were exercised on Android or
+compiled against the actual Android/USB implementation. MainActivity/resources
+remain placeholders, and actual Android API compatibility, lifecycle, USB driver
+behavior and APK packaging are explicitly unverified in the report.
+The explicitly listed `Installed3750MonitorTransportTest` is also type-checked
+against throwing instrumentation signatures, but excluded from the executed
+JUnit list. Its appearance as executed host coverage would fail validation.
 Before the compute-only actor tests, the verified JVM command is prepared with a
 separate bounded cold-compile budget. The prepared immutable class directory is
 reused without compiling inside the per-frame RPC deadline.
@@ -195,7 +217,8 @@ overwritten. These generated directories and the local `.venv` are ignored.
 - `<check>.json` and `<check>.log`: independently parsed structured outcome and
   combined stdout/stderr; exit 0 without a valid matching result is a failure
 - `fixtures-artifact.json`, `gait-probe-artifact.json`, `pixel-jvm-artifact.json`,
-  `pixel-web-ui-artifact.json`, `pixel-runtime-artifact.json`, or `live-model-artifact.json`:
+  `pixel-web-ui-artifact.json`, `pixel-physical-ui-artifact.json`,
+  `pixel-runtime-artifact.json`, or `live-model-artifact.json`:
   substantive evidence, individually hashed
 - `summary.txt`: readable cycle summary
 - `latest.json`: most recent cycle report; `loop.json`: authoritative loop exit,
@@ -302,8 +325,11 @@ python -m validation --profile firmware-host \
 
 The default compiler is `g++`; `--firmware-compiler` selects an existing host
 compiler. The gate accepts the tested ArduinoJson 7.0.4 or 7.4.3 headers, runs the
-repository's actual native C++ harness with extracted production policy handlers,
-UART framing and watchdog functions, and records version/source evidence. Bus,
+repository's actual native C++ harnesses with extracted production policy handlers,
+serial framing, command dispatch, arm/feedback/watchdog, torque-off and nonce-bound
+input-abort functions, and records version/source evidence. The transport replay
+must execute every named required scenario with no duplicates, failures or skips;
+its source/header hashes are rechecked after execution. Bus,
 clock and transport dependencies are fake. Header-tree and compiler hashes are
 bound before/after and participate in change watching. Missing headers/compiler
 are BLOCKED, never downloaded or installed by this command.
@@ -315,3 +341,7 @@ recorded full ESP32 compilation is additional compile-only evidence. The full
 `--profile firmware` remains BLOCKED for device/transport/watchdog acceptance,
 and no profile flashes a board or opens serial. `--profile all` includes this
 host gate too, requiring the explicit include path.
+
+## Local reconciliation status
+
+The prior local Android and device integration evidence remains in INTEGRATION-STATUS.md and the checkpoint handoff. It predates this V5 reconciliation and does not validate the new transport protocol. The one-second operator-only PhysicalCommandAuthority remains available alongside the separate one-shot PhysicalIntentAuthority. Both require independent authority; the bundle remains unpromoted and physical transport unverified. Current reconciliation results are recorded in V5-RECONCILIATION.md.

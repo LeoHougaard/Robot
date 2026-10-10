@@ -138,4 +138,86 @@ class PolicyOperationTest {
             scope.cancel()
         }
     }
+    @Test fun deferredWriteCannotOutliveStopOrRestart() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val operation = PolicyOperation()
+        var guard: (((() -> Unit) -> Unit))? = null
+        val writes = mutableListOf<String>()
+        try {
+            operation.start(scope) {
+                operation.enqueue { guard = it }
+                awaitCancellation()
+            }
+            requireNotNull(guard).invoke { writes += "first" }
+            operation.stop("manual takeover") { writes += "stop" }
+            assertTrue(runCatching { requireNotNull(guard).invoke { writes += "late" } }.isFailure)
+            operation.start(scope) { awaitCancellation() }
+            assertTrue(runCatching { requireNotNull(guard).invoke { writes += "previous owner" } }.isFailure)
+            assertEquals(listOf("first", "stop"), writes)
+        } finally { operation.close({}, {}); scope.cancel() }
+    }
+
+    @Test fun deferredWriteRejectsForeignCoroutineAndClosedRuntime() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val operation = PolicyOperation()
+        var guard: (((() -> Unit) -> Unit))? = null
+        operation.start(scope) { operation.enqueue { guard = it }; awaitCancellation() }
+        assertTrue(runCatching { operation.enqueue { fail("foreign coroutine enqueued") } }.isFailure)
+        operation.close({}, {})
+        assertTrue(runCatching { requireNotNull(guard).invoke { fail("closed operation claimed") } }.isFailure)
+        scope.cancel()
+    }
+
+    @Test fun stopAndFinalDispatchClaimAreAtomicWithoutHoldingLockForIo() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val operation = PolicyOperation()
+        var guard: (((() -> Unit) -> Unit))? = null
+        operation.start(scope) { operation.enqueue { guard = it }; awaitCancellation() }
+        val claimed = java.util.concurrent.CountDownLatch(1)
+        val releaseClaim = java.util.concurrent.CountDownLatch(1)
+        val stopped = java.util.concurrent.CountDownLatch(1)
+        val io = java.util.concurrent.CountDownLatch(1)
+        val worker = Thread {
+            requireNotNull(guard).invoke {
+                claimed.countDown()
+                assertTrue(releaseClaim.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            }
+            io.await(2, java.util.concurrent.TimeUnit.SECONDS) // USB occurs outside the operation lock.
+        }.apply { start() }
+        assertTrue(claimed.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        val stopper = Thread { operation.stop("stop") { stopped.countDown() } }.apply { start() }
+        assertFalse(stopped.await(50, java.util.concurrent.TimeUnit.MILLISECONDS))
+        releaseClaim.countDown()
+        assertTrue(stopped.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        io.countDown(); worker.join(1000); stopper.join(1000)
+        operation.close({}, {}); scope.cancel()
+    }
+
+    @Test fun manualMutationCannotGrantPhysicalAuthorityFromHalfUpdatedRequest() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val operation = PolicyOperation()
+        operation.start(scope) { awaitCancellation() }
+        val revoked = java.util.concurrent.CountDownLatch(1)
+        val allowMutation = java.util.concurrent.CountDownLatch(1)
+        val enableFinished = java.util.concurrent.CountDownLatch(1)
+        var request = MotionRequest()
+        var granted = false
+        val manual = Thread {
+            operation.mutateRequest {
+                revoked.countDown() // Authority has been revoked; mutation is intentionally paused.
+                assertTrue(allowMutation.await(2, java.util.concurrent.TimeUnit.SECONDS))
+                request = MotionRequest(forward = .02f)
+            }
+        }.apply { start() }
+        assertTrue(revoked.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        val enabling = Thread {
+            operation.withCurrentIdentity { granted = request == MotionRequest() }
+            enableFinished.countDown()
+        }.apply { start() }
+        assertFalse(enableFinished.await(50, java.util.concurrent.TimeUnit.MILLISECONDS))
+        allowMutation.countDown(); manual.join(1000); enabling.join(1000)
+        assertFalse(granted); assertEquals(.02f, request.forward, 0f)
+        operation.close({}, {}); scope.cancel()
+    }
+
 }

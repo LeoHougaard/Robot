@@ -41,9 +41,11 @@ def flatten_suite(suite):
             yield test
 
 
-def unit_suite(start: str, pattern: str, minimum: int, modules=(), required_modules=(), exclude_ids=()):
+def unit_suite(start: str, pattern: str, minimum: int, modules=(), required_modules=(), exclude_ids=(), cwd_root=False):
     directory = ROOT / start
-    os.chdir(directory)
+    # Some CLI regression children use `python -m <repository package>` and
+    # deliberately receive no PYTHONPATH. Discovery still stays within `start`.
+    os.chdir(ROOT if cwd_root else directory)
     sys.path.insert(0, str(directory))
     loader = unittest.TestLoader()
     suite = (loader.loadTestsFromNames(modules) if modules else
@@ -190,40 +192,58 @@ def syntax_check(manifest: Path, bash=False):
     return "PASS", {"files_checked": len(files)}
 
 
-def validate_host_report(report, *, returncode, scope, minimum, required_classes=()):
+def validate_host_report(report, *, returncode, scope, minimum, required_classes=(),
+                         required_production_sources=(), required_class_minima=None, forbidden_classes=()):
     """A successful host process is not Android/device/firmware acceptance."""
     statuses = {"passed": "PASS", "failed": "FAIL", "blocked": "BLOCKED"}
     if (type(report) is not dict or type(report.get("schema_version")) is not int
             or report["schema_version"] != 1 or report.get("scope") != scope
             or report.get("status") not in statuses
             or report.get("hardware_access") is not False
-            or report.get("android_build_verified") is not False):
+            or report.get("android_build_verified") is not False
+            or any(report.get(key) is not False for key in ("android_api_compatibility_verified",
+                "android_lifecycle_verified", "usb_driver_verified", "main_activity_compiled",
+                "android_instrumentation_verified"))):
         return "FAIL", {"reason": "invalid host result or unsupported physical/build claim"}
     status = statuses[report["status"]]
     if returncode != {"PASS": 0, "FAIL": 1, "BLOCKED": 2}[status]:
         return "FAIL", {"reason": "host exit/result disagree"}
     ids = report.get("test_ids")
     classes = report.get("test_classes")
+    required_class_minima = required_class_minima or {}
     if status == "PASS" and (type(report.get("test_count")) is not int
             or report["test_count"] < minimum or type(report.get("ignored")) is not int or report["ignored"] != 0
             or type(report.get("assumption_failures")) is not int or report["assumption_failures"] != 0
-            or report.get("failures") != [] or not report.get("compiled_production_sources")
+            or report.get("failures") != [] or type(report.get("compiled_production_sources")) is not list
+            or not report["compiled_production_sources"]
+            or any(type(item) is not str or not item for item in report["compiled_production_sources"])
+            or not set(required_production_sources).issubset(report.get("compiled_production_sources", []))
             or not isinstance(report.get("source_fingerprint"), str)
-            or len(report["source_fingerprint"]) != 64
+            or re.fullmatch(r"[0-9a-f]{64}", report["source_fingerprint"]) is None
             or not isinstance(report.get("java_version"), str) or not report["java_version"].strip()
             or type(ids) is not list or any(type(item) is not str or not item for item in ids)
             or len(ids) != report["test_count"] or len(set(ids)) != len(ids)
             or report.get("finished_test_ids") != ids
             or type(classes) is not list or any(type(item) is not str or not item for item in classes)
             or not set(required_classes).issubset(classes)
-            or any(not any(item.startswith(name + ".") for item in ids) for name in required_classes)):
+            or any(not any(item.startswith(name + ".") for item in ids) for name in required_classes)
+            or any(sum(item.startswith(name + ".") for item in ids) < count
+                   for name, count in required_class_minima.items())
+            or any(name in classes or any(item.startswith(name + ".") for item in ids)
+                   for name in forbidden_classes)):
         return "FAIL", {"reason": "host coverage incomplete or ignored/failing tests"}
     return status, {"scope": scope, "test_count": report.get("test_count", 0),
         "minimum": minimum, "ignored": report.get("ignored"),
         "assumption_failures": report.get("assumption_failures"), "hardware_access": False,
         "android_build_verified": False, "source_fingerprint": report.get("source_fingerprint"),
+        "android_api_compatibility_verified": False, "android_lifecycle_verified": False,
+        "usb_driver_verified": False, "main_activity_compiled": False,
+        "android_instrumentation_verified": False,
+        "compile_only_instrumentation_sources": report.get("compile_only_instrumentation_sources", []),
+        "required_compiled_production_sources": list(required_production_sources),
         "test_ids_sha256": hashlib.sha256("\n".join(ids or []).encode()).hexdigest(),
         "required_test_classes": list(required_classes), "test_classes": classes,
+        "required_test_class_minima": required_class_minima,
         "java_version": report.get("java_version"),
         "compile_only_android_boundaries": report.get("compile_only_android_boundaries", []),
         "compile_only_production_sources": report.get("compile_only_production_sources", []),
@@ -272,7 +292,27 @@ def pixel_jvm_check(artifact: Path, extra=()):
     code = namespace["main"](arguments)
     report = json.loads(artifact.read_text(encoding="utf-8"))
     status, details = validate_host_report(report, returncode=code,
-        scope="pixel-production-kotlin-host-unit-tests", minimum=157,
+        scope="pixel-production-kotlin-host-unit-tests", minimum=268,
+        forbidden_classes=("com.leo.pixelrobot.policy.Installed3750MonitorTransportTest",),
+        required_production_sources=(
+            "app/src/main/java/com/leo/pixelrobot/robot/RobotService.kt",
+            "app/src/main/java/com/leo/pixelrobot/robot/UsbRobotTransport.kt",
+            "app/src/main/java/com/leo/pixelrobot/robot/BoundedUsbWriter.kt",
+            "app/src/main/java/com/leo/pixelrobot/robot/UsbStartupFence.kt",
+            "app/src/main/java/com/leo/pixelrobot/robot/RawUsbCaptureRecorder.kt",
+            "app/src/main/java/com/leo/pixelrobot/robot/ManualOperationGate.kt",
+            "app/src/main/java/com/leo/pixelrobot/policy/PhysicalIntentAuthority.kt"),
+        required_class_minima={
+            "com.leo.pixelrobot.robot.BoundedUsbWriterTest": 42,
+            "com.leo.pixelrobot.robot.UsbStartupFenceTest": 17,
+            "com.leo.pixelrobot.robot.RawUsbCaptureRecorderTest": 8,
+            "com.leo.pixelrobot.robot.ManualOperationGateTest": 4,
+            "com.leo.pixelrobot.policy.PhysicalIntentAuthorityTest": 34,
+            "com.leo.pixelrobot.shadow.PhysicalHttpApiTest": 6,
+            "com.leo.pixelrobot.robot.RobotControlServerTest": 8,
+            "com.leo.pixelrobot.policy.PolicyOperationTest": 10,
+            "com.leo.pixelrobot.policy.PolicyFeedbackGateTest": 5,
+            "com.leo.pixelrobot.host.AndroidCompileBoundaryTest": 5},
         required_classes=("com.leo.pixelrobot.policy.ShadowIntentSessionTest",
             "com.leo.pixelrobot.policy.LoadedPolicyAssetsTest",
             "com.leo.pixelrobot.policy.ShadowRequestCoordinatorTest",
@@ -280,7 +320,16 @@ def pixel_jvm_check(artifact: Path, extra=()):
             "com.leo.pixelrobot.shadow.ShadowHttpApiTest",
             "com.leo.pixelrobot.robot.RobotControlServerTest",
             "com.leo.pixelrobot.policy.PhysicalCommandAuthorityTest",
-            "com.leo.pixelrobot.robot.BoundedSerialWriterTest"))
+            "com.leo.pixelrobot.robot.BoundedSerialWriterTest",
+            "com.leo.pixelrobot.robot.BoundedUsbWriterTest",
+            "com.leo.pixelrobot.robot.UsbStartupFenceTest",
+            "com.leo.pixelrobot.robot.RawUsbCaptureRecorderTest",
+            "com.leo.pixelrobot.robot.ManualOperationGateTest",
+            "com.leo.pixelrobot.policy.PhysicalIntentAuthorityTest",
+            "com.leo.pixelrobot.shadow.PhysicalHttpApiTest",
+            "com.leo.pixelrobot.policy.PolicyOperationTest",
+            "com.leo.pixelrobot.policy.PolicyFeedbackGateTest",
+            "com.leo.pixelrobot.host.AndroidCompileBoundaryTest"))
     if status == "PASS":
         # The harness checks every pinned jar before compiling. Check again so
         # concurrent dependency/cache edits cannot yield accepted evidence.
@@ -293,36 +342,49 @@ def pixel_jvm_check(artifact: Path, extra=()):
     return status, details
 
 
-def shadow_script_digests(root=ROOT):
-    """Hash the actual panel IIFE selected by the deterministic Node harness."""
+def panel_script_digests(root=ROOT, *, physical=False):
+    """Hash the exact, uniquely marked panel selected by its Node harness."""
     html_path = Path(root) / "pixel_robot/app/src/main/assets/robot_control.html"
-    test_path = Path(root) / "pixel_robot/tools/test_shadow_ui.cjs"
+    test_path = Path(root) / ("pixel_robot/tools/test_physical_ui.cjs" if physical else "pixel_robot/tools/test_shadow_ui.cjs")
     html_bytes = html_path.read_bytes()
     # Match Node's UTF-8 source slice exactly, preserving CRLF bytes.
     html = html_bytes.decode("utf-8")
-    marker = "// This panel never calls"
+    marker = ("// Physical experiment panel: explicit one-shot operator authority."
+              if physical else "// This panel never calls")
     if html.count(marker) != 1:
-        raise ValueError("shadow panel source marker missing or ambiguous")
+        raise ValueError("panel source marker missing or ambiguous")
     start = html.index(marker)
     end = html.find("</script>", start)
-    if end < 0: raise ValueError("shadow panel closing script tag absent")
+    if end < 0: raise ValueError("panel closing script tag absent")
     return {"production_html_sha256": hashlib.sha256(html_bytes).hexdigest(),
         "production_script_sha256": hashlib.sha256(html[start:end].encode("utf-8")).hexdigest(),
         "test_source_sha256": hashlib.sha256(test_path.read_bytes()).hexdigest()}
 
 
-def validate_web_ui_report(report, *, returncode, expected_digests, minimum):
+def shadow_script_digests(root=ROOT):
+    return panel_script_digests(root)
+
+
+def physical_script_digests(root=ROOT):
+    return panel_script_digests(root, physical=True)
+
+
+def validate_web_ui_report(report, *, returncode, expected_digests, minimum, physical=False):
     from validation.runner import NODE_VERSION
-    expected = {"schema_version": 1, "scope": "pixel-production-shadow-panel-dom-stub-tests",
+    panel = "physical" if physical else "shadow"
+    expected = {"schema_version": 1, "scope": f"pixel-production-{panel}-panel-dom-stub-tests",
         "node_version": "v" + NODE_VERSION, "network_access": False, "dom_environment": "stub",
         "android_webview_verified": False, "hardware_access": False,
         "live_control_script_executed": False,
         "production_html_path": "pixel_robot/app/src/main/assets/robot_control.html", **expected_digests}
+    if physical:
+        expected["physical_execution"] = False
+        expected["manual_request_boundary_executed"] = True
     if type(report) is not dict or any(type(report.get(key)) is not type(value) or report[key] != value
             for key, value in expected.items()):
         return "FAIL", {"reason": "invalid UI report, source identity or unsupported runtime claim"}
     if report.get("status") != "passed" or returncode != 0:
-        return "FAIL", {"reason": "production shadow-panel tests did not pass"}
+        return "FAIL", {"reason": f"production {panel}-panel tests did not pass"}
     ids = report.get("test_ids")
     if (type(report.get("test_count")) is not int or report["test_count"] < minimum
             or type(ids) is not list or any(type(item) is not str or not item for item in ids)
@@ -332,23 +394,63 @@ def validate_web_ui_report(report, *, returncode, expected_digests, minimum):
         return "FAIL", {"reason": "UI coverage incomplete, skipped, cancelled, todo or failing"}
     return "PASS", {**expected, "test_count": len(ids), "minimum": minimum,
         "test_ids_sha256": hashlib.sha256("\n".join(ids).encode()).hexdigest(),
-        "scope_note": "Actual shadow-panel JavaScript with authored DOM/fetch stubs; no browser/WebView, live provider or physical acceptance"}
+        "scope_note": f"Actual {panel}-panel JavaScript with authored DOM/fetch stubs; no browser/WebView, live provider or physical acceptance"}
 
 
-def pixel_web_ui_check(artifact: Path, extra=()):
+def panel_ui_check(artifact: Path, extra=(), *, physical=False):
     parser = argparse.ArgumentParser()
     parser.add_argument("--node", required=True)
     options = parser.parse_args(extra)
-    script = ROOT / "pixel_robot/tools/test_shadow_ui.cjs"
-    before = shadow_script_digests()
+    script = ROOT / ("pixel_robot/tools/test_physical_ui.cjs" if physical else "pixel_robot/tools/test_shadow_ui.cjs")
+    digests = physical_script_digests if physical else shadow_script_digests
+    before = digests()
     code = subprocess.run([options.node, str(script), "--output", str(artifact)],
         cwd=ROOT, check=False).returncode
-    if before != shadow_script_digests():
+    if before != digests():
         return "BLOCKED", {"reason": "production panel or test script changed during execution"}
     if not artifact.is_file() or artifact.stat().st_size > 4 * 1024 * 1024:
         return "FAIL", {"reason": "missing or oversized UI result"}
     report = json.loads(artifact.read_text(encoding="utf-8"))
-    return validate_web_ui_report(report, returncode=code, expected_digests=before, minimum=48)
+    return validate_web_ui_report(report, returncode=code, expected_digests=before,
+        minimum=144 if physical else 44, physical=physical)
+
+
+def pixel_web_ui_check(artifact: Path, extra=()):
+    return panel_ui_check(artifact, extra)
+
+
+def pixel_physical_ui_check(artifact: Path, extra=()):
+    return panel_ui_check(artifact, extra, physical=True)
+
+
+FIRMWARE_REPLAY_SCENARIOS = {
+    "boot_and_arm_gates", "fragmentation_and_coalescing",
+    "stale_reordered_and_wrap_sequences", "watchdog_before_late_frame",
+    "loss_and_watchdog", "lost_delimiter_and_trailing_bytes",
+    "json_strings_and_malformed_syntax", "oversized_line_and_resync",
+    "safety_batch_and_queued_frames", "reconnect_requires_explicit_arm",
+    "abort_discards_complete_old_commands", "monitor_and_feedback_loss",
+    "abort_nonce_is_bounded", "delimiter_free_probe_never_executes",
+}
+
+
+def validate_firmware_replay(report, *, returncode, expected_hashes):
+    if (type(report) is not dict or type(report.get("schema_version")) is not int
+            or report["schema_version"] != 1 or report.get("status") != "passed" or returncode != 0
+            or type(report.get("exit_code")) is not int or report["exit_code"] != 0
+            or report.get("physical_execution") is not False
+            or report.get("hardware_qualification") is not False
+            or report.get("source_sha256") != expected_hashes):
+        return False
+    scenarios = report.get("scenarios")
+    if type(scenarios) is not list or any(type(row) is not dict or
+            type(row.get("name")) is not str or row.get("status") != "passed" for row in scenarios):
+        return False
+    names = [row["name"] for row in scenarios]
+    return (len(names) == len(set(names)) and FIRMWARE_REPLAY_SCENARIOS.issubset(names)
+            and all(type(report.get(key)) is int and report[key] == expected
+                    for key, expected in (("scenario_count", len(names)), ("passed", len(names)),
+                                          ("failed", 0), ("skipped", 0))))
 
 
 def firmware_host_check(artifact: Path, extra=()):
@@ -368,11 +470,34 @@ def firmware_host_check(artifact: Path, extra=()):
     script = ROOT / "robot_dog/firmware/robot-dog-control/test/test_policy_commands.py"
     sys.argv = [str(script), "--json-include", str(include), "--compiler", compiler]
     runpy.run_path(str(script), run_name="__main__")
+    firmware = script.parent.parent
+    replay_script = script.parent / "test_transport_replay.py"
+    replay_path = artifact.with_name(artifact.stem + "-replay.json")
+    replay_sources = ("src/main.cpp", "include/JsonCommandBoundary.h", "include/PeriodicDeadline.h",
+                      "include/SerialInputAbort.h",
+                      "test/test_transport_replay.py")
+    expected_hashes = {name: hashlib.sha256((firmware / name).read_bytes()).hexdigest() for name in replay_sources}
+    sys.argv = [str(replay_script), "--json-include", str(include), "--compiler", compiler,
+                "--result-json", str(replay_path)]
+    code = 0
+    try:
+        runpy.run_path(str(replay_script), run_name="__main__")
+    except SystemExit as exc:
+        code = exc.code
+    if not replay_path.is_file() or replay_path.stat().st_size > 4 * 1024 * 1024:
+        return "FAIL", {"reason": "missing or oversized firmware replay evidence"}
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    if expected_hashes != {name: hashlib.sha256((firmware / name).read_bytes()).hexdigest() for name in replay_sources}:
+        return "BLOCKED", {"reason": "firmware replay sources changed during execution"}
+    if not validate_firmware_replay(replay, returncode=code, expected_hashes=expected_hashes):
+        return "FAIL", {"reason": "firmware replay coverage, source binding, or zero-failure evidence invalid"}
     report = {"schema_version": 1, "status": "passed", "scope": "native-firmware-fake-bus-assertions",
         "hardware_access": False, "board_build_verified": False, "physical_execution": False,
         "arduinojson_version": match.group(1), "compiler_version": version.stdout.strip(),
         "source": str(script.relative_to(ROOT)), "source_sha256": hashlib.sha256(script.read_bytes()).hexdigest(),
-        "covered": ["production policy handlers", "UART framing", "watchdog transitions", "read-only monitor"],
+        "transport_replay": replay,
+        "covered": ["production policy handlers", "UART framing", "watchdog transitions", "read-only monitor",
+                    "production command dispatch", "arm admission", "stop/torque-off", "adversarial transport replay"],
         "limitation": "Extracted production handlers and fake dependencies; no ESP32 binary execution, serial port, or board timing verification"}
     artifact.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
     return "PASS", report
@@ -394,11 +519,12 @@ def dispatch(name, artifact, manifest, extra):
             ("test_analyze_training_capture", "test_fit_sim_from_run_data", "test_inspect_run_data",
              "test_plot_run_data", "test_run_data_source", "test_trim_training_capture"), (PIXEL_CAPTURE_TEST,)),
         "pixel-capture": ("pixel_robot/tools", "", 1, (PIXEL_CAPTURE_TEST,)),
-        "preflight-unit": (".", "", 65, ("deployment_readiness.test_preflight",)),
+        "preflight-unit": ("deployment_readiness", "test_*.py", 127, (),
+            ("test_preflight", "test_hardware_acceptance"), (), True),
         "policy-runtime-unit": ("robot_dog/policy_runtime", "test_*.py", 87, (),
             ("test_policy_runtime", "test_goal_controller", "test_offline_transport")),
         "baml-unit": (".", "", 8, ("robot_llm.tests.baml_checks",)),
-        "runner-unit": ("validation", "test_*.py", 61, (), ("test_runner",)),
+        "runner-unit": ("validation", "test_*.py", 73, (), ("test_runner",)),
     }
     if name in suites:
         status, details = unit_suite(*suites[name])
@@ -432,6 +558,7 @@ def dispatch(name, artifact, manifest, extra):
     if name == "firmware-host": return firmware_host_check(artifact, extra)
     if name == "pixel-jvm": return pixel_jvm_check(artifact, extra)
     if name == "pixel-web-ui": return pixel_web_ui_check(artifact, extra)
+    if name == "pixel-physical-ui": return pixel_physical_ui_check(artifact, extra)
     if name == "cpu-torch": return cpu_suite()
     if name == "fixtures": return fixture_check(artifact)
     if name == "gait-probe": return gait_check(artifact)

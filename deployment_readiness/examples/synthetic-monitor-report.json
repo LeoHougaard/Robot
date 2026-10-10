@@ -1,0 +1,541 @@
+{
+  "schema_version": 1,
+  "scope": "offline_torque_off_capture_acceptance",
+  "target": "dog12",
+  "declared_evidence_kind": "synthetic",
+  "physical_execution": false,
+  "physical_safety_certified": false,
+  "usb_transport_independently_verified": false,
+  "motion_authorized": false,
+  "absolute_feedback_age_verified": false,
+  "driver_queue_latency_measured": false,
+  "limits": {
+    "warmup_frames": 50,
+    "minimum_frames": 1250,
+    "rate_hz": [
+      49.5,
+      50.5
+    ],
+    "sample_p99_ms_max": 25,
+    "sample_max_ms": 40,
+    "feedback_handling_age_ms_max": 100,
+    "ack_latency_ms_max": 120,
+    "current_complete_fraction_min": 0.99
+  },
+  "checks": [
+    {
+      "name": "target",
+      "status": "PASS",
+      "detail": "Only dog12 servo IDs 1..12 are supported; confirm the actual body before using this gate.",
+      "measurements": {}
+    },
+    {
+      "name": "evidence_origin",
+      "status": "BLOCKED",
+      "detail": "Synthetic or unknown-origin input cannot establish physical USB health.",
+      "measurements": {}
+    },
+    {
+      "name": "capture_integrity",
+      "status": "PASS",
+      "detail": "Requires complete=true and dropped_records=0; recorder completeness is not byte completeness.",
+      "measurements": {
+        "records": 18
+      }
+    },
+    {
+      "name": "byte_framing",
+      "status": "PASS",
+      "detail": "Requires raw bytes in both directions; strict after fresh nonce-v2 abort ACK. At most 32 invalid startup lines within 64 KiB/750 ms before that ACK are reported as attachment fragments, not packet loss. Parsed logs cannot establish framing.",
+      "measurements": {
+        "directions": {
+          "rx": {
+            "bytes": 2141,
+            "chunks": 8,
+            "nonempty_lines": 8,
+            "valid_lines": 8
+          },
+          "tx": {
+            "bytes": 483,
+            "chunks": 8,
+            "input_abort_preambles": 1,
+            "nonempty_lines": 6,
+            "valid_lines": 6
+          }
+        },
+        "errors": [],
+        "mixed_encoding": false,
+        "pre_handshake_invalid_lines": 0,
+        "tolerated_attachment_fragments": 0,
+        "post_handshake_or_unqualified_framing_errors": 0,
+        "startup_bytes_at_ack": 79,
+        "startup_window_ms": 0.0
+      }
+    },
+    {
+      "name": "firmware_identity",
+      "status": "PASS",
+      "detail": "Hello version must match the operator's expected build label; binary identity remains unverified.",
+      "measurements": {
+        "expected": "0.1.18-transportguard",
+        "observed": [
+          "0.1.18-transportguard"
+        ]
+      }
+    },
+    {
+      "name": "reconnect_abort_compatibility",
+      "status": "PASS",
+      "detail": "Current transport requires paired 0.1.18-transportguard CAN-abort framing. Older identity/capability cannot clear physical integration.",
+      "measurements": {}
+    },
+    {
+      "name": "input_abort_handshake",
+      "status": "PASS",
+      "detail": "Requires raw initial CAN+32hex (no LF), matching v2 nonce ACK, then LF/first command. Parsed logs cannot establish handshake bytes.",
+      "measurements": {
+        "challenge_observed": true,
+        "matching_ack_before_first_command": true
+      }
+    },
+    {
+      "name": "torque_off_monitor_scope",
+      "status": "PASS",
+      "detail": "Requires admitted monitor, explicitly unarmed states, and only diagnostic TX commands. This is firmware-reported evidence, not independent register verification.",
+      "measurements": {
+        "unsafe_tx_commands": [],
+        "invalid_states": 0,
+        "monitor_admitted": true
+      }
+    },
+    {
+      "name": "firmware_errors",
+      "status": "PASS",
+      "detail": "Any recorded firmware error fails the attempt.",
+      "measurements": {
+        "count": 0,
+        "examples": []
+      }
+    },
+    {
+      "name": "uart_errors",
+      "status": "PASS",
+      "detail": "Cumulative counters are differenced, never summed across samples; reset/regression invalidates the comparison.",
+      "measurements": {
+        "order": [
+          "fifo_overflow",
+          "buffer_full",
+          "frame",
+          "parity"
+        ],
+        "deltas": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "bracketed": true
+      }
+    },
+    {
+      "name": "sample_coverage",
+      "status": "BLOCKED",
+      "detail": "At least 1,250 monitor frames are required; first 50 warm up timing only.",
+      "measurements": {
+        "frames": 3,
+        "warmup_frames": 50
+      }
+    },
+    {
+      "name": "feedback_sequence",
+      "status": "PASS",
+      "detail": "Tick gaps count absent recorded feedback, not USB-packet loss attribution.",
+      "measurements": {
+        "inferred_missing_feedback_messages": 0,
+        "duplicate_or_regressed_ticks": 0,
+        "inferred_loss_fraction": 0.0
+      }
+    },
+    {
+      "name": "firmware_deadlines",
+      "status": "PASS",
+      "detail": "Monitor admission resets this cumulative counter; last value is missed periods, not the sum.",
+      "measurements": {
+        "missed_periods": 0
+      }
+    },
+    {
+      "name": "feedback_timing",
+      "status": "BLOCKED",
+      "detail": "Firmware uint32 millis wrap is supported; clock regressions/reset and startup stalls fail. Host rate is capture timing, not hardware latency.",
+      "measurements": {
+        "firmware_hz": null,
+        "host_hz": null,
+        "firmware_interval_ms": {
+          "count": 0,
+          "min": null,
+          "median": null,
+          "p99": null,
+          "max": null
+        },
+        "host_interval_ms": {
+          "count": 0,
+          "min": null,
+          "median": null,
+          "p99": null,
+          "max": null
+        }
+      }
+    },
+    {
+      "name": "feedback_handling_age",
+      "status": "PASS",
+      "detail": "Same-host driver-observer callback to recorder-admission delay only, excluding unmeasured UART/USB/driver queue latency. This does not establish physical feedback age. Pixel parsed logs lack callback timestamps.",
+      "measurements": {
+        "callback_to_recorder_admission_ms": {
+          "count": 3,
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "absolute_sensor_to_host_age_ms": null
+      }
+    },
+    {
+      "name": "sample_to_callback_drift",
+      "status": "BLOCKED",
+      "detail": "Relative host timestamp progress minus firmware sample progress, with arbitrary starting offset removed. A >100 ms range reveals added delay or clock trouble; a small range cannot exclude constant pre-existing latency.",
+      "measurements": {
+        "relative_progress_difference_ms": {
+          "count": 3,
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "range_ms": 0.0,
+        "host_timestamp_basis": "driver_observer_callback",
+        "absolute_sensor_age_ms": null
+      }
+    },
+    {
+      "name": "command_acknowledgement",
+      "status": "PASS",
+      "detail": "TX timestamp is recorder/queue admission, not confirmed native write. seq is latest accepted command, not an acknowledgement per command; unobserved intermediate seqs are not proven packet loss. Final sent seq must appear.",
+      "measurements": {
+        "commands": 2,
+        "distinct_observed_acks": 2,
+        "unobserved_ack_sequences": 0,
+        "unknown_ack_count": 0,
+        "ack_before_tx_count": 0,
+        "stalled_ack_frames": 0,
+        "repeated_ack_count": 0,
+        "longest_same_ack_run_frames": 1,
+        "latest_sent_minus_ack": {
+          "count": 2,
+          "min": 0,
+          "median": 0,
+          "p99": 0,
+          "max": 0
+        },
+        "oldest_unacknowledged_record_age_ms": {
+          "count": 0,
+          "min": null,
+          "median": null,
+          "p99": null,
+          "max": null
+        },
+        "final_sequence_acknowledged": true,
+        "tx_record_to_first_ack_ms": {
+          "count": 2,
+          "min": 19.0,
+          "median": 19.0,
+          "p99": 19.0,
+          "max": 19.0
+        }
+      }
+    },
+    {
+      "name": "servo_feedback",
+      "status": "PASS",
+      "detail": "Requires unique dog12 IDs, all twelve finite angles, complete feedback, and zero status errors on every frame.",
+      "measurements": {
+        "invalid_frames": 0,
+        "incomplete_frames": 0,
+        "servos": {
+          "1": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "2": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "3": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "4": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "5": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "6": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "7": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "8": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "9": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "10": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "11": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          },
+          "12": {
+            "angles_deg": {
+              "count": 3,
+              "min": 180.0,
+              "median": 180.0,
+              "p99": 180.0,
+              "max": 180.0
+            },
+            "current_raw": {
+              "count": 3,
+              "min": 1,
+              "median": 1,
+              "p99": 1,
+              "max": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "servo_current",
+      "status": "PASS",
+      "detail": "Independent non-fatal firmware current reads; missing values stay missing, never zero. This acceptance check requires 99% complete frames.",
+      "measurements": {
+        "complete_fraction": 1.0,
+        "incomplete_frames": 0,
+        "current_step_ma": 6.5
+      }
+    },
+    {
+      "name": "imu",
+      "status": "PASS",
+      "detail": "Stationary torque-off plausibility: finite 3-axis readings and acceleration norm 500..1500 mg. Calibration, bias, orientation and real motion remain unverified.",
+      "measurements": {
+        "missing_frames": 0,
+        "invalid_frames": 0,
+        "acceleration_norm_mg": {
+          "count": 3,
+          "min": 1000.0,
+          "median": 1000.0,
+          "p99": 1000.0,
+          "max": 1000.0
+        },
+        "gyro_axis_dps": {
+          "count": 9,
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "name": "firmware_processing",
+      "status": "PASS",
+      "detail": "Firmware processing frame must be below the 20 ms period; these counters exclude USB receive and host inference.",
+      "measurements": {
+        "feedback_us": {
+          "count": 3,
+          "min": 3000,
+          "median": 3000,
+          "p99": 3000,
+          "max": 3000
+        },
+        "current_us": {
+          "count": 3,
+          "min": 1000,
+          "median": 1000,
+          "p99": 1000,
+          "max": 1000
+        },
+        "frame_us": {
+          "count": 3,
+          "min": 4500,
+          "median": 4500,
+          "p99": 4500,
+          "max": 4500
+        }
+      }
+    },
+    {
+      "name": "transport_teardown",
+      "status": "PASS",
+      "detail": "Requires independently recorded closeAsync outcome and quiesced completion. close() returning or session_end alone does not establish this; native host completion is not firmware receipt or physical torque-off.",
+      "measurements": {}
+    }
+  ],
+  "limitations": [
+    "PASS only describes supplied records; capture provenance is declared, not authenticated.",
+    "Missing ticks infer absent recorded feedback, not where or why USB bytes were lost.",
+    "Firmware and host clocks differ: absolute sensor-to-host age cannot be inferred.",
+    "Driver callback timestamps exclude unknown UART/USB and SerialInputOutputManager queue delay.",
+    "A recorded TX is queue admission/captured host output, never proof of USB write or firmware receipt.",
+    "Version strings do not attest the flashed firmware binary or physical torque registers.",
+    "Torque-off monitoring excludes powered motion, camera load, and 30-minute endurance."
+  ],
+  "status": "BLOCKED",
+  "example_notice": "AUTHORED SYNTHETIC DATA, not USB measurements or hardware acceptance"
+}

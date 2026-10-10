@@ -14,7 +14,8 @@ import org.json.JSONObject
 /** Bounded request worker, independent timeout and publication fence. H is a local
  * opaque host handle, never model data or an HTTP parameter. Host callbacks run
  * outside our lock, avoiding service/cancellation lock inversion. This class has
- * no motor/USB/controller methods, nor any ability to turn a preview into motion.
+ * no motor/USB/controller methods. The physical service reuses only this raw-intent
+ * provider plumbing with separate generation-bound admission; no shadow grant is transferred.
  */
 class ShadowProviderRunner<H>(
     private val beginRequest: (String, Boolean) -> H,
@@ -26,6 +27,7 @@ class ShadowProviderRunner<H>(
     private val callFactory: (ShadowEndpointConfig, String) -> ShadowProviderCall = { config, text -> HttpShadowProviderCall(config, text) },
     private val timeoutMs: Long = ShadowProviderProtocol.TIMEOUT_MS.toLong(),
     private val clockNanos: () -> Long = System::nanoTime,
+    private val mode: String = "SHADOW",
 ) : Closeable {
     private val lock = Any()
     private val threads = ThreadFactory { task -> Thread(task, "pixel-shadow-provider").apply { isDaemon = true } }
@@ -43,9 +45,13 @@ class ShadowProviderRunner<H>(
         var future: Future<*>? = null
         var expiry: ScheduledFuture<*>? = null
     }
-    init { require(timeoutMs in 1..ShadowProviderProtocol.TIMEOUT_MS.toLong()) }
+    init {
+        require(timeoutMs in 1..ShadowProviderProtocol.TIMEOUT_MS.toLong())
+        require(mode in setOf("SHADOW", "PHYSICAL_EXPERIMENT"))
+    }
 
-    @Synchronized fun submit(config: ShadowEndpointConfig, text: String, allowUnqualifiedMetadata: Boolean): JSONObject {
+    @Synchronized fun submit(config: ShadowEndpointConfig, text: String, allowUnqualifiedMetadata: Boolean,
+                             beginHostRequest: (() -> H)? = null): JSONObject {
         ShadowProviderProtocol.requireText(text)
         val call = callFactory(config, text)
         val work = synchronized(lock) {
@@ -53,7 +59,7 @@ class ShadowProviderRunner<H>(
             invalidateLocked("cancelled")
             Work(++generation, call).also { current = it; state = "requesting"; error = null }
         }
-        val handle = try { beginRequest(text, allowUnqualifiedMetadata) } catch (_: Exception) {
+        val handle = try { (beginHostRequest ?: { beginRequest(text, allowUnqualifiedMetadata) })() } catch (_: Exception) {
             finish(work, "error", ShadowProviderError.HOST_REJECTED, false); return status()
         }
         val admitted = synchronized(lock) {
@@ -144,7 +150,8 @@ class ShadowProviderRunner<H>(
     }
     fun status(): JSONObject {
         val view = synchronized(lock) {
-            JSONObject().put("mode", "SHADOW").put("physical_execution", false).put("physical_stop_confirmed", false)
+            JSONObject().put("mode", mode).put("physical_stop_confirmed", false)
+                .put(if (mode == "SHADOW") "physical_execution" else "physical_execution_confirmed", false)
                 .put("provider_state", state).put("provider_error", error ?: JSONObject.NULL)
         }
         return view.put("service", serviceStatus())

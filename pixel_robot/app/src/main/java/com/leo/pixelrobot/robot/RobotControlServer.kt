@@ -3,6 +3,8 @@ package com.leo.pixelrobot.robot
 import android.content.res.AssetManager
 import com.leo.pixelrobot.policy.MotionRequest
 import com.leo.pixelrobot.shadow.BoundedControlRequest
+import com.leo.pixelrobot.shadow.PhysicalHttpApi
+import com.leo.pixelrobot.shadow.StrictShadowJson
 import com.leo.pixelrobot.shadow.ShadowHttpApi
 import com.leo.pixelrobot.shadow.ShadowProviderRunner
 import org.json.JSONObject
@@ -35,11 +37,16 @@ class RobotControlServer(
     shadow: ShadowProviderRunner<*>? = null,
     pageContent: String? = null,
     private val port: Int = PORT,
+    private val physical: PhysicalHttpApi? = null,
 ) : Closeable {
     private val page = pageContent ?: requireNotNull(assets).open("robot_control.html").bufferedReader().use { it.readText() }
     private val server = ServerSocket()
     private val workers = ThreadPoolExecutor(2, 8, 60, TimeUnit.SECONDS, ArrayBlockingQueue(16))
     private val shadowApi = ShadowHttpApi(shadow)
+    private val manualGate = ManualOperationGate()
+    internal val manualGeneration: Long get() = manualGate.generation
+    fun invalidateManualOperations() { manualGate.invalidate() }
+    private fun statusWithGeneration(): JSONObject = status().put("manual_generation", manualGate.generation)
     private val connections = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
     private val downloadConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
     private val downloads = ThreadPoolExecutor(1, 2, 30, TimeUnit.SECONDS, ArrayBlockingQueue(2))
@@ -91,6 +98,18 @@ class RobotControlServer(
         val path = request.path
         val headers = request.headers
         val body = request.body
+        if (path.startsWith("/api/physical/")) {
+            if (!shadowApi.permitted(headers)) {
+                respond(socket, 403, JSON_CONTENT_TYPE, errorJson("local_operator_token_required")); return
+            }
+            val result = try { physical?.route(method, path, body)
+                ?: JSONObject().put("ok", false).put("error", "physical_unavailable")
+            } catch (_: Exception) {
+                physical?.rejected() ?: JSONObject().put("ok", false).put("error", "physical_unavailable")
+            }
+            respond(socket, if (result.optBoolean("ok")) 200 else 400, JSON_CONTENT_TYPE, result.toString())
+            return
+        }
         if (path.startsWith("/api/shadow/")) {
             if (!shadowApi.permitted(headers)) {
                 respond(socket, 403, JSON_CONTENT_TYPE, errorJson("local_operator_token_required"))
@@ -103,6 +122,12 @@ class RobotControlServer(
             return
         }
 
+        // Every mutation, including legacy manual motor/configuration routes, uses
+        // the same loopback browser fence. A physical endpoint must never be a CSRF bypass.
+        if (method == "POST" && !shadowApi.permitted(headers)) {
+            respond(socket, 403, JSON_CONTENT_TYPE, errorJson("local_operator_token_required"))
+            return
+        }
         try {
             when {
                 method == "GET" && path == "/" -> respond(socket, 200, HTML_CONTENT_TYPE,
@@ -111,7 +136,7 @@ class RobotControlServer(
                     socket,
                     200,
                     JSON_CONTENT_TYPE,
-                    status().put("ok", true).toString(),
+                    statusWithGeneration().put("ok", true).toString(),
                 )
                 method == "GET" && path == "/api/session/latest" -> {
                     val file = latestSession()
@@ -138,12 +163,14 @@ class RobotControlServer(
                     respondStatus(socket)
                 }
                 method == "POST" && path == "/api/start" -> {
-                    val request = JSONObject(body.ifBlank { "{}" })
-                    startTest(motionRequest(request))
+                    val expected = expectedManualGeneration(body)
+                    val request = motionRequest(JSONObject(body))
+                    manualGate.admit(expected, { System.nanoTime() < deadline }) { startTest(request) }
                     respondStatus(socket)
                 }
                 method == "POST" && path == "/api/stand" -> {
-                    stand()
+                    val expected = expectedManualGeneration(body)
+                    manualGate.admit(expected, { System.nanoTime() < deadline }) { stand() }
                     respondStatus(socket)
                 }
                 method == "POST" && path == "/api/command" -> {
@@ -152,10 +179,12 @@ class RobotControlServer(
                     respondStatus(socket)
                 }
                 method == "POST" && path == "/api/stop" -> {
+                    manualGate.invalidate()
                     stop()
                     respondStatus(socket)
                 }
                 method == "POST" && path == "/api/reconnect" -> {
+                    manualGate.invalidate()
                     reconnect()
                     respondStatus(socket)
                 }
@@ -169,8 +198,16 @@ class RobotControlServer(
                 else -> respond(socket, 404, JSON_CONTENT_TYPE, errorJson("not found"))
             }
         } catch (error: Throwable) {
-            respond(socket, 400, JSON_CONTENT_TYPE, errorJson(error.message ?: "request failed"))
+            respond(socket, 400, JSON_CONTENT_TYPE, JSONObject().put("ok", false)
+                .put("error", error.message ?: "request failed").put("manual_generation", manualGate.generation).toString())
         }
+    }
+
+    private fun expectedManualGeneration(body: String): Long {
+        val value = StrictShadowJson.objectValue(body)["expected_manual_generation"] as? Double
+            ?: error("expected_manual_generation_required")
+        require(value >= 0 && value <= 9_007_199_254_740_991.0 && value == value.toLong().toDouble())
+        return value.toLong()
     }
 
     private fun motionRequest(value: JSONObject) = MotionRequest(
@@ -183,7 +220,7 @@ class RobotControlServer(
     )
 
     private fun respondStatus(socket: Socket) {
-        respond(socket, 200, JSON_CONTENT_TYPE, status().put("ok", true).toString())
+        respond(socket, 200, JSON_CONTENT_TYPE, statusWithGeneration().put("ok", true).toString())
     }
 
     private fun respond(socket: Socket, statusCode: Int, contentType: String, body: String) {
@@ -272,6 +309,7 @@ class RobotControlServer(
         .toString()
 
     override fun close() {
+        manualGate.invalidate()
         runCatching { server.close() }
         connections.forEach { closeConnection(it) }
         connections.clear()

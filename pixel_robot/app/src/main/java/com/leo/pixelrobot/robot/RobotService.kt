@@ -27,6 +27,11 @@ import com.leo.pixelrobot.policy.PolicyController
 import com.leo.pixelrobot.policy.PolicyContract
 import com.leo.pixelrobot.policy.PolicyRuntimeStatus
 import com.leo.pixelrobot.policy.MotionRequest
+import com.leo.pixelrobot.policy.PhysicalIntentAuthority
+import com.leo.pixelrobot.policy.PhysicalRequestHandle
+import com.leo.pixelrobot.policy.sharedPhysicalRevocation
+import com.leo.pixelrobot.shadow.PhysicalHttpApi
+import com.leo.pixelrobot.shadow.ShadowEndpointConfig
 import com.leo.pixelrobot.policy.LoadedPolicyAssets
 import com.leo.pixelrobot.policy.ShadowCancelReason
 import com.leo.pixelrobot.policy.ShadowRequestCoordinator
@@ -75,11 +80,18 @@ class RobotService : Service() {
     private val mutableShadowStatus = MutableStateFlow(ShadowServiceStatus(state = ShadowServiceState.UNAVAILABLE,
         reason = "shadow_service_initializing"))
     val shadowStatus: StateFlow<ShadowServiceStatus> get() = shadowCoordinator?.updates ?: mutableShadowStatus.asStateFlow()
-    private var transport: UsbRobotTransport? = null
-    private var transportGeneration = 0L
-    private var destroyed = false
+    @Volatile private var physicalAuthority: PhysicalIntentAuthority? = null
+    private var physicalProvider: ShadowProviderRunner<PhysicalRequestHandle>? = null
+    private var physicalExpiryJob: Job? = null
+    @Volatile private var transport: UsbRobotTransport? = null
+    @Volatile private var closingTransport: UsbRobotTransport? = null
+    private data class OperationTransport(val transport: UsbRobotTransport, val generation: UsbWriteGeneration)
+    @Volatile private var operationTransport: OperationTransport? = null
+    @Volatile private var destroyed = false
     private var connectedDeviceId: Int? = null
     @Volatile private var openingDeviceId: Int? = null
+    @Volatile private var openingTransport: UsbRobotTransport? = null
+    @Volatile private var lastUsbSafetyReport: UsbSafetyWriteReport? = null
     private var permissionRequestDeviceId: Int? = null
     private var isForeground = false
     private var foregroundConnectedDevice = false
@@ -154,29 +166,49 @@ class RobotService : Service() {
                     .put("app_package", packageName)
             },
         )
+        physicalAuthority = runCatching {
+            PhysicalIntentAuthority(loadedAssets.physicalBinding(), SystemClock::elapsedRealtimeNanos)
+        }.onFailure { Log.e(TAG, "Physical text authority unavailable", it) }.getOrNull()
         policyController = PolicyController(
             assets = assets,
             scope = scope,
             calibrationOverrideJson = calibrationOverride,
             loadedAssets = loadedAssets,
             recorder = runRecorder,
+            physicalAuthority = physicalAuthority,
+            startTransportOperation = {
+                val selected = checkNotNull(transport) { "ESP32 USB link is not ready" }
+                check(closingTransport == null) { "Previous USB writer is not quiescent" }
+                operationTransport = OperationTransport(selected, selected.advanceGeneration())
+            },
+            sendGuarded = { bytes, guard ->
+                val bound = checkNotNull(operationTransport) { "No operation-owned USB generation" }
+                check(transport === bound.transport) { "Operation USB identity changed" }
+                bound.transport.write(bytes, bound.generation) { claim ->
+                    guard {
+                        check(transport === bound.transport && closingTransport == null && !destroyed) {
+                            "Operation USB identity changed before dispatch"
+                        }
+                        claim()
+                    }
+                }
+                runCatching { runRecorder.recordRobotTx(bytes) }
+            },
+            safetyStop = ::requestOperationSafetyStop,
             send = { bytes ->
                 runCatching { runRecorder.recordRobotTx(bytes) }
                 transport?.write(bytes) ?: error("ESP32 USB link is not ready")
             },
-            guardedSend = { bytes, gate ->
-                runCatching { runRecorder.recordRobotTx(bytes) }
-                transport?.write(bytes, gate) ?: error("ESP32 USB link is not ready")
-            },
         )
         initializeShadowPreview(loadedAssets)
+        initializePhysicalIntent()
         controlServer = runCatching {
             RobotControlServer(
                 assets = assets,
                 status = ::controlStatus,
                 updateCommand = ::updateFullMotionRequest,
-                stand = ::standAtCapturedPose,
-                startTest = ::startPolicy,
+                stand = { standAtCapturedPose(fromHttp = true) },
+                startTest = { startPolicy(it, fromHttp = true) },
                 stop = ::emergencyStop,
                 reconnect = ::reconnect,
                 selectServoTelemetry = ::selectServoTelemetry,
@@ -185,6 +217,8 @@ class RobotService : Service() {
                 stopRecording = ::stopRecording,
                 latestTrainingCapture = ::latestTrainingCaptureFile,
                 shadow = shadowProvider,
+                physical = PhysicalHttpApi(::physicalIntentStatus, ::enablePhysicalIntent,
+                    ::requestPhysicalIntent, ::cancelPhysicalIntent),
             ).also(RobotControlServer::start)
         }.onFailure { Log.e(TAG, "Could not start loopback control bridge", it) }.getOrNull()
         val receiverFilter = IntentFilter().apply {
@@ -208,21 +242,18 @@ class RobotService : Service() {
     }
 
     fun reconnect() {
+        controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.USB_RECONNECT)
         retryJob?.cancel()
+        retryJob = null
         permissionRequestDeviceId = null
-        if (policyController.status.value.active) policyController.stop("USB reconnect requested")
-        if (transport != null) {
-            decoder.reset()
-            setStatus(LinkState.HANDSHAKING, "Checking ESP32 link")
-            startHandshake()
-        } else {
-            discoverRobot()
-        }
+        policyController.stop("USB reconnect requested")
+        closeTransport()
+        discoverRobot() // Quiescence gate prevents overlap with the closing writer.
     }
 
     private fun discoverRobot() {
-        if (transport != null || openingDeviceId != null) return
+        if (destroyed || transport != null || openingDeviceId != null || closingTransport != null) return
         val device = findRobotDevice()
         if (device == null) {
             setStatus(LinkState.SEARCHING, "Connect the ESP32 over USB-C")
@@ -247,6 +278,7 @@ class RobotService : Service() {
     }
 
     fun emergencyStop() {
+        controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.PHYSICAL_STOP)
         policyController.stop(STOP_REQUEST_DETAIL)
         mutableStatus.value = mutableStatus.value.withStopRequested()
@@ -286,16 +318,19 @@ class RobotService : Service() {
     }
 
     fun updateMotionRequest(forward: Float, yawRate: Float, lateral: Float = 0f) {
+        controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.MANUAL_CONTROL)
         policyController.updateRequest(forward, yawRate, lateral)
     }
 
     fun updatePostureRequest(heightOffset: Float, roll: Float, pitch: Float) {
+        controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.MANUAL_CONTROL)
         policyController.updatePosture(heightOffset, roll, pitch)
     }
 
     private fun updateFullMotionRequest(next: MotionRequest) {
+        controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.MANUAL_CONTROL)
         policyController.updateFullRequest(next)
     }
@@ -334,6 +369,66 @@ class RobotService : Service() {
         }
     }
 
+    private fun initializePhysicalIntent() {
+        physicalProvider = ShadowProviderRunner(
+            beginRequest = { _, _ -> error("generation_bound_physical_request_required") },
+            submitResponse = { handle, raw, claim ->
+                physicalAuthority?.submit(handle, raw, claim)
+                policyController.pollPhysicalAuthority()
+            },
+            failRequest = { handle -> physicalAuthority?.fail(handle); policyController.pollPhysicalAuthority() },
+            cancelRequest = { policyController.revokePhysicalAuthority("operator_cancelled") },
+            stopPreview = { policyController.revokePhysicalAuthority("operator_stopped") },
+            serviceStatus = { physicalServiceStatus() },
+            clockNanos = SystemClock::elapsedRealtimeNanos,
+            mode = "PHYSICAL_EXPERIMENT",
+        )
+        physicalExpiryJob = scope.launch {
+            while (isActive) {
+                delay(25)
+                policyController.pollPhysicalAuthority()
+                physicalAuthority?.terminalRequestToCancel()?.let { physicalProvider?.cancelProvider(it) }
+            }
+        }
+    }
+
+    private fun physicalServiceStatus(): JSONObject {
+        val value = physicalAuthority?.status()?.toJson()
+            ?: JSONObject().put("state", "blocked").put("reason", "loaded_bundle_not_physical_compatible")
+                .put("eligible", false).put("blockers", JSONArray(listOf("Qualified immutable bundle and calibration required")))
+                .put("bundle_digest", "").put("asset_sha256", JSONObject()).put("generation", 0)
+                .put("expires_at_ms", JSONObject.NULL).put("request_id", JSONObject.NULL).put("command", JSONObject.NULL)
+        val blockers = value.getJSONArray("blockers")
+        if (mutableStatus.value.linkState != LinkState.READY || !mutableStatus.value.policyArmed)
+            blockers.put("Connect the guarded firmware and manually start the controller; text cannot arm it")
+        if (::policyController.isInitialized) policyController.physicalEnableBlockers().forEach(blockers::put)
+        value.put("qualification_claims_eligible", value.getBoolean("eligible"))
+        value.put("eligible", blockers.length() == 0)
+        return value
+    }
+
+    private fun physicalIntentStatus(): JSONObject = physicalProvider?.status()
+        ?: JSONObject().put("mode", "PHYSICAL_EXPERIMENT").put("physical_stop_confirmed", false)
+            .put("provider_state", "unavailable").put("service", physicalServiceStatus())
+
+    private fun enablePhysicalIntent(allowPhysical: Boolean, expectedGeneration: Long) {
+        check(mutableStatus.value.linkState == LinkState.READY && mutableStatus.value.policyArmed &&
+            firmwareSupportsInstalledPolicy(mutableStatus.value.firmwareVersion)) { "manually_started_ready_policy_required" }
+        policyController.enablePhysicalIntent(allowPhysical, expectedGeneration)
+    }
+
+    private fun requestPhysicalIntent(config: ShadowEndpointConfig, text: String, expectedGeneration: Long) {
+        checkNotNull(physicalProvider) { "physical_intent_unavailable" }.submit(config, text, false) {
+            checkNotNull(physicalAuthority).beginRequest(text, expectedGeneration)
+        }
+    }
+
+    private fun cancelPhysicalIntent(expectedGeneration: Long) {
+        checkNotNull(physicalAuthority) { "physical_intent_unavailable" }.cancel(expectedGeneration)
+        physicalProvider?.cancelProvider()
+        policyController.pollPhysicalAuthority()
+    }
+
     /** Called only by an explicit operator action through the trusted local shadow UI. */
     fun beginShadowRequest(text: String, allowUnqualifiedMetadata: Boolean): ShadowRequestHandle {
         val (previous, next) = synchronized(shadowLock) {
@@ -365,9 +460,16 @@ class RobotService : Service() {
         return result
     }
 
-    fun onShadowOperatorBackgrounded() { revokeShadow(ShadowCancelReason.OPERATOR_BACKGROUNDED) }
+    fun onShadowOperatorBackgrounded() {
+        controlServer?.invalidateManualOperations()
+        revokeShadow(ShadowCancelReason.OPERATOR_BACKGROUNDED)
+    }
 
     private fun revokeShadow(reason: ShadowCancelReason): ShadowServiceStatus {
+        sharedPhysicalRevocation(reason)?.let { physicalReason ->
+            if (::policyController.isInitialized) policyController.revokePhysicalAuthority(physicalReason)
+            physicalProvider?.cancelProvider()
+        }
         val (handle, result) = synchronized(shadowLock) {
             shadowCoordinator?.currentHandle to (shadowCoordinator?.cancel(reason) ?: mutableShadowStatus.value)
         }
@@ -382,7 +484,8 @@ class RobotService : Service() {
             FirmwareCapabilities.supportsStablePolicyFeedback(version)
         } else FirmwareCapabilities.supportsClockedPolicyFeedback(version)
 
-    fun startPolicy(nextRequest: MotionRequest? = null) {
+    fun startPolicy(nextRequest: MotionRequest? = null, fromHttp: Boolean = false) {
+        if (!fromHttp) controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.MANUAL_CONTROL)
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
         check(firmwareSupportsInstalledPolicy(mutableStatus.value.firmwareVersion)) {
@@ -396,7 +499,8 @@ class RobotService : Service() {
         startSessionMonitor()
     }
 
-    fun standAtCapturedPose() {
+    fun standAtCapturedPose(fromHttp: Boolean = false) {
+        if (!fromHttp) controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.MANUAL_CONTROL)
         check(mutableStatus.value.linkState == LinkState.READY) { "ESP32 is not ready" }
         policyController.standAtCapturedPose()
@@ -526,6 +630,10 @@ class RobotService : Service() {
                     .put("profile_sha256", policyContract.profileSha256)
                     .put("weights_sha256", policyContract.weightsSha256),
             )
+            .put("usb_safety_outcome", lastUsbSafetyReport?.outcome?.name ?: JSONObject.NULL)
+            .put("usb_previous_write_in_flight", lastUsbSafetyReport?.priorWriteInFlight ?: JSONObject.NULL)
+            .put("usb_reconnect_blocked", closingTransport != null)
+            .put("physical_stop_confirmed", false)
             .put("policy_armed", robot.policyArmed)
             .put("feedback_complete", robot.feedbackComplete)
             .put("servo_battery_voltage", robot.servoBatteryVoltage ?: JSONObject.NULL)
@@ -641,41 +749,44 @@ class RobotService : Service() {
     }
 
     private fun open(device: UsbDevice) {
-        val generation = synchronized(this) {
-            if (destroyed || transport != null || openingDeviceId != null) return
+        synchronized(this) {
+            if (destroyed || transport != null || openingDeviceId != null || closingTransport != null) return
             openingDeviceId = device.deviceId
-            ++transportGeneration
         }
         setStatus(LinkState.OPENING, "Opening CP210x at ${UsbRobotTransport.BAUD} baud", device.deviceName)
         scope.launch {
+            var candidate: UsbRobotTransport? = null
             try {
-                val opened = UsbRobotTransport(usbManager, device,
-                    { bytes -> synchronized(this@RobotService) {
-                        if (!destroyed && transportGeneration == generation) onUsbBytes(bytes)
-                    } },
-                    { error -> synchronized(this@RobotService) {
-                        if (!destroyed && transportGeneration == generation) onUsbFailure(error)
-                    } })
-                opened.open()
+                lateinit var opened: UsbRobotTransport
+                opened = UsbRobotTransport(usbManager, device,
+                    { bytes -> onUsbBytes(opened, bytes) },
+                    { error -> onUsbFailure(opened, error) })
+                candidate = opened
                 synchronized(this@RobotService) {
-                    if (destroyed || transportGeneration != generation) { opened.close(); return@launch }
-                    startInForeground(connectedDevice = true)
-                    transport = opened
-                    connectedDeviceId = device.deviceId
-                    decoder.reset()
-                    setStatus(LinkState.HANDSHAKING, "Waiting for ESP32 hello", device.deviceName)
-                    startHandshake()
+                    openingTransport = opened
+                    if (destroyed) error("Service closed during USB open")
                 }
-            } catch (error: Throwable) {
-                synchronized(this@RobotService) {
-                    if (!destroyed && transportGeneration == generation) {
-                        disconnect("USB open failed: ${error.message}")
-                        scheduleRetry()
+                opened.open()
+                val admitted = synchronized(this@RobotService) {
+                    if (destroyed || closingTransport != null || openingTransport !== opened) false else {
+                        transport = opened; openingTransport = null; connectedDeviceId = device.deviceId; true
                     }
+                }
+                if (!admitted) { beginTransportClose(opened); return@launch }
+                startInForeground(connectedDevice = true)
+                decoder.reset()
+                setStatus(LinkState.HANDSHAKING, "Waiting for ESP32 hello", device.deviceName)
+                startHandshake()
+            } catch (error: Throwable) {
+                candidate?.let(::beginTransportClose)
+                if (!destroyed) {
+                    setStatus(LinkState.ERROR, "USB open failed: ${error.message}")
+                    scheduleRetry()
                 }
             } finally {
                 synchronized(this@RobotService) {
-                    if (transportGeneration == generation) openingDeviceId = null
+                    if (openingTransport === candidate) openingTransport = null
+                    openingDeviceId = null
                 }
             }
         }
@@ -705,7 +816,8 @@ class RobotService : Service() {
         }
     }
 
-    private fun onUsbBytes(bytes: ByteArray) {
+    @Synchronized private fun onUsbBytes(source: UsbRobotTransport, bytes: ByteArray) {
+        if (transport !== source || destroyed) return
         decoder.accept(bytes).forEach { line ->
             runCatching { JSONObject(line) }.onSuccess(::onMessage)
         }
@@ -807,7 +919,8 @@ class RobotService : Service() {
         refreshForegroundNotification()
     }
 
-    private fun onUsbFailure(error: Throwable) {
+    @Synchronized private fun onUsbFailure(source: UsbRobotTransport, error: Throwable) {
+        if (transport !== source || destroyed) return
         disconnect("USB link lost: ${error.message}")
         scheduleRetry()
     }
@@ -828,31 +941,66 @@ class RobotService : Service() {
         } ?: devices.firstOrNull { UsbSerialProberCompat.supports(it) }
     }
 
-    private fun scheduleRetry() {
-        if (retryJob?.isActive == true) return
+    @Synchronized private fun scheduleRetry() {
+        if (destroyed || retryJob?.isActive == true) return
         retryJob = scope.launch {
             delay(RETRY_MS)
-            if (isActive && transport == null) discoverRobot()
+            if (isActive && transport == null && closingTransport == null) discoverRobot()
         }
     }
 
     private fun disconnect(reason: String) {
+        controlServer?.invalidateManualOperations()
         revokeShadow(ShadowCancelReason.USB_DISCONNECTED)
         policyController.stop(reason)
         closeTransport()
         setStatus(LinkState.ERROR, reason)
     }
 
+    private fun requestOperationSafetyStop() {
+        val selected = operationTransport?.transport ?: transport ?: return
+        selected.requestSafetyStop().whenComplete { report, error ->
+            if (error == null) lastUsbSafetyReport = report
+            runCatching { runRecorder.recordEvent("usb_safety_write_outcome", JSONObject()
+                .put("outcome", report?.outcome?.name ?: "unknown")
+                .put("host_write_completed", report?.safetyWriteCompleted ?: false)
+                .put("prior_write_in_flight", report?.priorWriteInFlight ?: true)
+                .put("physical_stop_confirmed", false)) }
+        }
+    }
+
+    private fun beginTransportClose(selected: UsbRobotTransport) {
+        synchronized(this) {
+            check(closingTransport == null || closingTransport === selected) { "another USB transport is still closing" }
+            closingTransport = selected
+            if (transport === selected) transport = null
+            if (openingTransport === selected) openingTransport = null
+        }
+        val teardown = selected.closeAsync()
+        teardown.outcome.whenComplete { report, error ->
+            if (error == null) lastUsbSafetyReport = report
+            // Deadline outcome is diagnostic only. It NEVER releases the reconnect gate.
+        }
+        teardown.quiesced.whenComplete { _, error ->
+            if (error == null) {
+                synchronized(this) {
+                    if (closingTransport === selected) closingTransport = null
+                    if (operationTransport?.transport === selected) operationTransport = null
+                }
+                if (!destroyed) scheduleRetry()
+            } else if (!destroyed) setStatus(LinkState.ERROR,
+                "USB close could not be verified; reconnect remains blocked. Physical stop is unconfirmed")
+        }
+    }
+
     @Synchronized private fun closeTransport() {
-        transportGeneration++
-        openingDeviceId = null
         handshakeJob?.cancel()
         handshakeJob = null
-        transport?.close()
-        transport = null
+        val selected = synchronized(this) { transport ?: openingTransport }
+        selected?.let(::beginTransportClose)
         connectedDeviceId = null
         decoder.reset()
-        if (isForeground && foregroundConnectedDevice) startInForeground(connectedDevice = false)
+        if (isForeground && foregroundConnectedDevice && !destroyed) startInForeground(connectedDevice = false)
     }
 
     private fun setStatus(state: LinkState, detail: String, deviceName: String? = mutableStatus.value.deviceName) {
@@ -945,7 +1093,12 @@ class RobotService : Service() {
         )
 
     override fun onDestroy() {
-        synchronized(this) { destroyed = true }
+        controlServer?.invalidateManualOperations()
+        destroyed = true
+        physicalExpiryJob?.cancel()
+        physicalProvider?.close()
+        physicalProvider = null
+        physicalAuthority?.close()
         shadowExpiryJob?.cancel()
         shadowProvider?.close()
         shadowProvider = null

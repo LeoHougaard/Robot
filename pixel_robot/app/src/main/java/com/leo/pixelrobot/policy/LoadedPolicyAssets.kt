@@ -32,6 +32,8 @@ class LoadedPolicyAssets private constructor(
         requireNotNull(referenceBytes) { "shadow_stride_reference_required" }, calibrationBytes,
     )
 
+    fun physicalBinding(): PhysicalPolicyBinding = PhysicalPolicyBinding.fromBundle(shadowCapabilities(), metadataBytes)
+
     companion object {
         fun fromBytes(metadata: ByteArray, manifest: ByteArray, actor: ByteArray,
                       reference: ByteArray?, calibration: ByteArray): LoadedPolicyAssets =

@@ -26,7 +26,8 @@ jobs:
       - name: Install pinned offline test dependencies
         run: |
           python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -r validation/requirements.txt
+          python -m pip install --index-url https://pypi.org/simple -r validation/requirements.txt
+          python -m pip check
       - name: Prepare checksum-pinned Kotlin host test dependencies
         run: python pixel_robot/tools/run_host_kotlin_tests.py --download-only
       - name: Run the canonical offline validation plan

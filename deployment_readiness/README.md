@@ -65,9 +65,13 @@ to move**. Current firmware source starts its host USB serial link at 2,000,000.
 The legacy Python path therefore also needs a separately matched firmware stack;
 its portable math tests remain useful without hardware.
 
-At the implementation snapshot reviewed here, app source says `0.2.10`, Android
+At the current source candidate, app source says `0.2.11-ai-test`, Android
 SDK 37, Java source target 17, ONNX Runtime Android 1.26.0; PlatformIO declares
-firmware `0.1.17-rxdiag`. Consult the preflight's source inventory after changes.
+firmware `0.1.18-transportguard`. These are uninstalled candidate versions, not
+evidence of a completed app/firmware build or physical test. Consult the preflight's
+source inventory after changes. The new app requires the paired nonce-bound
+parser-abort handshake before sending a JSON-line delimiter; older firmware is
+deliberately rejected. See [FIRST-ROBOT-TEST.md](../pixel_robot/docs/FIRST-ROBOT-TEST.md).
 A Java compile target alone does not establish that the installed JDK/Gradle/AGP
 combination works. PlatformIO's `espressif32` platform is unpinned, so a source
 label alone cannot reproduce an exact firmware binary.
