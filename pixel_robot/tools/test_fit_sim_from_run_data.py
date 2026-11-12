@@ -5,11 +5,45 @@ import hashlib
 import zipfile
 from pathlib import Path
 
-from fit_sim_from_run_data import fit_path
+from fit_sim_from_run_data import fit_path, _action_change_report, _action_report
 from inspect_run_data import summarize_run
 
 
 class FitSimFromRunDataTest(unittest.TestCase):
+    def test_raw_changes_remain_visible_when_applied_actions_are_clipped(self):
+        frames = [dict(command_sequence=i + 1, host_monotonic_ns=i * 20_000_000,
+                       requested_action=[v] * 12, applied_action=[0.3] * 12)
+                  for i, v in enumerate((-2.0, 2.0, -2.0))]
+        result = _action_change_report(frames)
+        self.assertEqual(result["requested_action"]["mean_squared_vector_change"], 192)
+        self.assertEqual(result["requested_action"]["max_joint_step"], 4)
+        self.assertEqual(result["requested_action"]["max_joint_rate_per_s"], 200)
+        self.assertEqual(result["applied_action"]["max_joint_step"], 0)
+        self.assertIsNone(result["filtered_action"]["max_joint_step"])
+        saturation = _action_report(frames, [0.3] * 12)
+        self.assertEqual(saturation["requested_outside_normalized_range_fraction"], 1.0)
+        self.assertEqual(saturation["applied_at_safety_clip_fraction_by_joint"], [1.0] * 12)
+
+    def test_missing_or_nonadvancing_time_cannot_supply_a_rate(self):
+        for times in ((None, None), (20, 20), (20, 10)):
+            frames = [dict(command_sequence=i + 1, requested_action=[float(i)],
+                           host_monotonic_ns=t) for i, t in enumerate(times)]
+            changes = _action_change_report(frames)["requested_action"]
+            self.assertEqual(changes["consecutive_pairs"], 1)
+            self.assertEqual(changes["timed_pairs"], 0)
+            self.assertIsNone(changes["max_joint_rate_per_s"])
+
+    def test_action_changes_do_not_bridge_missing_invalid_or_reordered_frames(self):
+        for middle in ({}, {"requested_action": [float("nan")]},
+                       {"requested_action": [True]}, {"requested_action": [0, 1]}):
+            frames = [dict(command_sequence=1, requested_action=[-1]),
+                      dict(command_sequence=2, **middle),
+                      dict(command_sequence=3, requested_action=[1])]
+            self.assertEqual(_action_change_report(frames)["requested_action"]["consecutive_pairs"], 0)
+        frames = [dict(command_sequence=i, requested_action=[v])
+                  for i, v in ((1, -1), (3, 1), (2, -1))]
+        self.assertEqual(_action_change_report(frames)["requested_action"]["consecutive_pairs"], 0)
+
     def test_both_analyzers_require_complete_rate_and_counter_evidence(self):
         cases = [
             ("valid", 20, 20, None, True),
@@ -64,6 +98,10 @@ class FitSimFromRunDataTest(unittest.TestCase):
         self.assertEqual(report["selection"]["selected_complete_policy_run_count"], 1)
         self.assertEqual(len(report["selection"]["excluded"]), 2)
         run = report["runs"][0]
+        changes = run["action_saturation"]["recorded_action_changes"]["requested_action"]
+        self.assertEqual(changes["consecutive_pairs"], 5)
+        self.assertEqual(changes["timed_pairs"], 5)
+        self.assertAlmostEqual(changes["max_joint_rate_per_s"], 12.5)
         self.assertAlmostEqual(run["timing"]["observed_hz"], 25.0)
         self.assertEqual(run["data_quality"]["missing_command_sequences"], 0)
         self.assertEqual(run["servos"]["1"]["semantic"], "test_joint")

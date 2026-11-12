@@ -150,11 +150,10 @@ class NumpyPolicy:
             value = self._elu(
                 self.arrays[f"w{index}"] @ value + self.arrays[f"b{index}"]
             )
-        action = np.clip(
-            self.arrays["wout"] @ value + self.arrays["bout"], -1.0, 1.0
-        ).astype(np.float32)
-        if not np.all(np.isfinite(action)):
+        raw_action = self.arrays["wout"] @ value + self.arrays["bout"]
+        if not np.all(np.isfinite(raw_action)):
             raise ValueError("policy action contains a non-finite value")
+        action = np.clip(raw_action, -1.0, 1.0).astype(np.float32)
         return action
 
 

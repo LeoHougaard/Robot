@@ -361,6 +361,12 @@ class PolicyRuntimeTests(unittest.TestCase):
             self.assertAlmostEqual(float(action[0]), -1.0)
             self.assertAlmostEqual(float(action[-1]), 1.0)
 
+            for invalid in (np.inf, -np.inf, np.nan):
+                with self.subTest(raw_actor_output=invalid):
+                    policy.arrays["bout"][0] = invalid
+                    with self.assertRaisesRegex(ValueError, "non-finite"):
+                        policy.action(np.zeros(180, dtype=np.float32))
+
             metadata_value = json.loads(metadata.read_text(encoding="utf-8"))
             metadata_value["weights_sha256"] = "0" * 64
             metadata.write_text(json.dumps(metadata_value), encoding="utf-8")

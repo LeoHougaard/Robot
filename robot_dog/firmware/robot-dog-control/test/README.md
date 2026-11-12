@@ -33,13 +33,20 @@ version label now identifies the unflashed `0.1.18-transportguard` candidate.
 The separate `platformio.compile-only.ini` pins the prior tested dependency
 snapshot, including ArduinoJson **7.4.3**.
 
-The **current candidate ESP32 build is BLOCKED**, as recorded in
+The **registry-pinned candidate ESP32 build attempt was BLOCKED**, as recorded in
 `compile-only-evidence.json`. The pinned Arduino ESP32 framework download
 failed checksum verification, a registry mirror returned proxy HTTP 403, and
 both the initial attempt and one authorized retry ended with the approval
 review canceled. No unchecked package was used. Run the command above in an
 authorized environment with working official registry access to finish this
 check; do not substitute unverified downloads.
+
+Later local cached-toolchain binary generation passed for the V5 candidate;
+see [local-v5-compile-evidence.json](local-v5-compile-evidence.json) and
+[REVIEW-FIXES-20261010.md](../../../../REVIEW-FIXES-20261010.md). This is a
+different toolchain from the registry-pinned attempt. Its log records binary
+SUCCESS followed by a blocked update check, and the wrapper did not propagate
+PlatformIO's exit. Neither record establishes installation or board behavior.
 
 The historical 2026-10-02 build evidence is preserved separately in
 `compile-only-evidence-2026-10-02.json`. Its earlier source hashes and binary

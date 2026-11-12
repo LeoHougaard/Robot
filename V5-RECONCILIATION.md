@@ -1,5 +1,8 @@
 # V5 reconciliation on LEO-PC
 
+Current source/recovery locations, fresh bounded software results and the finite
+motors-off handoff are in [SOURCE-RECOVERY.md](SOURCE-RECOVERY.md).
+
 Subsequent independent review corrections and final validation are recorded in
 [REVIEW-FIXES-20261010.md](REVIEW-FIXES-20261010.md).
 

@@ -355,6 +355,44 @@ def _servo_report(
     return report
 
 
+def _action_change_report(frames: list[dict[str, Any]]) -> dict[str, Any]:
+    """Observe consecutive recorded vectors, never reconstruct missing actions."""
+    result = {}
+    for field in ("requested_action", "filtered_action", "applied_action"):
+        squared_changes, peak_changes, rates = [], [], []
+        previous = None
+        valid_frames = 0
+        for frame in frames:
+            vector = frame.get(field)
+            sequence = frame.get("command_sequence")
+            valid = (isinstance(vector, list) and bool(vector)
+                     and all(type(v) in (int, float) and math.isfinite(v) for v in vector)
+                     and type(sequence) is int)
+            if not valid:
+                previous = None
+                continue
+            valid_frames += 1
+            if previous is not None:
+                old_sequence, old_vector, old_time = previous
+                if sequence == old_sequence + 1 and len(vector) == len(old_vector):
+                    delta = [a - b for a, b in zip(vector, old_vector)]
+                    squared_changes.append(sum(v * v for v in delta))
+                    peak_changes.append(max(abs(v) for v in delta))
+                    now = frame.get("host_monotonic_ns")
+                    if (type(now) is int and type(old_time) is int and now > old_time):
+                        rates.append(peak_changes[-1] * 1e9 / (now - old_time))
+            previous = (sequence, vector, frame.get("host_monotonic_ns"))
+        result[field] = {
+            "valid_frames": valid_frames,
+            "consecutive_pairs": len(squared_changes),
+            "mean_squared_vector_change": statistics.fmean(squared_changes) if squared_changes else None,
+            "max_joint_step": max(peak_changes, default=None),
+            "max_joint_rate_per_s": max(rates, default=None),
+            "timed_pairs": len(rates),
+        }
+    return result
+
+
 def _action_report(frames: list[dict[str, Any]], limits: list[float]) -> dict[str, Any]:
     requested_by_joint: list[list[float]] = []
     applied_by_joint: list[list[float]] = []
@@ -390,7 +428,13 @@ def _action_report(frames: list[dict[str, Any]], limits: list[float]) -> dict[st
             sum(abs(value) >= limit - 1e-4 for value in joint) / len(joint) if joint else None
         )
     return {
+        "recorded_action_changes": _action_change_report(frames),
+        "action_change_scope": "Diagnostic only. Requested is recorded actor output (stride residual for V22), not the combined pre-clamp target. Rates use recorded host frame times; no actuator measurement or acceptance threshold is inferred.",
         "requested_at_actor_clip_fraction": requested_fraction,
+        "requested_outside_normalized_range_fraction": (
+            sum(abs(value) > 1.0 for value in requested_flat) / len(requested_flat)
+            if requested_flat else None
+        ),
         "requested_at_actor_clip_fraction_by_joint": requested_by_joint_fraction,
         "applied_at_safety_clip_fraction_by_joint": applied_by_joint_fraction,
         "applied_clip_by_joint": limits if limits else [1.0] * len(applied_by_joint),
@@ -661,7 +705,10 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
                 "it does not isolate stationary sensor noise"
             ),
         },
-        "action_saturation": _action_report(frames, action_limits),
+        "action_saturation": _action_report([
+            dict(frame, host_monotonic_ns=record.get("host_monotonic_ns"))
+            for frame, record in zip(frames, frame_records)
+        ], action_limits),
         "servos": _servo_report(frames, semantics, median_interval_ms, max_lag_frames),
         "idle_servo_telemetry": _idle_servo_report(records),
     }

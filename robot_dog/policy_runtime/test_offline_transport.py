@@ -191,6 +191,15 @@ class OfflineTransportTests(unittest.TestCase):
         self.assertEqual(self.wire.open_lines, (False, False))
         self.assert_shutdown()
 
+    def test_infinite_actor_output_sends_no_target_and_verifies_fake_shutdown(self):
+        invalid = self.policy.arrays["bout"].copy()
+        invalid[0] = np.inf
+        with patch.dict(self.policy.arrays, {"bout": invalid}):
+            with self.assertRaisesRegex(ValueError, "non-finite"):
+                self.trial()
+        self.assertFalse(any(row["cmd"] == "policy_frame" for row in self.wire.commands))
+        self.assert_shutdown()
+
     def test_cancellation_before_start_never_opens_transport(self):
         self.event.set()
         self.assertEqual(self.trial(), "stopped")

@@ -1,5 +1,9 @@
 # First-hardware capture acceptance (offline analyzer)
 
+See [SOURCE-RECOVERY.md](../SOURCE-RECOVERY.md) for exact current source candidate
+identities, retained recovery copies and the finite operator session. Installation
+and physical measurements remain outstanding; the procedure below is unchanged.
+
 This probe reads an explicitly supplied local JSONL capture. It never enumerates
 USB, opens a serial device, runs ADB, invokes a backend, flashes firmware, sends
 commands, imports robot runtime/ONNX, or enables torque. No SDK or third-party

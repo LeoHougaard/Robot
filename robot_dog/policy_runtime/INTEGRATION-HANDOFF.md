@@ -1,5 +1,12 @@
 # Assembly 1 policy integration handoff
 
+Historical 2026-08-12 handoff for the legacy 180-input Python runtime. The
+"installed" and COM/port statements below describe that session only. They do
+not identify today's board or Pixel app. For the current V5 source, V22
+428-input candidate and recovery locations, use
+[SOURCE-RECOVERY.md](../../SOURCE-RECOVERY.md) and
+[HARDWARE-ACCEPTANCE.md](../../deployment_readiness/HARDWARE-ACCEPTANCE.md).
+
 ## Repository ownership
 
 - Hardware/runtime target: `C:\Users\Leo\Code Projects\Robot\robot_dog`
