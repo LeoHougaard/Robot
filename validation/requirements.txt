@@ -1,0 +1,7 @@
+# Install CPU Torch separately, from its official CPU index; see README.
+baml-py==0.226.2
+pydantic==2.11.7
+pytest==9.1.1
+
+# Real CPU actor/runtime regressions; authoritative direct pins owned there.
+-r ../robot_llm/requirements-runtime.txt

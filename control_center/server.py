@@ -6,7 +6,9 @@ import argparse
 import json
 import mimetypes
 from pathlib import Path
+import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -17,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 import webbrowser
 
 from .model import FIELD_GROUPS, load_profile, profile_hash, save_profile, validate_profile
+from training.video_camera import select_video_camera_sample
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +28,10 @@ STATIC_ROOT = PACKAGE_ROOT / "static"
 PROFILES_ROOT = PACKAGE_ROOT / "profiles"
 CACHE_ROOT = PACKAGE_ROOT / "cache"
 TOKEN_PATH = CACHE_ROOT / "session-token"
+REVIEW_INDEX_PATH = CACHE_ROOT / "review-index.json"
 DEFAULT_PROFILE = "assembly-1-12dof"
 MAX_BODY = 2 * 1024 * 1024
+REVIEW_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,96}$")
 
 
 def load_or_create_session_token(path: Path = TOKEN_PATH) -> str:
@@ -47,12 +52,135 @@ def load_or_create_session_token(path: Path = TOKEN_PATH) -> str:
     return token
 
 
+def rendered_checkpoint_epoch_from_output(output: object) -> int | None:
+    """Return the retained policy epoch reported by the rollout renderer."""
+
+    match = re.search(r"Checkpoint epoch:\s*(\d+)", str(output))
+    return int(match.group(1)) if match else None
+
+
+def load_review_videos(path: Path = REVIEW_INDEX_PATH) -> list[dict[str, object]]:
+    """Return only manifest entries whose ids and local video files are safe."""
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    entries = payload.get("videos", []) if isinstance(payload, dict) else []
+    if not isinstance(entries, list):
+        return []
+    cache_root = path.parent.resolve()
+    reviews: list[dict[str, object]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        review_id = entry.get("id")
+        filename = entry.get("file")
+        if not isinstance(review_id, str) or not REVIEW_ID_PATTERN.fullmatch(review_id):
+            continue
+        if not isinstance(filename, str) or Path(filename).name != filename:
+            continue
+        video_path = (path.parent / filename).resolve()
+        try:
+            video_path.relative_to(cache_root)
+        except ValueError:
+            continue
+        if video_path.suffix.lower() != ".mp4" or not video_path.is_file():
+            continue
+        clean = {key: value for key, value in entry.items() if key != "file"}
+        clean["video_url"] = f"/api/video/review/{review_id}"
+        reviews.append(clean)
+    return reviews
+
+
 class ControlCenter:
     def __init__(self, profile_id: str) -> None:
         self._lock = threading.RLock()
         self.profile_id = profile_id
         self.last_action: dict[str, object] | None = None
+        self.video_metadata: dict[str, object] | None = None
         self._status_cache: tuple[float, dict[str, object]] | None = None
+        self._last_rendered_sample_index: int | None = None
+        self._review_cache_experiment = ""
+        self._review_sample_cache: dict[int, dict[str, str]] = {}
+        self._review_render_queue: list[int] = []
+
+    def _activate_review_experiment(self, experiment: str) -> None:
+        """Keep randomized review clips isolated to one exact experiment."""
+
+        if experiment == self._review_cache_experiment:
+            return
+        self._review_cache_experiment = experiment
+        self._review_sample_cache.clear()
+        self._review_render_queue.clear()
+        self._last_rendered_sample_index = None
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", experiment):
+            return
+        pattern = f"current-review-{experiment}-sample-*.mp4"
+        for archive in CACHE_ROOT.glob(pattern):
+            match = re.fullmatch(
+                rf"current-review-{re.escape(experiment)}-sample-([0-4])\.mp4",
+                archive.name,
+            )
+            if match and archive.is_file() and archive.stat().st_size > 0:
+                index = int(match.group(1))
+                self._review_sample_cache[index] = {
+                    "path": str(archive),
+                    "source": f"cached-review://{experiment}/sample-{index}",
+                }
+
+    def _next_review_sample_index(self) -> int:
+        """Render all five randomized robot samples before repeating one."""
+
+        missing = [
+            index for index in range(5) if index not in self._review_sample_cache
+        ]
+        if missing:
+            return secrets.choice(missing)
+        if not self._review_render_queue:
+            remaining = list(range(5))
+            choices = [
+                index
+                for index in remaining
+                if index != self._last_rendered_sample_index
+            ] or remaining
+            while remaining:
+                index = secrets.choice(choices)
+                self._review_render_queue.append(index)
+                remaining.remove(index)
+                choices = remaining
+        return self._review_render_queue.pop(0)
+
+    def _render_active_review(
+        self, profile: dict[str, object], requested_sample_index: int
+    ) -> dict[str, object]:
+        """Render one active-run review, retrying two clean startup failures."""
+
+        training = profile.get("training", {})
+        if not isinstance(training, dict):
+            raise ValueError("The profile training section is invalid.")
+        arguments = [
+            "-VideoLength",
+            str(training["video_length"]),
+            "-ValidationSample",
+            str(requested_sample_index),
+            "-ReuseDeployedSource",
+        ]
+        result: dict[str, object] = {
+            "ok": False,
+            "exit_code": -1,
+            "output": "The rollout renderer did not start.",
+        }
+        for _attempt in range(3):
+            result = self._run_script(
+                "Render-SimpleDogTrainingVideo.ps1", arguments, timeout=720
+            )
+            if result["ok"] or "checkpoint review is already running" in str(
+                result.get("output", "")
+            ).lower():
+                break
+        return result
 
     @staticmethod
     def profile_path(profile_id: str) -> Path:
@@ -100,6 +228,8 @@ class ControlCenter:
             "validation": validate_profile(profile),
             "launch_validation": validate_profile(profile, for_launch=True),
             "last_action": self.last_action,
+            "video_metadata": self.video_metadata,
+            "review_videos": load_review_videos(),
         }
 
     def save(self, profile: object) -> dict[str, object]:
@@ -187,28 +317,176 @@ class ControlCenter:
         elif action == "refresh_video":
             CACHE_ROOT.mkdir(parents=True, exist_ok=True)
             destination = CACHE_ROOT / "latest-training.mp4"
-            result = self._run_script(
-                "Get-SimpleDogTrainingVideo.ps1",
-                ["-Destination", str(destination)],
-                timeout=120,
+            render_started_at = int(time.time())
+            rendered_sample_index: int | None = None
+            rendered_checkpoint_epoch: int | None = None
+            status = self.status(force=True)
+            status_fields = status.get("fields", {})
+            if not isinstance(status_fields, dict):
+                status_fields = {}
+            outputs = str(status_fields.get("outputs", ""))
+            experiment_match = re.search(
+                r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$", outputs
             )
-            if not result["ok"]:
-                profile = load_profile(self.profile_path(self.profile_id))
-                render_result = self._run_script(
-                    "Render-SimpleDogTrainingVideo.ps1",
-                    ["-VideoLength", str(profile["training"]["video_length"])],
-                    timeout=600,
-                )
+            expected_experiment = (
+                experiment_match.group(1) if experiment_match else ""
+            )
+            self._activate_review_experiment(expected_experiment)
+            profile = load_profile(self.profile_path(self.profile_id))
+            requested_sample_index = self._next_review_sample_index()
+            if status_fields.get("training") != "running":
+                # Kit can retain unusable camera/runtime state after a
+                # completed headless recording. Each explicit stopped-state
+                # fetch gets a clean workload container before it renders. A
+                # rare Kit startup can stall before frame one, so retry only
+                # that same requested sample after another clean restart.
+                render_result: dict[str, object] = {
+                    "ok": False,
+                    "exit_code": -1,
+                    "output": "The rollout renderer did not start.",
+                }
+                for _attempt in range(3):
+                    render_result = self._run_script(
+                        "Stop-IsaacLab.ps1", timeout=120
+                    )
+                    if not render_result["ok"]:
+                        continue
+                    render_result = self._run_script(
+                        "Start-IsaacLab.ps1", timeout=240
+                    )
+                    if not render_result["ok"]:
+                        continue
+                    render_result = self._run_script(
+                        "Render-SimpleDogTrainingVideo.ps1",
+                        [
+                            "-VideoLength",
+                            str(profile["training"]["video_length"]),
+                            "-ValidationSample",
+                            str(requested_sample_index),
+                        ],
+                        timeout=720,
+                    )
+                    if render_result["ok"]:
+                        break
                 if render_result["ok"]:
+                    rendered_checkpoint_epoch = rendered_checkpoint_epoch_from_output(
+                        render_result["output"]
+                    )
+                    sample_match = re.search(
+                        r"Validation sample:\s*([1-5])/5",
+                        str(render_result["output"]),
+                    )
+                    if sample_match:
+                        rendered_sample_index = int(sample_match.group(1)) - 1
+                        self._last_rendered_sample_index = rendered_sample_index
                     result = self._run_script(
                         "Get-SimpleDogTrainingVideo.ps1",
-                        ["-Destination", str(destination)],
+                        [
+                            "-Destination",
+                            str(destination),
+                            "-NotOlderThanUnixTime",
+                            str(render_started_at),
+                        ],
+                        timeout=120,
+                    )
+                else:
+                    # Never disguise a busy or failed newest-checkpoint render
+                    # as success by substituting an older cached rollout.
+                    result = render_result
+            else:
+                # Render the newest retained checkpoint in a short-lived
+                # Isaac container. The trainer remains active in its original
+                # container, so the video belongs to the current run without
+                # interrupting scratch optimization. Isaac/Vulkan can rarely
+                # crash during startup before frame one; retry that same
+                # sample once in a fresh short-lived container.
+                render_result = self._render_active_review(
+                    profile, requested_sample_index
+                )
+                if render_result["ok"]:
+                    rendered_checkpoint_epoch = rendered_checkpoint_epoch_from_output(
+                        render_result["output"]
+                    )
+                    rendered_sample_index = requested_sample_index
+                    self._last_rendered_sample_index = rendered_sample_index
+                    video_arguments = ["-Destination", str(destination)]
+                    if expected_experiment:
+                        video_arguments.extend(
+                            ["-ExpectedExperiment", expected_experiment]
+                        )
+                    video_arguments.extend(
+                        ["-NotOlderThanUnixTime", str(render_started_at)]
+                    )
+                    result = self._run_script(
+                        "Get-SimpleDogTrainingVideo.ps1",
+                        video_arguments,
                         timeout=120,
                     )
                 else:
                     result = render_result
             if result["ok"]:
                 result["video_url"] = "/api/video/latest"
+                source_match = re.search(
+                    r"^Source video:\s*(.+)$",
+                    str(result["output"]),
+                    flags=re.MULTILINE,
+                )
+                source = source_match.group(1).strip() if source_match else ""
+                source_experiment_match = re.search(
+                    r"/(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/", source
+                )
+                source_experiment = (
+                    source_experiment_match.group(1)
+                    if source_experiment_match
+                    else "unknown"
+                )
+                step_match = re.search(r"(?:step|episode)-(\d+)", source)
+                step = (
+                    rendered_checkpoint_epoch
+                    if rendered_checkpoint_epoch is not None
+                    else int(step_match.group(1)) if step_match else 0
+                )
+                profile = load_profile(self.profile_path(self.profile_id))
+                sample = select_video_camera_sample(
+                    (
+                        rendered_sample_index
+                        * int(profile["training"]["video_interval"])
+                        if rendered_sample_index is not None
+                        else step
+                    ),
+                    int(profile["training"]["video_interval"]),
+                    (
+                        5
+                        if rendered_sample_index is not None
+                        else int(profile["training"]["num_envs"])
+                    ),
+                )
+                self.video_metadata = {
+                    "source": source,
+                    "experiment": source_experiment,
+                    "step": step,
+                    "env_index": sample.env_index,
+                    "view_index": sample.view_index,
+                    "terrain_sample_index": rendered_sample_index,
+                    "matches_active_run": (
+                        not expected_experiment
+                        or source_experiment == expected_experiment
+                    ),
+                }
+                if rendered_sample_index is not None:
+                    if source_experiment != "unknown":
+                        self._activate_review_experiment(source_experiment)
+                    archive = CACHE_ROOT / (
+                        f"current-review-{source_experiment}-"
+                        f"sample-{rendered_sample_index}.mp4"
+                    )
+                    if archive.resolve() != destination.resolve():
+                        shutil.copy2(destination, archive)
+                    self._review_sample_cache[rendered_sample_index] = {
+                        "path": str(archive),
+                        "source": source,
+                    }
+                result["video_metadata"] = self.video_metadata
         else:
             raise ValueError(f"Unknown action: {action}")
         with self._lock:
@@ -272,8 +550,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_video(self) -> None:
-        path = CACHE_ROOT / "latest-training.mp4"
+    def _serve_video(self, path: Path) -> None:
         if not path.is_file():
             self.send_error(HTTPStatus.NOT_FOUND, "No training video has been copied yet.")
             return
@@ -307,7 +584,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         route = urlparse(self.path)
-        if route.path == "/api/video/latest":
+        if route.path == "/api/video/latest" or route.path.startswith("/api/video/review/"):
             query_token = parse_qs(route.query).get("token", [""])[0]
             if not (
                 self._authorized()
@@ -315,7 +592,21 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 self.send_error(HTTPStatus.UNAUTHORIZED)
                 return
-            self._serve_video()
+            if route.path == "/api/video/latest":
+                video_path = CACHE_ROOT / "latest-training.mp4"
+            else:
+                review_id = route.path.removeprefix("/api/video/review/")
+                review = next(
+                    (item for item in load_review_videos() if item.get("id") == review_id),
+                    None,
+                )
+                if review is None:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Review video was not found.")
+                    return
+                manifest = json.loads(REVIEW_INDEX_PATH.read_text(encoding="utf-8"))
+                source = next(item for item in manifest["videos"] if item.get("id") == review_id)
+                video_path = CACHE_ROOT / str(source["file"])
+            self._serve_video(video_path)
             return
         if route.path.startswith("/api/"):
             if not self._authorized():

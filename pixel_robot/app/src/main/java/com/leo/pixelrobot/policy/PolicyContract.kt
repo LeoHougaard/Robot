@@ -13,6 +13,8 @@ class PolicyContract private constructor(value: JSONObject) {
     val profileId: String = value.getString("profile_id")
     val profileSha256: String = value.getString("profile_sha256")
     val weightsSha256: String = value.getString("weights_sha256")
+    val checkpointEpoch: Int = value.optInt("checkpoint_epoch", -1)
+    val checkpointSha256: String? = value.optString("checkpoint_sha256", "").takeIf { it.isNotEmpty() }
     val controlHz: Int = value.getInt("control_hz")
     val controlFrameSeconds: Float = 1f / controlHz
     val controlFramePeriodNanoseconds: Long = 1_000_000_000L / controlHz
@@ -20,6 +22,14 @@ class PolicyContract private constructor(value: JSONObject) {
     val observationSize: Int = value.getInt("observation_size")
     val observationHistory: Int = value.getInt("observation_history")
     val observationBuilder: String = value.optString("observation_builder", "v2_180")
+    val usesStrideReference = observationBuilder in setOf("current_body_v21_428", "current_body_v22_428")
+    val jointCoordinateConvention = if (observationBuilder == "current_body_v22_428") {
+        value.getString("joint_coordinate_convention").also { require(it == "cad_drives_v1") }
+    } else value.optString("joint_coordinate_convention", "legacy_relative_knee").also { require(it == "legacy_relative_knee") }
+    val usesSelectedHistory = usesStrideReference || observationBuilder in setOf("current_body_v14_426", "current_body_v20_426")
+    val strideReferenceSha256: String?
+    val selectedHistoryIndices: IntArray
+    val timingReferenceMilliseconds: Float
     val currentBiasMilliamps: FloatArray
     val currentScaleMilliamps: FloatArray
     val currentClipNormalized: FloatArray
@@ -48,6 +58,12 @@ class PolicyContract private constructor(value: JSONObject) {
     val stationaryStanceAction: FloatArray
     val stationaryOverrideEnabled: Boolean
 
+    fun requireCalibration(calibration: RobotCalibration) {
+        require(calibration.robotId == profileId && calibration.jointCoordinateConvention == jointCoordinateConvention) {
+            "calibration does not match the policy's robot and joint coordinates"
+        }
+    }
+
     init {
         require(profileId.matches(Regex("[a-z0-9][a-z0-9-]{0,63}"))) { "invalid policy profile id" }
         require(profileSha256.matches(Regex("[A-Fa-f0-9]{64}"))) { "invalid policy profile hash" }
@@ -55,16 +71,33 @@ class PolicyContract private constructor(value: JSONObject) {
         require(controlHz in 10..100 && 1000 % controlHz == 0) {
             "policy control rate must divide 1000 Hz and be within 10..100 Hz"
         }
-        require(observationHistory == 4)
-        require(observationBuilder in setOf("v2_180", "current_v3_279"))
+        require(observationBuilder in setOf("v2_180", "current_v3_279", "current_body_v14_426", "current_body_v20_426", "current_body_v21_428", "current_body_v22_428"))
         require(
-            (observationBuilder == "v2_180" && observationSize == 180) ||
-                (observationBuilder == "current_v3_279" && observationSize == 279)
+            (observationBuilder == "v2_180" && observationHistory == 4 && observationSize == 180) ||
+                (observationBuilder == "current_v3_279" && observationHistory == 4 && observationSize == 279) ||
+                (usesSelectedHistory && observationHistory == 24 && observationSize == if (usesStrideReference) 428 else 426)
         ) { "observation builder and size do not match" }
+        if (usesSelectedHistory) {
+            val selection = value.getJSONObject("history_selection")
+            require(selection.getInt("frame_size") == 70)
+            selectedHistoryIndices = selection.getJSONArray("indices").ints(6)
+            val expectedSelection = if (observationBuilder == "current_body_v20_426" || usesStrideReference) {
+                require(controlHz == 50)
+                intArrayOf(0, 10, 20, 21, 22, 23)
+            } else intArrayOf(0, 5, 10, 15, 20, 23)
+            require(selectedHistoryIndices.contentEquals(expectedSelection)) {
+                "CurrentBody history selection does not match training"
+            }
+            timingReferenceMilliseconds = selection.getDouble("timing_reference_ms").toFloat()
+            require(timingReferenceMilliseconds > 0f && timingReferenceMilliseconds.isFinite())
+        } else {
+            selectedHistoryIndices = IntArray(observationHistory) { it }
+            timingReferenceMilliseconds = controlFrameSeconds * 1000f
+        }
         require(value.getInt("action_size") == ACTION_COUNT)
         require(commandSmoothingSeconds in controlFrameSeconds..2f)
 
-        if (observationBuilder == "current_v3_279") {
+        if (observationBuilder != "v2_180") {
             val current = value.getJSONObject("current_observation_contract")
             require(current.getString("units") == "mA")
             require(current.optBoolean("absolute", false))
@@ -76,12 +109,17 @@ class PolicyContract private constructor(value: JSONObject) {
             require(currentBiasMilliamps.all { it >= 0f })
             require(currentScaleMilliamps.all { it > 0f })
             require(currentClipNormalized.all { it > 0f })
-            require(currentStepMilliamps > 0f)
+            require(currentStepMilliamps.isFinite() && currentStepMilliamps > 0f)
             val posture = value.getJSONObject("posture_command_contract")
             val height = posture.getJSONArray("height_offset_m").pair()
             val roll = posture.getJSONArray("roll_rad").pair()
             val pitch = posture.getJSONArray("pitch_rad").pair()
-            require(posture.getString("layout") == "append_after_history")
+            val expectedPostureLayout = if (usesSelectedHistory) {
+                "append_after_selected_history"
+            } else {
+                "append_after_history"
+            }
+            require(posture.getString("layout") == expectedPostureLayout)
             postureHeightMinimum = height[0]
             postureHeightMaximum = height[1]
             postureRollMinimum = roll[0]
@@ -140,11 +178,14 @@ class PolicyContract private constructor(value: JSONObject) {
             actionSlewLimit = action.getDouble("applied_normalized_slew_limit").toFloat()
             positionTargetScaleRadians = action.getDouble("position_target_scale_rad").toFloat()
             val stationary = value.getJSONObject("stationary_action_contract")
-            require(stationary.getString("behavior") == "slew_to_validated_four_foot_stance_action")
+            val activeStabilization = observationBuilder == "current_body_v20_426" || usesStrideReference
+            require(stationary.getString("behavior") == if (activeStabilization) {
+                "policy_stabilization"
+            } else "slew_to_validated_four_foot_stance_action")
             stationaryPlanarDeadband = stationary.getDouble("planar_command_deadband_m_s").toFloat()
             stationaryYawDeadband = stationary.getDouble("yaw_command_deadband_rad_s").toFloat()
             stationaryStanceAction = stationary.getJSONArray("normalized_stance_action").floats(ACTION_COUNT)
-            stationaryOverrideEnabled = true
+            stationaryOverrideEnabled = !activeStabilization
         }
         require(actorMinimum == -1f && actorMaximum == 1f)
         require(actionLimits.all { it > 0f && it <= 1f })
@@ -154,6 +195,22 @@ class PolicyContract private constructor(value: JSONObject) {
         require(stationaryPlanarDeadband in 0f..0.25f)
         require(stationaryYawDeadband in 0f..0.3f)
         require(stationaryStanceAction.all { it in -1f..1f })
+        strideReferenceSha256 = if (usesStrideReference) {
+            require(value.getString("action_semantics") == "stride_reference_plus_residual")
+            val stride = value.getJSONObject("stride_reference_contract")
+            require(stride.getString("asset") == "stride_reference.json")
+            require(stride.getString("clock") == "float32_20ms_per_fresh_feedback")
+            require(stride.getInt("initial_hold_frames") == 50)
+            require(timingReferenceMilliseconds == 20f && actionFilterAlpha == .2f && actionSlewLimit == .2f)
+            require(positionTargetScaleRadians == .3f && !stationaryOverrideEnabled)
+            require(actionLimits.contentEquals(FloatArray(12) { if (it % 3 == 0) .4f else 1f }))
+            require(listOf(postureHeightMinimum, postureHeightMaximum, postureRollMinimum,
+                postureRollMaximum, posturePitchMinimum, posturePitchMaximum).all { it == 0f })
+            stride.getString("sha256").also { require(it.matches(Regex("[a-f0-9]{64}"))) }
+        } else {
+            require(!value.has("stride_reference_contract")) { "stride reference requires the V21 observation builder" }
+            null
+        }
     }
 
     fun requireRequest(forward: Float, lateral: Float, yawRate: Float) {
@@ -195,11 +252,37 @@ class PolicyContract private constructor(value: JSONObject) {
         return AppliedActionStep(filtered, applied)
     }
 
+    internal fun requireLiveActivationCandidate() {
+        require(usesStrideReference)
+        require(checkpointEpoch == ACCEPTED_CANDIDATE_EPOCH)
+        require(checkpointSha256.equals(ACCEPTED_CANDIDATE_CHECKPOINT_SHA256, ignoreCase = true))
+        require(profileSha256.equals(ACCEPTED_CANDIDATE_PROFILE_SHA256, ignoreCase = true))
+        require(weightsSha256.equals(ACCEPTED_CANDIDATE_WEIGHTS_SHA256, ignoreCase = true))
+        require(strideReferenceSha256.equals(ACCEPTED_CANDIDATE_REFERENCE_SHA256, ignoreCase = true))
+        require(observationBuilder == "current_body_v22_428")
+        require(jointCoordinateConvention == "cad_drives_v1")
+        require(controlHz == 50)
+        require(forwardMinimum == -0.04f && forwardMaximum == 0.04f)
+        require(lateralMinimum == -0.02f && lateralMaximum == 0.02f)
+        require(yawMinimum == -0.1f && yawMaximum == 0.1f)
+        require(postureHeightMinimum == 0f && postureHeightMaximum == 0f)
+        require(postureRollMinimum == 0f && postureRollMaximum == 0f)
+        require(posturePitchMinimum == 0f && posturePitchMaximum == 0f)
+    }
+
     companion object {
         private const val ACTION_COUNT = 12
         fun load(assets: AssetManager): PolicyContract = PolicyContract(
             JSONObject(assets.open("policy_metadata.json").bufferedReader().use { it.readText() }),
-        )
+        ).also {
+            if (it.usesStrideReference) it.requireLiveActivationCandidate()
+        }
+
+        private const val ACCEPTED_CANDIDATE_EPOCH = 3750
+        private const val ACCEPTED_CANDIDATE_CHECKPOINT_SHA256 = "964b3d4fc7e40ce841e1ef6167f162d0af89d8f9f8057757bf07e16ba79ea8b5"
+        private const val ACCEPTED_CANDIDATE_PROFILE_SHA256 = "2e249f1a8efc7df0fca72dfaf2e50712a2b108874bdf7a883cbd69f02b25ca0d"
+        private const val ACCEPTED_CANDIDATE_WEIGHTS_SHA256 = "4a4b716411962ee95c1cd6e6fafd815d8d9e8020eaa2393ef1edc4c3f1491c2e"
+        private const val ACCEPTED_CANDIDATE_REFERENCE_SHA256 = "b2db6928c7aa3d7acb521a5f254250807a371f2eaac75783ff087b0240217fc2"
 
         fun parse(json: String): PolicyContract = PolicyContract(JSONObject(json))
     }
@@ -212,4 +295,9 @@ private fun JSONArray.floats(expectedSize: Int): FloatArray {
     return FloatArray(expectedSize) { index ->
         getDouble(index).toFloat().also { require(it.isFinite()) }
     }
+}
+
+private fun JSONArray.ints(expectedSize: Int): IntArray {
+    require(length() == expectedSize)
+    return IntArray(expectedSize) { index -> getInt(index) }
 }

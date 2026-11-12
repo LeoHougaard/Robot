@@ -12,7 +12,11 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 data class RunRecordingStatus(
     val active: Boolean,
@@ -23,23 +27,29 @@ data class RunRecordingStatus(
     val error: String?,
 )
 
-/** Writes lossless, line-oriented run evidence that remains useful outside the Android app. */
+/** Bounded asynchronous evidence recording; storage cannot block the control producer. */
 class RunSessionRecorder(
     private val directory: File,
     private val contextProvider: () -> JSONObject,
     private val unixTimeMillis: () -> Long = System::currentTimeMillis,
     private val monotonicNanos: () -> Long = System::nanoTime,
+    private val openWriter: (File) -> BufferedWriter = { output ->
+        BufferedWriter(OutputStreamWriter(FileOutputStream(output), StandardCharsets.UTF_8), WRITER_BUFFER_BYTES)
+    },
 ) : Closeable {
-    private val recordExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "robot-run-recorder").apply { isDaemon = true }
-    }
-    private var writer: BufferedWriter? = null
+    private val recordExecutor = ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(256),
+        { runnable -> Thread(runnable, "robot-run-recorder").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy(),
+    )
+    private val droppedRecords = AtomicLong()
+    @Volatile private var writer: BufferedWriter? = null
     private var partialFile: File? = null
     private var completedFile: File? = null
     private var sessionId: String? = null
     private var recordCount = 0L
     private var bytesWritten = 0L
-    private var lastError: String? = null
+    @Volatile private var lastError: String? = null
 
     fun start(phase: String): RunRecordingStatus {
         require(phase.isNotBlank())
@@ -59,16 +69,14 @@ class RunSessionRecorder(
                 val id = UUID.randomUUID().toString()
                 val stamp = UTC_FILE_STAMP.format(Date(startedAt))
                 val output = File(directory, "robot-run-$stamp-${id.take(8)}.jsonl.partial")
-                writer = BufferedWriter(
-                    OutputStreamWriter(FileOutputStream(output), StandardCharsets.UTF_8),
-                    WRITER_BUFFER_BYTES,
-                )
+                writer = openWriter(output)
                 partialFile = output
                 completedFile = null
                 sessionId = id
                 recordCount = 0L
                 bytesWritten = 0L
                 lastError = null
+                droppedRecords.set(0)
                 recordLocked(
                     "session_start",
                     JSONObject()
@@ -92,39 +100,39 @@ class RunSessionRecorder(
     }
 
     fun recordEvent(name: String, data: JSONObject = JSONObject()) {
-        enqueueRecord {
-            val copy = JSONObject(data.toString())
+        val copy = JSONObject(data.toString())
+        enqueueRecord { unixMs, monotonicNs ->
             recordLocked(
                 "event",
                 JSONObject().put("name", name).put("values", copy),
-                flush = true,
+                flush = true, unixMs = unixMs, monotonicNs = monotonicNs,
             )
         }
     }
 
     fun recordRobotRx(message: JSONObject) {
-        enqueueRecord {
-            val copy = JSONObject(message.toString())
-            recordLocked("robot_rx", JSONObject().put("message", copy))
+        val copy = JSONObject(message.toString())
+        enqueueRecord { unixMs, monotonicNs ->
+            recordLocked("robot_rx", JSONObject().put("message", copy), unixMs = unixMs, monotonicNs = monotonicNs)
         }
     }
 
     fun recordRobotTx(bytes: ByteArray) {
         val copy = bytes.copyOf()
-        enqueueRecord {
+        enqueueRecord { unixMs, monotonicNs ->
             val text = copy.toString(Charsets.UTF_8).trim()
             val values = JSONObject()
             runCatching { JSONObject(text) }
                 .onSuccess { values.put("message", it) }
                 .onFailure { values.put("text", text) }
-            recordLocked("robot_tx", values)
+            recordLocked("robot_tx", values, unixMs = unixMs, monotonicNs = monotonicNs)
         }
     }
 
     fun recordDerivedFrame(values: JSONObject) {
-        enqueueRecord {
-            val copy = JSONObject(values.toString())
-            recordLocked("derived_policy_frame", copy)
+        val copy = JSONObject(values.toString())
+        enqueueRecord { unixMs, monotonicNs ->
+            recordLocked("derived_policy_frame", copy, unixMs = unixMs, monotonicNs = monotonicNs)
         }
     }
 
@@ -135,7 +143,8 @@ class RunSessionRecorder(
             runCatching {
                 recordLocked(
                     "session_end",
-                    JSONObject().put("outcome", outcome).put("detail", detail),
+                    JSONObject().put("outcome", outcome).put("detail", detail)
+                        .put("dropped_records", droppedRecords.get()).put("complete", lastError == null),
                     flush = true,
                 )
                 if (writer == null) return@synchronized statusLocked()
@@ -172,17 +181,30 @@ class RunSessionRecorder(
         recordExecutor.shutdown()
     }
 
-    private fun enqueueRecord(action: () -> Unit) {
-        if (synchronized(this) { writer == null }) return
-        recordExecutor.execute {
-            synchronized(this) {
-                if (writer != null) action()
+    private fun enqueueRecord(action: (Long, Long) -> Unit) {
+        val sessionWriter = writer ?: return
+        if (recordExecutor.isShutdown) return
+        // Capture at the producer, before storage delay; never acquire the
+        // writer's monitor on the USB or policy thread.
+        val unixMs = unixTimeMillis()
+        val monotonicNs = monotonicNanos()
+        try {
+            recordExecutor.execute {
+                synchronized(this) { if (writer === sessionWriter) action(unixMs, monotonicNs) }
             }
+        } catch (_: RejectedExecutionException) {
+            droppedRecords.incrementAndGet()
+            lastError = "Recording incomplete: storage queue overflowed"
         }
     }
 
     private fun drainQueuedRecords() {
-        recordExecutor.submit {}.get()
+        if (recordExecutor.isShutdown) return
+        // Lifecycle calls may wait; control producers above never do.
+        val barrier = java.util.concurrent.FutureTask<Unit> { Unit }
+        check(recordExecutor.queue.offer(barrier, 5, TimeUnit.SECONDS)) { "recorder did not drain" }
+        recordExecutor.prestartCoreThread()
+        barrier.get(5, TimeUnit.SECONDS)
     }
 
     private fun recordLocked(
@@ -190,6 +212,7 @@ class RunSessionRecorder(
         data: JSONObject,
         flush: Boolean = false,
         unixMs: Long = unixTimeMillis(),
+        monotonicNs: Long = monotonicNanos(),
     ) {
         try {
             val output = requireNotNull(writer) { "run session is not active" }
@@ -198,7 +221,7 @@ class RunSessionRecorder(
                 .put("session_id", sessionId)
                 .put("record_index", recordCount)
                 .put("host_unix_ms", unixMs)
-                .put("host_monotonic_ns", monotonicNanos())
+                .put("host_monotonic_ns", monotonicNs)
                 .put("data", data)
             val line = record.toString() + "\n"
             val encodedBytes = line.toByteArray(StandardCharsets.UTF_8).size

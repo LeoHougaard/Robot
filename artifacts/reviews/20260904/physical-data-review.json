@@ -1,0 +1,133 @@
+{
+  "capture_sha256": "b1389bf17ee37737674b0bb57c477ceb4b517eeb6038bdee88c77536fc799254",
+  "policy_checkpoint_sha256": "ab7399c42a8807e035ec8db1ccabf598399673436fb3479258459f28233568c0",
+  "capture_profile_sha256": "6d86906f46b6c9544631f6faa72bc89205f52a2538d6fffc76e31caa857af8bd",
+  "frames": 2189,
+  "servos": [
+    {
+      "id": 1,
+      "semantic": "front_left_hip_abduction",
+      "error_median_deg": 3.49991,
+      "error_p95_deg": 8.633464000000004,
+      "target_p95_p05_deg": 12.798843999999974,
+      "actual_p95_p05_deg": 12.48350000000002,
+      "current_median_ma": 13.0,
+      "current_p95_ma": 130.0
+    },
+    {
+      "id": 2,
+      "semantic": "front_left_hip_flexion",
+      "error_median_deg": 1.8252800000000207,
+      "error_p95_deg": 13.669842000000017,
+      "target_p95_p05_deg": 13.918348000000009,
+      "actual_p95_p05_deg": 16.01758000000001,
+      "current_median_ma": 13.0,
+      "current_p95_ma": 182.0
+    },
+    {
+      "id": 3,
+      "semantic": "front_left_knee_flexion",
+      "error_median_deg": 10.005989999999997,
+      "error_p95_deg": 32.052423999999995,
+      "target_p95_p05_deg": 38.7185482,
+      "actual_p95_p05_deg": 39.173626000000006,
+      "current_median_ma": 13.0,
+      "current_p95_ma": 331.5
+    },
+    {
+      "id": 4,
+      "semantic": "back_right_hip_abduction",
+      "error_median_deg": 0.3728200000000186,
+      "error_p95_deg": 5.283561999999987,
+      "target_p95_p05_deg": 5.2176600000000235,
+      "actual_p95_p05_deg": 5.802199999999999,
+      "current_median_ma": 6.5,
+      "current_p95_ma": 91.0
+    },
+    {
+      "id": 5,
+      "semantic": "back_right_hip_flexion",
+      "error_median_deg": 1.7415200000000084,
+      "error_p95_deg": 9.502989999999983,
+      "target_p95_p05_deg": 12.265816000000001,
+      "actual_p95_p05_deg": 12.360440000000011,
+      "current_median_ma": 19.5,
+      "current_p95_ma": 166.3999999999994
+    },
+    {
+      "id": 6,
+      "semantic": "back_right_knee_flexion",
+      "error_median_deg": 7.5867999999999824,
+      "error_p95_deg": 21.03623599999999,
+      "target_p95_p05_deg": 32.63490999999999,
+      "actual_p95_p05_deg": 31.120900000000006,
+      "current_median_ma": 19.5,
+      "current_p95_ma": 325.0
+    },
+    {
+      "id": 7,
+      "semantic": "front_right_hip_abduction",
+      "error_median_deg": 1.3500999999999976,
+      "error_p95_deg": 8.588928,
+      "target_p95_p05_deg": 11.860252000000003,
+      "actual_p95_p05_deg": 11.780200000000008,
+      "current_median_ma": 6.5,
+      "current_p95_ma": 58.5
+    },
+    {
+      "id": 8,
+      "semantic": "front_right_hip_flexion",
+      "error_median_deg": 3.9497599999999977,
+      "error_p95_deg": 17.772876,
+      "target_p95_p05_deg": 22.845292,
+      "actual_p95_p05_deg": 24.17579999999998,
+      "current_median_ma": 26.0,
+      "current_p95_ma": 331.5
+    },
+    {
+      "id": 9,
+      "semantic": "front_right_knee_flexion",
+      "error_median_deg": 9.602280000000007,
+      "error_p95_deg": 32.91553199999999,
+      "target_p95_p05_deg": 34.647784,
+      "actual_p95_p05_deg": 33.10763999999999,
+      "current_median_ma": 6.5,
+      "current_p95_ma": 130.0
+    },
+    {
+      "id": 10,
+      "semantic": "back_left_hip_abduction",
+      "error_median_deg": 0.5933600000000183,
+      "error_p95_deg": 4.4868440000000005,
+      "target_p95_p05_deg": 6.465713999999991,
+      "actual_p95_p05_deg": 7.120899999999978,
+      "current_median_ma": 6.5,
+      "current_p95_ma": 45.5
+    },
+    {
+      "id": 11,
+      "semantic": "back_left_hip_flexion",
+      "error_median_deg": 1.3850300000000004,
+      "error_p95_deg": 6.492228000000016,
+      "target_p95_p05_deg": 8.439684000000028,
+      "actual_p95_p05_deg": 8.967000000000013,
+      "current_median_ma": 19.5,
+      "current_p95_ma": 227.5
+    },
+    {
+      "id": 12,
+      "semantic": "back_left_knee_flexion",
+      "error_median_deg": 18.237629999999996,
+      "error_p95_deg": 32.94951200000001,
+      "target_p95_p05_deg": 36.4253324,
+      "actual_p95_p05_deg": 34.37359000000001,
+      "current_median_ma": 26.0,
+      "current_p95_ma": 403.0
+    }
+  ],
+  "body_tilt_median_p95_deg": [
+    8.582878419230381,
+    22.022938127553523
+  ],
+  "note": "Descriptive sequence-matched closed-loop measurements; not independently identified actuator limits."
+}

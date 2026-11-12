@@ -99,7 +99,15 @@ class SimpleDogCurrentV3RoughEnvCfg(SimpleDogV2RoughEnvCfg):
     posture_smoothing_time_s = 0.50
     posture_neutral_fraction = 0.30
     nominal_support_height_m = 0.135
+    reset_settle_time_s = 0.0
+    reset_hold_randomization_rad = 0.0
     posture_tracking_reward_scale = 1.5
+    # Penalize command-relative roll/pitch error directly. The former bounded
+    # positive posture average let locomotion reward buy a visibly tilted body.
+    # This remains deployable because the actor observes IMU gravity and the
+    # requested roll/pitch; simulator attitude is used only by the critic-free
+    # reward calculation.
+    posture_attitude_error_penalty_scale = -12.0
     posture_height_tracking_std = 0.018
     posture_angle_tracking_std = 0.08
 
@@ -191,6 +199,73 @@ class SimpleDogCurrentV3ReverseEnvCfg(SimpleDogCurrentV3CoreEnvCfg):
     complete_gait_cycle_reward_scale = 20.0
     max_foot_contact_time_s = 0.55
     prolonged_foot_air_penalty_scale = -10.0
+
+
+@configclass
+class SimpleDogCurrentV3LocomotionSpecialistEnvCfg(SimpleDogCurrentV3CoreEnvCfg):
+    """Single-axis gait discovery with locomotion far above pose regularization."""
+
+    pose_goal_training = False
+    command_forward = (0.16, 0.22)
+    command_lateral = (0.0, 0.0)
+    command_yaw = (0.0, 0.0)
+    straight_command_fraction = 1.0
+    low_speed_straight_fraction = 0.25
+    high_speed_straight_fraction = 0.25
+    standing_command_fraction = 0.05
+    turn_command_fraction = 0.0
+    lateral_command_fraction = 0.0
+    diagonal_command_fraction = 0.0
+
+    # The balanced actor settled near zero velocity because pose stability and
+    # gait regularizers remained competitive with directional tracking. These
+    # specialists make signed speed the dominant objective. Deterministic
+    # landings, slip, fall, height, and contact gates still decide promotion.
+    locomotion_reward_scale = 100.0
+    minimum_command_speed_fraction = 0.85
+    velocity_shortfall_penalty_scale = -240.0
+    velocity_tracking_std = 0.08
+    posture_tracking_reward_scale = 0.0
+    posture_attitude_error_penalty_scale = -100.0
+    stability_penalty_scale = -4.0
+    # The level-body run held mean tilt to 0.051 rad, but a 0.06 gate cut the
+    # useful locomotion gradient by more than half even at that good posture.
+    # Keep the direct attitude penalty as the level-body constraint and widen
+    # only this gate so the level policy can learn propulsion.
+    level_locomotion_gate_std = 0.12
+    # Keep the required progress-gated diagonal-pair prior, but remove the
+    # overlapping clock, duty, variance, and cycle bonuses that drove reward
+    # magnitude up without improving deterministic speed.
+    diagonal_gait_reward_scale = 4.0
+    complete_gait_cycle_reward_scale = 0.0
+    reference_trot_reward_scale = 0.0
+    clocked_trot_reward_scale = 0.0
+    minimum_swing_duty_fraction = 0.0
+    swing_duty_floor_penalty_scale = 0.0
+    air_time_variance_penalty_scale = 0.0
+    prolonged_foot_air_penalty_scale = -20.0
+    max_foot_air_time_s = 0.42
+    max_foot_contact_time_s = 0.55
+    foot_slip_penalty_scale_v2 = -1.0
+
+
+@configclass
+class SimpleDogCurrentV3ForwardSpecialistEnvCfg(
+    SimpleDogCurrentV3LocomotionSpecialistEnvCfg
+):
+    """Preserve and strengthen the proven forward gait without mode competition."""
+
+    reverse_command_fraction = 0.0
+
+
+@configclass
+class SimpleDogCurrentV3ReverseSpecialistEnvCfg(
+    SimpleDogCurrentV3LocomotionSpecialistEnvCfg
+):
+    """Discover a reverse gait without sacrificing reward to forward rehearsal."""
+
+    reverse_command_fraction = 0.95
+    reverse_command_speed = (0.12, 0.18)
 
 
 @configclass

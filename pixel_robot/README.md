@@ -16,25 +16,47 @@ Firebase, Drive, ARCore, RTSP, TensorFlow Lite models, or legacy WebRTC bundle.
 - USB protocol: newline-delimited JSON at 2,000,000 baud. Firmware output is
   padded to 64-byte USB packets before CRLF.
 - Safety: firmware boot disables torque; learned control requires explicit
-  arming, all 12 servo/IMU feedback, monotonic sequence numbers, <=6 degree
-  target steps, and a 120 ms stale-frame watchdog.
+  arming, all 12 servo/IMU feedback, monotonic sequence numbers, finite targets
+  within calibrated limits, and a 120 ms stale-frame watchdog. The policy
+  contract supplies joint action filtering and slew limits; firmware programs
+  the servo's speed and acceleration limits when arming.
 - Servo battery: the ST3215 bus reports the independently powered 2S LiPo.
   The Pixel app, browser page, foreground notification, and run data warn at
   7.0 V and show a critical warning at 6.6 V. These warnings do not block
   standing or policy control.
-- Policy: restricted Robust Isaac Lab/RL-Games test actor, four 45-value frames
-  (180 total), 12 actions, 50 Hz target, CPU ONNX Runtime, profile
-  `assembly-four-leg-linkage-12dof`.
-- Test command envelope: forward 0.00-0.22 m/s, lateral 0.00 m/s, yaw -0.25
-  to +0.25 rad/s. Reverse, strafe, and in-place-turn behavior have not passed
-  the Goal screen and remain outside this test build.
+- Bundled source policy: **unpromoted V22 epoch 3750 candidate**, 428 inputs,
+  24 history frames with selected indices `[0,10,20,21,22,23]`, 12 actions,
+  50 Hz target, CPU ONNX Runtime, `cad_drives_v1` joint coordinates, profile
+  `assembly-four-leg-linkage-12dof`
+- Bundled command envelope: forward -0.04 to +0.04 m/s, lateral -0.02 to
+  +0.02 m/s, yaw -0.10 to +0.10 rad/s; height, roll and pitch are fixed at zero
+- Bundled metadata explicitly says `promoted: false` and
+  `physical_transport_verified: false`. Source inspection and host checks do
+  not identify what is installed on the Pixel or establish safe floor use
 
-See [docs/AUDIT.md](docs/AUDIT.md) for the source-backed audit and
-[docs/USB-C.md](docs/USB-C.md) for the direct-cable test. The run-data format
-and the measurements it contains are documented in
-[docs/RUN-DATA.md](docs/RUN-DATA.md).
+The Android source version is 0.2.10; the firmware source build identifies as
+0.1.17-rxdiag. Before any physical run, qualify the exact
+bundle and verify the installed app/firmware identity with the operator. The
+older 180-input restricted-forward V2 and 426-input V20 descriptions in dated
+audit/test evidence are historical; they do not describe the bundled V22 actor.
+
+See [docs/AUDIT.md](docs/AUDIT.md) for the historical source-backed audit,
+[docs/USB-C.md](docs/USB-C.md) for the direct-cable procedure, and
+[docs/DELIVERY-TEST.md](docs/DELIVERY-TEST.md) for device qualification steps.
+The run-data format is in [docs/RUN-DATA.md](docs/RUN-DATA.md).
+
+`DeliveryOnnxTest` exercises a separate random 426-input instrumentation fixture.
+Its previously documented 500-inference result (median 1.83 ms, p99 4.71 ms,
+maximum 7.82 ms) measures that fixture's inference capacity, not the current
+V22 actor, walking quality, or complete USB/motor timing. The fixture is
+reproduced by `tools/create_delivery_onnx_fixture.py`; Android uses ONNX Runtime
+1.26.0.
 
 ## Build
+
+Hardware-free checks compile real production Kotlin and run JUnit without an
+Android SDK or any device. See [the host verification guide](docs/HOST-TESTS.md).
+A host pass does not replace the Android build or physical qualification.
 
 Open the project in a current Android Studio with Android SDK 37 installed, or
 run:
@@ -69,7 +91,8 @@ without clearing the saved calibration, runs the ONNX parity and safe-lifecycle
 tests on the Pixel, forwards the optional browser control page, and opens the
 app. A failed on-device test prevents the demo from launching.
 
-The whole floor demo is available on the Pixel:
+After the exact bundle has separately passed qualification, the app exposes
+the following operator controls (these instructions are not a qualification result):
 
 1. Connect the independently powered robot controller and accept Android's USB
    permission prompt.
@@ -144,8 +167,8 @@ adb forward tcp:8767 tcp:8767
 ```
 
 Open `http://127.0.0.1:8767/`. The page exposes the same stand, trained-policy,
-stop, and run-download controls as the native screen, limited to the actor's
-supported forward and yaw ranges. A test runs until Stop sends policy disarm
+stop, and run-download controls as the native screen, limited to the bundled actor's
+forward, lateral, yaw and posture ranges. A test runs until Stop sends policy disarm
 and all-servo torque-off.
 Hiding or closing the page also requests stop while a test is active. Repeat the
 ADB forwarding command after restarting ADB or the computer.

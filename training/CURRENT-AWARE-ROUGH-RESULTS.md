@@ -2,6 +2,27 @@
 
 Date: 2026-08-30
 
+## CurrentBodyV4 scratch baseline and method change
+
+The first CurrentBodyV4 full-hard scratch run, seed 42, completed 1,000
+epochs at `2026-08-30_20-21-01`. Its 12-second epoch-1000 rough-terrain
+review showed joint cycling but no sustained body translation. PPO return
+also regressed from about -0.68 at epoch 200 to -0.83 at epoch 999. The
+checkpoint is rejected as an optimization stall and is retained only as
+negative evidence.
+
+The identical seed-43 backup stalled during Isaac configuration for more than
+an hour with zero GPU use. That queue was stopped and retained as an
+infrastructure failure instead of being counted as training.
+
+The next scratch comparison uses the task's documented fixed ramp fallback.
+Every terrain category and stochastic disturbance remains present from the
+first update at 15 percent scale. Terrain level, pushes, reset tilt, sensor
+noise, current corruption, and actuator-response variation reach full
+difficulty at PPO epoch 300 regardless of reward. Command sampling and the
+unified body-tracking reward are unchanged, so the prior displacement-input
+priority does not leak into reward shaping.
+
 ## Decision
 
 No CurrentV3 checkpoint passed the deterministic flat promotion screen, so no

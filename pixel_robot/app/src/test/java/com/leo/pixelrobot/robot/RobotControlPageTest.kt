@@ -23,8 +23,10 @@ class RobotControlPageTest {
     @Test
     fun allPhysicalActionsHaveAStopPath() {
         assertTrue(page.contains("id=\"stop\""))
-        assertTrue(page.contains("navigator.sendBeacon(\"/api/stop\""))
-        assertTrue(page.contains("if (powered)"))
+        assertTrue(page.contains("post(\"/api/stop\", {}, true)"))
+        assertFalse(page.contains("navigator.sendBeacon("))
+        assertTrue(page.contains("\"X-Pixel-Shadow-Token\": operatorToken"))
+        assertTrue(page.contains("if (powered || pendingManualStarts > 0)"))
     }
 
     @Test

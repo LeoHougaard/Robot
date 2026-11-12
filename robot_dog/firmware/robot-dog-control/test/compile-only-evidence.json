@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "validated_utc": "2026-10-02",
+  "scope": "ESP32 compile only and native fake-bus handler tests; no upload, physical connection, motor output or hardware qualification",
+  "result": "PASS",
+  "environment": "esp32dev",
+  "platformio_core": "6.1.18",
+  "platform": "espressif32@7.1.3",
+  "python": "3.12.14",
+  "host_cpp_compiler": "g++ (Debian 14.2.0-19) 14.2.0",
+  "packages": {
+    "framework-arduinoespressif32": "4.20017.260907+sha.dcc1105b",
+    "tool-esptoolpy": "2.41100.260830",
+    "tool-scons": "4.40801.0",
+    "toolchain-xtensa-esp32": "8.4.0+2021r2-patch5"
+  },
+  "arduinojson_firmware": "7.4.3",
+  "arduinojson_native_harness_tested": [
+    "7.0.4",
+    "7.4.3"
+  ],
+  "ram_bytes": 54324,
+  "ram_capacity_bytes": 327680,
+  "flash_bytes": 951037,
+  "flash_capacity_bytes": 1310720,
+  "source_sha256": {
+    "platformio.ini": "2b1a296c00dae928e440304b545c78e4fd96f26e16af43476c92d97bc15290f9",
+    "test/platformio.compile-only.ini": "82aed78b6659d37faeb92597ef2924f1b912960597e61445ffeb925093b5ade2",
+    "src/AK09918.cpp": "2028929d4f68b9fd871b1116e2eefc9633e2fcf21df36a6b46f35acea099b505",
+    "src/AK09918.h": "038293ed4a5dd887fbc4837376b2a6371525294c70146728c1aafb33fb902c68",
+    "src/QMI8658.cpp": "c041a325453386a2bfcb389d852fb27aa8ccf7b1658e1c97459e706b7c5d48f6",
+    "src/QMI8658.h": "5df31dea40c71c3a1c0df2f42aa682c80e3e288e644a838c69ee7b2a9e129f4c",
+    "src/QMI8658reg.h": "23750102c81eb3d78c48c71e87b202b43168829bf62250b5a7736e2985036b93",
+    "src/main.cpp": "a17bb15e3634035f1c75e73b204cc3d00433218038686da493f62eb7a4ab9677",
+    "include/PeriodicDeadline.h": "0bbdd035cdc4685de89b671d3212334a5a147552b5fb156f985051c1a5428ba1"
+  },
+  "firmware_bin_sha256": "6ca21c55bbcc87934f822e37b9531bba2eac37cd7be70d6ed2ed13fc09f6f0e2",
+  "build_warnings": [
+    "Existing DynamicJsonDocument and related ArduinoJson deprecations",
+    "Existing TwoWire::requestFrom overload ambiguity in QMI8658.cpp"
+  ],
+  "reproducibility_note": "Production platformio.ini floats espressif32 and ArduinoJson ^7.0.4; use test/platformio.compile-only.ini for the tested dependency snapshot. Build timestamps/path-dependent metadata may change binary hashes. Native harness uses actual extracted source handlers but stubs device I/O; it is not a full ESP32 execution test."
+}

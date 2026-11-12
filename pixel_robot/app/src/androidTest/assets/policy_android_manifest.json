@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "profile_id": "test-only-delivery-shape",
+  "profile_sha256": "0aa27708883f3fb765ec34b06a8c78b2f45470e4114a700029d170a3ef5de81c",
+  "source_weights_sha256": "4cf2a376c27ddcca3619d963d9fa031d57ca66034c9f914c19faf2f77729b9b3",
+  "onnx_sha256": "24b0aafc5f923664ebed6c4a8ccd259f127b72c9ff185bffdf83e2a5ebb7d44e",
+  "parity_cases": 8,
+  "parity_rtol": 1e-05,
+  "parity_atol": 2e-06
+}

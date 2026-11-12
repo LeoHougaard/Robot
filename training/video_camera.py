@@ -12,15 +12,38 @@ class VideoCameraSample:
     view_index: int
 
 
-# Body-frame offsets: forward, lateral, up.  Each clip gets a different
-# quartering view as well as a robot from a different part of the terrain.
+# Body-frame offsets: forward, lateral, up.  Keep the eye close enough that
+# the small linkage robot remains readable in the shared-browser preview while
+# retaining enough rough terrain to judge progress and foot contact.
 CAMERA_OFFSETS = (
-    (-0.80, 0.58, 0.42),
-    (-0.30, 0.88, 0.40),
-    (0.42, 0.78, 0.44),
-    (-0.80, -0.58, 0.42),
-    (-0.30, -0.88, 0.40),
+    (-0.55, 0.45, 0.32),
+    (-0.20, 0.65, 0.32),
+    (0.50, 0.45, 0.32),
+    (-0.55, -0.45, 0.32),
+    (-0.20, -0.65, 0.32),
 )
+
+
+def update_recording_camera(recorder, eye, target):
+    """Update the actual Isaac Lab 3 recording camera, including first capture.
+
+    SimulationContext.set_camera_view only updates visualizers. The installed
+    Kit recorder uses a separate camera and initializes it from its own cfg.
+    Keep this version-specific adapter here instead of patching Isaac Lab.
+    """
+    capture = getattr(recorder, "_capture", None)
+    if capture is None:
+        raise RuntimeError("Video requested without an initialized recording backend")
+    capture.cfg.eye = tuple(eye)
+    capture.cfg.lookat = tuple(target)
+    if hasattr(capture, "update_camera"):
+        capture.update_camera(eye, target)
+    else:
+        from isaacsim.core.rendering_manager import ViewportManager
+
+        ViewportManager.set_camera_view(
+            capture.cfg.camera_prim_path, eye=list(eye), target=list(target)
+        )
 
 
 def stratified_env_indices(num_envs: int, sample_count: int = 5) -> tuple[int, ...]:

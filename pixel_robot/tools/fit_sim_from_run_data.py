@@ -16,6 +16,8 @@ from run_data_source import open_run_text, verify_training_capture
 REPORT_SCHEMA_VERSION = 2
 MIN_VALID_SAMPLE_INTERVAL_MS = 5
 MAX_VALID_SAMPLE_INTERVAL_MS = 100
+MIN_AGGREGATE_RATE_HZ = 49.5
+MAX_AGGREGATE_RATE_HZ = 50.5
 DEFAULT_MAX_LAG_FRAMES = 20
 IDENTIFIABILITY_WARNINGS = [
     "Closed-loop gait data cannot separate motor dynamics from linkage load, ground contact, body motion, or controller response.",
@@ -353,6 +355,44 @@ def _servo_report(
     return report
 
 
+def _action_change_report(frames: list[dict[str, Any]]) -> dict[str, Any]:
+    """Observe consecutive recorded vectors, never reconstruct missing actions."""
+    result = {}
+    for field in ("requested_action", "filtered_action", "applied_action"):
+        squared_changes, peak_changes, rates = [], [], []
+        previous = None
+        valid_frames = 0
+        for frame in frames:
+            vector = frame.get(field)
+            sequence = frame.get("command_sequence")
+            valid = (isinstance(vector, list) and bool(vector)
+                     and all(type(v) in (int, float) and math.isfinite(v) for v in vector)
+                     and type(sequence) is int)
+            if not valid:
+                previous = None
+                continue
+            valid_frames += 1
+            if previous is not None:
+                old_sequence, old_vector, old_time = previous
+                if sequence == old_sequence + 1 and len(vector) == len(old_vector):
+                    delta = [a - b for a, b in zip(vector, old_vector)]
+                    squared_changes.append(sum(v * v for v in delta))
+                    peak_changes.append(max(abs(v) for v in delta))
+                    now = frame.get("host_monotonic_ns")
+                    if (type(now) is int and type(old_time) is int and now > old_time):
+                        rates.append(peak_changes[-1] * 1e9 / (now - old_time))
+            previous = (sequence, vector, frame.get("host_monotonic_ns"))
+        result[field] = {
+            "valid_frames": valid_frames,
+            "consecutive_pairs": len(squared_changes),
+            "mean_squared_vector_change": statistics.fmean(squared_changes) if squared_changes else None,
+            "max_joint_step": max(peak_changes, default=None),
+            "max_joint_rate_per_s": max(rates, default=None),
+            "timed_pairs": len(rates),
+        }
+    return result
+
+
 def _action_report(frames: list[dict[str, Any]], limits: list[float]) -> dict[str, Any]:
     requested_by_joint: list[list[float]] = []
     applied_by_joint: list[list[float]] = []
@@ -388,7 +428,13 @@ def _action_report(frames: list[dict[str, Any]], limits: list[float]) -> dict[st
             sum(abs(value) >= limit - 1e-4 for value in joint) / len(joint) if joint else None
         )
     return {
+        "recorded_action_changes": _action_change_report(frames),
+        "action_change_scope": "Diagnostic only. Requested is recorded actor output (stride residual for V22), not the combined pre-clamp target. Rates use recorded host frame times; no actuator measurement or acceptance threshold is inferred.",
         "requested_at_actor_clip_fraction": requested_fraction,
+        "requested_outside_normalized_range_fraction": (
+            sum(abs(value) > 1.0 for value in requested_flat) / len(requested_flat)
+            if requested_flat else None
+        ),
         "requested_at_actor_clip_fraction_by_joint": requested_by_joint_fraction,
         "applied_at_safety_clip_fraction_by_joint": applied_by_joint_fraction,
         "applied_clip_by_joint": limits if limits else [1.0] * len(applied_by_joint),
@@ -449,6 +495,11 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
 
     semantics, action_limits = _servo_metadata(records[0])
     states = [frame.get("input_robot_state", {}) for frame in frames]
+    missed_feedback_periods = [state.get("missed_feedback_periods") for state in states]
+    valid_missed_feedback_periods = [
+        value for value in missed_feedback_periods
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    ]
     pitch = [float(state["imu_pitch_deg"]) for state in states if isinstance(state.get("imu_pitch_deg"), (int, float))]
     roll = [float(state["imu_roll_deg"]) for state in states if isinstance(state.get("imu_roll_deg"), (int, float))]
     accel_norm = [
@@ -536,6 +587,27 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
     )
     firmware_interval_p95 = _percentile(sample_intervals_ms, 0.95)
     transport_gate_reasons: list[str] = []
+    if len(sample_intervals_ms) != len(frames) - 1:
+        transport_gate_reasons.append("firmware sample interval evidence is incomplete")
+    observed_hz = 1000.0 / statistics.fmean(host_intervals_ms) if host_intervals_ms else None
+    if observed_hz is None:
+        transport_gate_reasons.append("aggregate host frame rate is absent")
+    elif not MIN_AGGREGATE_RATE_HZ <= observed_hz <= MAX_AGGREGATE_RATE_HZ:
+        transport_gate_reasons.append("aggregate host frame rate is outside 49.5-50.5 Hz")
+    firmware_hz = (
+        1000.0 / statistics.fmean(sample_intervals_ms)
+        if sample_intervals_ms else None
+    )
+    if firmware_hz is None:
+        transport_gate_reasons.append("aggregate firmware sample rate is absent")
+    elif not MIN_AGGREGATE_RATE_HZ <= firmware_hz <= MAX_AGGREGATE_RATE_HZ:
+        transport_gate_reasons.append("aggregate firmware sample rate is outside 49.5-50.5 Hz")
+    if any(value is None for value in missed_feedback_periods):
+        transport_gate_reasons.append("firmware missed-feedback counter evidence is incomplete")
+    elif any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in missed_feedback_periods):
+        transport_gate_reasons.append("firmware missed-feedback counter evidence is invalid")
+    elif max(missed_feedback_periods, default=0) > 0:
+        transport_gate_reasons.append("firmware missed-feedback periods are nonzero")
     if len(integer_feedback_ticks) < 2:
         transport_gate_reasons.append("firmware feedback ticks are absent")
     if not sample_intervals_ms:
@@ -569,12 +641,12 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
             "current_complete_frames": current_complete,
             "incomplete_current_frames": incomplete_current,
             "rejected_firmware_sample_intervals": rejected_sample_intervals,
+            "max_missed_feedback_periods": max(valid_missed_feedback_periods, default=None),
         },
         "physical_context": _session_context_report(records[0]),
         "timing": {
-            "observed_hz": (
-                1000.0 / statistics.fmean(host_intervals_ms) if host_intervals_ms else None
-            ),
+            "observed_hz": observed_hz,
+            "firmware_observed_hz": firmware_hz,
             "host_frame_interval_ms": _stats(host_intervals_ms),
             "firmware_sample_interval_ms": _stats(sample_intervals_ms),
             "firmware_feedback_read_ms": _stats(
@@ -633,7 +705,10 @@ def _analyze_run(path: str | Path, records: list[dict[str, Any]], max_lag_frames
                 "it does not isolate stationary sensor noise"
             ),
         },
-        "action_saturation": _action_report(frames, action_limits),
+        "action_saturation": _action_report([
+            dict(frame, host_monotonic_ns=record.get("host_monotonic_ns"))
+            for frame, record in zip(frames, frame_records)
+        ], action_limits),
         "servos": _servo_report(frames, semantics, median_interval_ms, max_lag_frames),
         "idle_servo_telemetry": _idle_servo_report(records),
     }

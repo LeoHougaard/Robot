@@ -9,6 +9,28 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class PolicyMathTest {
+    // Historical algorithms need an explicit synthetic V2 contract. Deriving
+    // these cases from the shipped V22 bundle silently mixes incompatible
+    // history, stride and joint-coordinate contracts as the bundle evolves.
+    private fun legacyMetadata(): JSONObject = JSONObject()
+        .put("profile_id", "assembly-four-leg-linkage-12dof")
+        .put("profile_sha256", "0".repeat(64))
+        .put("weights_sha256", "1".repeat(64))
+        .put("control_hz", 50).put("command_smoothing_time_s", .4)
+        .put("observation_builder", "v2_180")
+        .put("observation_size", 180).put("observation_history", 4).put("action_size", 12)
+        .put("validated_command_limits", JSONObject()
+            .put("forward_m_s", listOf(0.0, .22)).put("lateral_m_s", listOf(0.0, 0.0))
+            .put("yaw_rate_rad_s", listOf(-.25, .25)))
+        .put("action_contract", JSONObject()
+            .put("actor_output_clip", listOf(-1.0, 1.0))
+            .put("applied_normalized_clip_by_joint", List(12) { 1.0 })
+            .put("low_pass_alpha", .2).put("applied_normalized_slew_limit", .2)
+            .put("position_target_scale_rad", .3))
+        .put("stationary_action_contract", JSONObject()
+            .put("behavior", "slew_to_validated_four_foot_stance_action")
+            .put("planar_command_deadband_m_s", .01).put("yaw_command_deadband_rad_s", .01)
+            .put("normalized_stance_action", List(12) { 0.0 }))
     private val calibration by lazy {
         RobotCalibration.parse(
             File("src/main/assets/assembly-four-leg-linkage-12dof.calibration.json").readText(),
@@ -138,7 +160,7 @@ class PolicyMathTest {
 
     @Test
     fun legacyPolicyContractPreservesDeployedActionMath() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
         metadata.remove("action_contract")
         metadata.remove("stationary_action_contract")
         metadata.put("action_clip", JSONArray(listOf(-1.0, 1.0)))
@@ -157,7 +179,7 @@ class PolicyMathTest {
 
     @Test
     fun v2PolicyContractMatchesIsaacActionOrder() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
         metadata.put("schema_version", 2)
         metadata.put("command_smoothing_time_s", 0.4)
         metadata.put(
@@ -207,7 +229,7 @@ class PolicyMathTest {
 
     @Test
     fun calibrated25HzPolicyControlsRuntimeTiming() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
             .put("control_hz", 25)
         val contract = PolicyContract.parse(metadata.toString())
         assertEquals(25, contract.controlHz)
@@ -217,7 +239,7 @@ class PolicyMathTest {
 
     @Test
     fun currentV3ObservationHoldsMissingCurrentAndClearsValidity() {
-        val metadata = JSONObject(File("src/main/assets/policy_metadata.json").readText())
+        val metadata = legacyMetadata()
             .put("schema_version", 3)
             .put("observation_size", 279)
             .put("observation_builder", "current_v3_279")
@@ -257,6 +279,88 @@ class PolicyMathTest {
         assertArrayEquals(
             floatArrayOf(-0.01f, 0.02f, -0.03f),
             observation.takeLast(3).toFloatArray(),
+            1.0e-6f,
+        )
+    }
+
+    @Test
+    fun currentBodyObservationMatchesTheSixFrameTrainingLayout() {
+        checkCurrentBodyLayout("current_body_v14_426", listOf(0, 5, 10, 15, 20, 23))
+    }
+
+    @Test
+    fun deliveryObservationPreservesConsecutiveFramesAndActiveStabilization() {
+        checkCurrentBodyLayout("current_body_v20_426", listOf(0, 10, 20, 21, 22, 23))
+    }
+
+    private fun checkCurrentBodyLayout(builderName: String, indices: List<Int>) {
+        val metadata = legacyMetadata()
+            .put("schema_version", 4)
+            .put("observation_size", 426)
+            .put("observation_history", 24)
+            .put("observation_builder", builderName)
+            .put(
+                "history_selection",
+                JSONObject()
+                    .put("frame_size", 70)
+                    .put("indices", JSONArray(indices))
+                    .put("timing_reference_ms", 20.0),
+            )
+            .put(
+                "current_observation_contract",
+                JSONObject()
+                    .put("units", "mA")
+                    .put("absolute", true)
+                    .put("normalization_bias_ma", JSONArray(List(12) { 10.0 }))
+                    .put("normalization_scale_ma", JSONArray(List(12) { 20.0 }))
+                    .put("clip_normalized", JSONArray(List(12) { 10.0 }))
+                    .put("current_step_ma", 6.5)
+                    .put("missing_behavior", "hold_last_finite_and_validity_zero"),
+            )
+            .put(
+                "posture_command_contract",
+                JSONObject()
+                    .put("height_offset_m", JSONArray(listOf(0.0, 0.0)))
+                    .put("roll_rad", JSONArray(listOf(0.0, 0.0)))
+                    .put("pitch_rad", JSONArray(listOf(0.0, 0.0)))
+                    .put("smoothing_time_s", 0.5)
+                    .put("layout", "append_after_selected_history"),
+            )
+        if (builderName == "current_body_v20_426") {
+            metadata.getJSONObject("stationary_action_contract").put("behavior", "policy_stabilization")
+        }
+        val contract = PolicyContract.parse(metadata.toString())
+        if (builderName == "current_body_v20_426") {
+            assertTrue(!contract.stationaryOverrideEnabled)
+            val action = contract.applyAction(FloatArray(12) { .2f }, FloatArray(12), FloatArray(12), FloatArray(3))
+            assertTrue(action.applied.all { it > 0f })
+            val wrong = JSONObject(metadata.toString())
+            wrong.getJSONObject("history_selection").put("indices", JSONArray(listOf(0, 5, 10, 15, 20, 23)))
+            assertTrue(runCatching { PolicyContract.parse(wrong.toString()) }.isFailure)
+        }
+        val builder = PolicyObservationBuilder(contract)
+        val history = Array(24) { historyIndex ->
+            val base = FloatArray(45).also {
+                it[0] = historyIndex.toFloat()
+                it[6] = 100f + historyIndex
+                it[7] = 200f + historyIndex
+                it[8] = 300f + historyIndex
+            }
+            builder.frame(base, Array(12) { 20 }, timingRatio = 1f + historyIndex / 100f)
+        }
+
+        assertEquals(70, history.first().size)
+        assertEquals(1.23f, history.last()[69], 1.0e-6f)
+        val observation = builder.observation(history, FloatArray(3))
+        assertEquals(426, observation.size)
+        assertArrayEquals(
+            indices.map(Int::toFloat).toFloatArray(),
+            FloatArray(6) { observation[it * 70] },
+            1.0e-6f,
+        )
+        assertArrayEquals(
+            floatArrayOf(123f, 223f, 323f, 0f, 0f, 0f),
+            observation.takeLast(6).toFloatArray(),
             1.0e-6f,
         )
     }

@@ -1,0 +1,364 @@
+# Delivery test procedure
+
+The robot and Pixel mounting match the August 29 capture. Leo starts all
+physical motion. Tonight's software work cannot establish that the robot walks
+or that the complete powered mechanism sustains 50 Hz.
+
+## Installable software
+
+The isolated laptop checkout is `C:\Users\leo\Code Projects\Robot-sim-to-real`.
+The Android debug APK is under `pixel_robot\app\build\outputs\apk\debug`.
+Firmware 0.1.15 is under
+`robot_dog\firmware\robot-dog-control\.pio\build\esp32dev\firmware.bin`.
+Before flashing, switch the Pixel USB cable to the ESP32 desktop computer. Keep
+the servo power off. Identify the board's current serial port; do not assume an
+earlier COM number:
+
+```powershell
+python -m platformio device list
+python -m platformio run -e esp32dev --target upload --upload-port COM_REPLACE
+```
+
+Run these commands inside `robot_dog\firmware\robot-dog-control`. The firmware
+keeps existing calibration in NVS and disables torque on boot. Confirm all
+twelve torque registers are off before handling unsupported legs.
+
+After the desktop flash and its read-only verification, unplug the board from
+the desktop and switch the cable to the Pixel through the OTG adapter. Do not
+leave the Pixel connected during desktop flashing.
+
+## Read-only rate test
+
+Connect the Pixel directly to the ESP32, power the servo bus, and grant Pixel
+Robot USB permission. The robot must already have torque off. Keep its legs
+supported. This diagnostic refuses to take over a held pose and never sends
+an arm, torque-enable, position-write, or configuration command.
+
+Install the app and instrumentation APKs without clearing app data. Discover
+the current wireless ADB endpoint with mDNS after each reboot; the previously
+observed `10.1.39.188:41395` endpoint is evidence only and must not be reused
+as a fixed address:
+
+```powershell
+adb mdns services
+adb connect PHONE_MDNS_ENDPOINT
+```
+
+Stop the app to give
+the diagnostic sole ownership of USB, then run:
+
+```powershell
+adb -s PHONE_ADDRESS shell am force-stop com.leo.pixelrobot
+adb -s PHONE_ADDRESS shell am instrument -w -e robot_hardware torque_off -e class com.leo.pixelrobot.policy.MotorDisabledTransportTest com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner
+adb -s PHONE_ADDRESS shell run-as com.leo.pixelrobot cat files/motor-disabled-transport-result.json
+```
+
+The test checks firmware capability, verifies disabled torque through firmware,
+and processes 1,250 real sensor frames with the installed actor, the production
+sensor/history/action transforms, JSON encoding, USB and asynchronous recording.
+The first 50 frames warm up the path. It requires 49.5–50.5 Hz at firmware and
+host, no missed firmware deadlines or skipped feedback ticks, sample p99 at
+most 25 ms and maximum 40 ms, compute p99 below 10 ms, and at least 99% complete
+current frames. Incomplete recording fails the test. Results and raw diagnostic
+sessions stay in the app's `files/transport_diagnostics` directory.
+
+The diagnostic commands are `policy_monitor` and `policy_monitor_frame`.
+Firmware checks the same target packet shape and limits but discards those
+targets. Normal motion/configuration commands are rejected while monitoring;
+`policy_disarm` stops it, and it ends automatically after at most 60 seconds.
+The rate test excludes the motor-position broadcast and motion-dependent load.
+Measure those in Leo's supervised run before claiming powered 50 Hz operation.
+
+Repeat the read-only test after a board power cycle and USB reconnection.
+A 25-second passing test is an initial rate check, not a long thermal/endurance
+test. Camera operation is outside this diagnostic; leave it off for the initial
+walking test and evaluate it separately before enabling it during control.
+
+## Candidate epoch2750 diagnostic (test APK only)
+
+The installed production app remains bound to its existing policy bundle. The test-only
+`CandidateEpoch2750MotorDisabledTransportTest` binds the explicit `candidate_epoch2750`
+asset bundle: 428-input CAD V22 actor, production `PolicyFrameSession`, exact CAD stride
+reference, profile, calibration bytes, portable weights and ONNX manifest. It requires
+`policy_candidate=epoch2750` and `robot_hardware=torque_off`; it never enables torque or
+writes motor targets. The bundle is candidate evidence and has no deployment approval. Candidate assets are read from the instrumentation APK context, so the offline packaging/parity check is `CandidateEpoch2750AssetSmokeTest`; it opens the ONNX actor, validates metadata, reference/calibration bindings, and runs the packaged reference vectors without USB or motor access.
+
+Build the debug app and instrumentation APK in the laptop checkout:
+
+```powershell
+Set-Location 'C:\Users\leo\Code Projects\Robot-sim-to-real\pixel_robot'
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:ANDROID_HOME = "C:\Users\leo\AppData\Local\Android\Sdk"
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+```
+
+After Leo has identified the board, confirmed torque off, and installed the test APKs, run
+this diagnostic explicitly; the normal app policy is not replaced:
+
+```powershell
+adb -s PHONE_ADDRESS shell am force-stop com.leo.pixelrobot
+adb -s PHONE_ADDRESS shell am instrument -w -e robot_hardware torque_off -e policy_candidate epoch2750 -e class com.leo.pixelrobot.policy.CandidateEpoch2750MotorDisabledTransportTest com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+For an offline emulator or board with no USB test, run only the asset check:
+
+```powershell
+adb -s PHONE_ADDRESS shell am instrument -w -e class com.leo.pixelrobot.policy.CandidateEpoch2750AssetSmokeTest com.leo.pixelrobot.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Before any physical use, Leo must confirm the candidate bundle hash, board calibration
+against `candidate_epoch2750/assembly-four-leg-linkage-12dof.calibration.json`, loaded
+reference hash, and measured 20 ms feedback timing. The corrected Isaac ground and
+SDF fidelity report passed (`sdf_fidelity_report_sha256` is retained in the delivery
+manifest), while physical calibration and loaded timing remain pending. The existing
+production live stride guard remains in force.
+
+## Before Leo starts walking
+
+Check the displayed app/firmware versions, calibration source and exact policy
+hash against the retained test evidence. The app uses metadata to bound the
+controls. V20 support alone does not mean a V20 policy was promoted.
+Use the known battery, mounting and payload, start recording, and have Leo
+perform supported standing followed by brief floor start/stop/turn trials.
+Keep logs and video together. Stop and inspect sustained tracking error,
+wrong-direction travel, dragging feet or an unexpected lean before increasing
+duration or terrain difficulty. Carpet and small uneven surfaces follow stable
+floor trials; outdoor slopes and steps remain later work.
+
+## Actual board flash, September 6
+
+Firmware 0.1.15 was written to the connected ESP32-D0WD-V3 on COM3,
+active app0 at 0x10000. Its SHA256 is
+`9c01e6b931c2a1dc01ef8724da5d1a5a4082e14895930e8697adc00061556971`.
+Device-side MD5 and complete host readback matched the firmware. The partition
+map, NVS calibration and OTA selection were byte-for-byte unchanged. The old
+application and settings are backed up privately outside Git.
+
+Bulk readback had intermittent checksum errors at 460800 and 230400 baud;
+16 KiB reads at 115200 completed without retries. The runtime hello at 2 Mbps
+was not received after software reset. Verify startup after reconnecting to the
+Pixel before the candidate torque-off transport test. Firmware flashing is
+complete; physical 50 Hz and walking remain unverified.
+
+## Immediate startup failure diagnosed
+
+The first user test on firmware 0.1.15 stopped at sequence 1 with
+`invalid or stale firmware sample interval: 1289 ms`. Inference was 0.906 ms.
+The phone was connected at 2 Mbps with complete servo feedback and 7.4 V.
+Firmware tick 0 samples the IMU before blocking servo arming/configuration,
+so its timestamp cannot initialize the running policy's sensor history.
+The controller now keeps tick 0 only as the held-pose acknowledgement and
+waits for a fresh later tick before its first observation and target. Existing
+stale-feedback limits remain enforced. A sensor regression reproduces the
+1,289 ms failure and verifies consecutive fresh 20 ms samples.
+
+The phone now queues 64 endpoint-sized USB reads to receive data while its
+listener processes earlier packets. The candidate diagnostic synchronizes its
+hello handshake when opening a UART already streaming periodic messages;
+malformed packets after the handshake still fail the diagnostic.
+
+The normal app is being changed from the previous epoch 1700 actor to the
+explicitly allowlisted epoch 2750 CAD candidate. Its command limits are
++/-0.04 m/s forward, +/-0.02 m/s lateral and +/-0.1 rad/s yaw, with no posture
+commands. Runtime status identifies the epoch and actor hash. Hardware rate
+verification and installation of this final bundle are still pending here.
+
+### Candidate installed for Leo's supervised trial
+
+The final laptop-signed app built from `a1566be` is installed on the Pixel.
+APK SHA256: `c4282b69e2e339a45697e52b7c3d2e5388995e2a63551cd871ea1909eeb96681`.
+The live status reports epoch 2750, `current_body_v22_428`, weights
+`95b81a0056686a9d8de82d503e0a34072c45dfa2ddd3ceccfa738c69d969ea3c`,
+firmware 0.1.15, Actor ready, disarmed, and 7.4 V.
+
+All twelve saved physical zero angles, signs and limits, plus the IMU mapping,
+match the candidate calibration exactly. The app calibration now uses CAD drive
+coordinates, removing the four legacy parent terms. Its exact SHA256 is
+`6d5cccade24a54c8ff98e7e194f41af676c9f6268be15e44d9293b649090bfa6`;
+the previous calibration remains in app storage with `.legacy-before-v22` suffix.
+
+The motor-disabled diagnostic did not complete: its latest attempt timed out
+waiting for hello. The normal app subsequently connected and loaded the exact
+candidate. Leo requested an immediate trial without further diagnostic retries.
+This installation is a supervised candidate trial, not a passed physical 50 Hz
+or walking gate. Timing guards and the firmware watchdog remain active. Leo
+starts recording and all physical motion; no policy or motor run was started
+by an agent. Keep the first supported start and floor movement brief.
+
+### Fixed UI crash with the restricted candidate
+
+The app previously classified every non-V2 actor as supporting posture, then
+set each posture slider to a zero-width range for this candidate. Material
+Slider threw `valueFrom(0.0) must be smaller than valueTo(0.0)` while drawing.
+Posture availability now follows the actual command limits. Fixed commands
+stay disabled and retain valid drawing ranges.
+
+Commit `71e96b3` is installed. APK SHA256 is
+`0beab9ce6e310f3d00269f81eb6edbb2da33e2a0f677930249092219d3a57e9e`.
+The actual Pixel screen was visually inspected after a cold launch and again
+after returning from Home. It stays open, shows USB/Actor ready, and displays
+disabled posture sliders. Live status confirms epoch 2750 and disarmed state.
+The screenshot and status are retained in `desktop-pixel-evidence` outside Git.
+
+### First unsupported floor walk recorded
+
+Leo reports that the installed epoch 2750 candidate walks freely on the floor,
+slowly and unbalanced. The working source is tagged
+`robot-first-floor-walk-20260906` at `d745de3` on GitHub. The complete recording
+and policy capture were retrieved and hash-checked. It contains 25.385 seconds
+of policy operation at a fixed 0.04 m/s forward command, measured 46.445 Hz,
+and steady estimated body tilt with a 10.70-degree median and 21.07-degree peak.
+The run ends with a twelve-target packet validation error. This is a reported
+walking baseline, not a passed physical reliability or balance gate.
+
+See [the analysis and next experiment sequence](../../training/FIRST-FLOOR-WALK-20260906.md)
+for provenance, measured limitations and the corrected interpretation of the
+old offline 50 Hz gate. Raw captures and graphs remain outside Git.
+
+
+## Epoch 3750 Pixel test handoff (2026-09-07)
+
+The Pixel at `10.1.39.188:41395` has the restricted epoch 3750 test actor installed.
+
+- Checkpoint SHA-256: `964b3d4fc7e40ce841e1ef6167f162d0af89d8f9f8057757bf07e16ba79ea8b5`
+- Portable weights SHA-256: `4a4b716411962ee95c1cd6e6fafd815d8d9e8020eaa2393ef1edc4c3f1491c2e`
+- ONNX actor SHA-256: `b12395bccd9410a7c1ac4017e46b70e9b161cc3641839b9ada2d08252c20142a`
+- Installed APK SHA-256: `7efed627a69bcdbc8e02ab4e17ac5ba7f6142ae5490ca37a4d093ecbd98fc5a6`
+- On-device `OnnxPolicyParityTest`: 1 test passed.
+- Host `StrideReferenceTest` and `StrideSessionTest`: passed.
+
+The app was updated with `adb install -r -d`; existing app data and calibration were retained. The app starts successfully. Physical 50 Hz feedback, torque, and walking remain pending the ESP32-connected test; no motor command was issued during installation or verification.
+
+The installed APK uses the laptop runtime build and its existing signing key.
+This repository records the matching policy bundle and activation guard; it
+is not a claim that the installed APK was built from this entire checkout.
+
+### Corrected runtime after first-frame failure
+
+The initial epoch-3750 APK above was incorrectly built from the older laptop
+runtime, version 0.2.7/code 9. Actor parity passed but did not test construction
+of the V22 observations. Leo's first policy start failed before frame 1 with
+`Failed requirement`. The ST3215 load/current explanation was informational
+and unrelated to the failure.
+
+The corrected APK is built from the reviewed Robot-delivery runtime, version
+0.2.9/code 11, and signed with the existing laptop key. Its SHA256 is
+`ac3b49a5fff25765c2302b08f422988eba1a012dd8f4e41b2223cfcf3a1d5d7e`.
+App data was retained. Both on-device `InstalledPolicyFrameTest` and
+`OnnxPolicyParityTest` passed. The added test runs the installed epoch-3750
+contract, calibrated synthetic sensor feedback, 428-input observation builder,
+ONNX actor, and stride action processing for 60 frames without opening USB or
+starting a service. It also checks the first 50 frames' reset hold.
+
+This verifies the formerly missing runtime path, not physical control timing
+or walking. No agent initiated a physical policy retry.
+
+### Packet-count rejection investigation
+
+Leo's next trial reached command sequence 85, then stopped with
+`policy frame requires exactly 12 targets`. This matches the earlier recorded
+sequence-1180 failure. Host-side target validation and the earlier 203-byte
+TX record do not establish what the ESP32 received.
+
+Firmware `0.1.16-rxdiag` adds structured evidence to the same rejection:
+received length, sequence, target count and keys, document overflow, and up
+to 512 characters of the received policy line. It preserves target validation
+and watchdog behavior. The ESP32 build passed; firmware SHA256 is
+`a8b280bf490e521583ed473bad91b4b1393322d6ec0b960044a1ac3f2a7e3245`.
+It has not been flashed. Network update access was unavailable, and no
+serial device was attached to the laptop when checked.
+
+`Installed3750MonitorTransportTest` compiles and is explicitly gated by
+`robot_hardware=torque_off` and `policy_candidate=epoch3750`. It exercises
+the installed policy through the monitor-only firmware parser while recording
+TX/RX evidence. It has not been run. The packet failure is not yet fixed;
+next step is the direct USB firmware update and motor-disabled reproduction.
+
+Diagnostic firmware was subsequently flashed through laptop COM3 after manual
+download mode. The CP210x serial is `D822EACDED72EF119FD0734F8FCC3FA0`,
+and the ESP32 MAC is `30:76:f5:00:ae:74`. Esptool verified the written regions;
+NVS was not erased. Post-flash hello confirmed `0.1.16-rxdiag`, disarmed,
+monitor support, and the 8192-byte RX buffer.
+
+Monitor admission then failed because the servo bus did not respond: all
+twelve read-only torque-register probes returned no bytes, measured positions
+were empty, and battery voltage was unavailable. This does not establish
+enabled torque. The packet reproduction awaits restored servo power.
+The packet-count problem remains unresolved.
+
+The Android monitor diagnostic now distinguishes actual parser diagnostics
+from ordinary feedback, aborts if monitoring reports armed state, and cannot
+mark a run with recorded errors as passing. Instrumentation compilation passed.
+
+With servo power restored, a laptop monitor test sent 1250 packets without
+draining feedback concurrently and produced six invalid-JSON errors. That
+result was a test artifact caused by host receive starvation and must not be
+used as proof of the original fault. The corrected continuous-reader test sent
+1000 frames at 50 Hz; the final acknowledged sequence was 1000, with no parser
+or target-count errors. This does not prove the Pixel USB path or motor-loaded
+control is reliable.
+
+The Pixel monitor test APK was installed, but no current CP210x USB host
+device was available. Android reported UFP/device/sink mode; its CP210x
+entries were historical connection/permission records. A single request for
+source/host role did not change the actual role. The test now waits briefly
+for attachment and reports the enumerated devices instead of a generic
+NoSuchElementException. The Pixel test awaits a working host connection.
+The q256 Pixel capture later isolated transport loss. For sequence 62, the
+host recorded a 206-byte TX line while the firmware received 78 bytes; the
+missing range was bytes `[64,192)`. Sequence 1208 reproduced the same
+128-byte deletion (`208` TX, `80` RX, `[64,192)`), and sequence 911 lost
+`[65,193)` plus its newline, joining it to sequence 912. The host
+uses the actual four-decimal formatter, so these captures point to transport
+loss rather than target construction. The q256 run accumulated 46 firmware
+missed-feedback periods; the counter is cumulative, so this is not 1,242
+independent missed frames.
+
+Firmware `0.1.17` was then flashed app-only at `0x10000`; esptool verified
+SHA256 `2af466ed7ab6e70007e17fbebf1788cf747cbd25282b3d84bed52af3cfbb8a51`,
+with NVS preserved. It lowers the UART FIFO interrupt threshold to 32 bytes and adds atomic UART error
+counters. The corrected Pixel test APK is SHA256
+`a8b3b0a381f93251b0b330b7e558ee2083922434e420b754734fd6fa3a77dc99`;
+the production q256 APK is SHA256
+`6d0e38683aea511bfc1fc8260b54274c622b629f86fe08e4c4780c7affa05491`.
+
+The monitor timing diagnostic now reports inference timing separately from
+end-to-end frame work. Its q256 baseline measured about 48.29 Hz and ended
+with complete feedback, but the physical walking result is still unverified.
+Two subsequent Pixel monitor runs confirmed `0.1.17-rxdiag`, the configured
+FIFO threshold, and initial UART counters `[0,0,0,0]`. Both stopped at tick 10
+on a 61–62 ms firmware sample interval, after queued startup frames were sent
+in a burst. Moving reference/session setup before monitor admission did not
+resolve it. The latest installed test APK has SHA256
+`673e99111d29c03056f70c8e17e3342299d23e15ce84975e8d83c55319151968`.
+Neither run completed the 50 Hz acceptance check or established sustained
+transport reliability. Closing counter capture failed and remains under
+investigation. No motor targets were written.
+
+Battery telemetry reached 6.4 V, below the configured 6.6 V critical threshold.
+Powered tests stopped pending a charged battery. The app was reopened disarmed.
+The receive fix is installed, but the original walking retry remains blocked
+by the unresolved startup timing failure; no successful physical retry is claimed.
+
+### Bounded timing tolerance for Leo's requested trial
+
+Leo requested a trial without the hard stop on the observed 62 ms sample gap.
+Pixel 0.2.10, version code 12, accepts firmware sample intervals from 5 through
+120 ms and uses the actual elapsed time for velocity and gravity estimation.
+Duplicate/reversed timestamps and intervals above 120 ms still fail. The
+80 ms feedback wait timeout, 40 ms host feedback age checks, ESP32 120 ms
+command watchdog, target validation, and Stop control remain unchanged.
+The policy remains epoch 3750; this change does not establish reliable 50 Hz
+operation. The monitor diagnostic retains its strict timing acceptance gates.
+
+The focused sensor test passed for a 62 ms gap, clock rollover, duplicate and
+reversed timestamps, and a rejected 121 ms gap. The older recorded-data parity
+fixture still fails at frame zero as previously documented; it was not weakened.
+
+Pixel installation was verified as version 0.2.10/code 12. Signed APK SHA256:
+`64bb228d19de539ead704d7192f77da4e89b53c2eff06c0acc090f1415477bf2`.
+The APK's eight DEX hashes match the current local build. Installation used
+`adb install -r`, preserving application data. On the Pixel,
+`InstalledPolicyFrameTest` and `OnnxPolicyParityTest` both passed, exercising
+60 complete epoch-3750 frames and the actor reference vectors without USB or
+motor commands. A powered walking retry with this version has not been run.

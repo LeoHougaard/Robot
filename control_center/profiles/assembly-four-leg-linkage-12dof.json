@@ -38,7 +38,7 @@
       {"name":"_MDg4yzrzmMKgaKG7L_LR","semantic":"back_left_knee_flexion","direction":-1,"rest_position":0.0,"stiffness":22.0,"damping":0.8,"effort_limit":1.37,"velocity_limit":5.45,"armature":0.001}
     ]
   },
-  "training": {"stage":"V2Core","num_envs":512,"max_iterations":1000,"checkpoint":"","seed":42,"record_video":false,"video_interval":4000,"video_length":300},
+  "training": {"stage":"V2Core","num_envs":512,"max_iterations":1000,"checkpoint":"","seed":42,"record_video":false,"video_interval":4000,"video_length":600},
   "environment": {"surface":"Flat","static_friction":1.0,"dynamic_friction":0.9,"restitution":0.0,"physics_hz":200,"control_hz":25,"action_scale":0.30,"action_delta_limit":0.20,"action_filter_alpha":0.20,"action_limit_by_joint":[0.40,1.0,1.0,0.40,1.0,1.0,0.40,1.0,1.0,0.40,1.0,1.0],"stationary_planar_deadband":0.02,"stationary_yaw_deadband":0.03,"stationary_stance_action":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"episode_length_s":12.0,"termination_height":0.10,"env_spacing":1.5},
   "terrain": {"roughness_min":0.0025,"roughness_max":0.015,"slope_max":0.10,"step_height_min":0.004,"step_height_max":0.018,"step_width":0.16,"step_platform_width":0.80,"tile_size":4.0},
   "physics": {"solver_position_iterations":16,"solver_velocity_iterations":4,"self_collisions":false,"max_depenetration_velocity":0.5,"contact_patch_capacity":2097152},

@@ -4,8 +4,20 @@ set -Eeuo pipefail
 readonly TRAINING_ROOT="/workspace/projects/training"
 readonly RUNS_ROOT="${TRAINING_ROOT}/runs/simple_dog"
 
+# BEGIN immutable launcher
+# Bash may read the rest of a script after its long-running child returns.
+# A later source deployment must not change those unread instructions.
+if [[ "${BASH_SOURCE[0]##*/}" == "run_simple_dog.sh" ]]; then
+  mkdir -p "${TRAINING_ROOT}/runs/launchers"
+  frozen_script="$(mktemp "${TRAINING_ROOT}/runs/launchers/simple-dog.XXXXXXXX.sh")"
+  cp -- "${BASH_SOURCE[0]}" "$frozen_script"
+  chmod 0400 "$frozen_script"
+  exec /bin/bash "$frozen_script" "$@"
+fi
+# END immutable launcher
+
 terrain="${SIMPLE_DOG_TERRAIN:-flat}"
-if [[ "$terrain" == v2robust || "$terrain" == v2goal ||
+if [[ "$terrain" == v2robust || "$terrain" == v2goal || "$terrain" == currentbodyv22rough125 || "$terrain" == currentbodyv22roughbumps25 || "$terrain" == currentbodyv22stairs || "$terrain" == currentbodyv22variedlift ||
       ( "$terrain" == currentv3* && "$terrain" != currentv3core &&
         "$terrain" != currentv3reverse ) ]] &&
    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
@@ -42,6 +54,14 @@ case "$terrain" in
     readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Reverse-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
     ;;
+  currentv3forwardspecialist)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Forward-Specialist-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentv3reversespecialist)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Reverse-Specialist-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
   currentv3strafe)
     readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Strafe-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
@@ -61,6 +81,174 @@ case "$terrain" in
   currentv3rough)
     readonly TASK_NAME="Isaac-Locomotion-CurrentV3-Rough-Simple-Dog-Direct-v0"
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
+    ;;
+  currentbodyv4hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV4-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v4"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV4Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv5hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV5-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v5"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV5Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv6hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV6-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v6"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV6Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv7hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV7-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v7"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV7Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv8hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV8-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v8"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV8Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv9hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV9-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v9"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV9Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv10hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV10-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v10"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV10Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv11hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV11-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v11"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV11Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv12hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV12-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v12"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV12Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv13hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV13-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v13"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV13Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv14hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV14-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v14"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV14Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv15hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV15-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v15"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV15Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv16hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV16-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v16"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV16Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv17hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV17-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v17"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV17Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv18hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV18-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v18"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV18Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv19hard)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV19-Hard-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v19"
+    [[ -z "${SIMPLE_DOG_CHECKPOINT:-}" ]] || {
+      printf 'CurrentBodyV19Hard must start from random actor and optimizer initialization.\n' >&2
+      exit 2
+    }
+    ;;
+  currentbodyv20train)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV20-Train-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v20"
+    ;;
+  currentbodyv22rough125)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Rough125-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv22roughbumps25)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-RoughBumps25-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv22commands)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Commands-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv22variedlift)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-VariedLift-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv22stairs)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Stairs-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv22speed)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Speed-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv22acquire)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV22-Acquire-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v22"
+    ;;
+  currentbodyv21commands)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV21-Commands-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v21"
+    ;;
+  currentbodyv21acquire)
+    readonly TASK_NAME="Isaac-Locomotion-CurrentBodyV21-Acquire-Simple-Dog-Direct-v0"
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v21"
     ;;
   *)
     printf 'Invalid SIMPLE_DOG_TERRAIN: %s\n' "$terrain" >&2
@@ -87,12 +275,21 @@ esac
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${mode}-$$"
 run_dir="${RUNS_ROOT}/${run_id}"
 mkdir -p "$run_dir"
+cp -- "${BASH_SOURCE[0]}" "${run_dir}/launcher.sh"
+sha256sum "${run_dir}/launcher.sh" >"${run_dir}/launcher.sha256"
 
 printf '%s\n' "$$" >"${run_dir}/launcher.pid"
 printf 'running\n' >"${run_dir}/status"
 printf '%s\n' "$TASK_NAME" >"${run_dir}/task"
 printf '%s\n' "$num_envs" >"${run_dir}/num_envs"
 printf '%s\n' "$max_iterations" >"${run_dir}/max_iterations"
+if [[ -n "${SIMPLE_DOG_SEED_OVERRIDE:-}" ]]; then
+  [[ "$SIMPLE_DOG_SEED_OVERRIDE" =~ ^[0-9]+$ ]] || {
+    printf 'SIMPLE_DOG_SEED_OVERRIDE must be a non-negative integer.\n' >&2
+    exit 2
+  }
+  printf '%s\n' "$SIMPLE_DOG_SEED_OVERRIDE" >"${run_dir}/seed"
+fi
 
 if [[ -n "${SIMPLE_DOG_CONTROL_PROFILE:-}" ]]; then
   [[ "$SIMPLE_DOG_CONTROL_PROFILE" == /workspace/projects/training/control_profiles/*.json ]] || {
@@ -114,14 +311,22 @@ with open(os.environ["SIMPLE_DOG_CONTROL_PROFILE"], encoding="utf-8") as handle:
 PY
 fi
 
-if [[ "$terrain" == currentv3* ]]; then
+if [[ "$terrain" == currentv3* || "$terrain" == currentbodyv4* ||
+      "$terrain" == currentbodyv5* || "$terrain" == currentbodyv6* ||
+      "$terrain" == currentbodyv7* || "$terrain" == currentbodyv8* ||
+      "$terrain" == currentbodyv9* || "$terrain" == currentbodyv10* ||
+      "$terrain" == currentbodyv11* || "$terrain" == currentbodyv12* ||
+      "$terrain" == currentbodyv13* || "$terrain" == currentbodyv14* ||
+      "$terrain" == currentbodyv15* || "$terrain" == currentbodyv16* ||
+      "$terrain" == currentbodyv17* || "$terrain" == currentbodyv18* ||
+      "$terrain" == currentbodyv19* || "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 || "$terrain" == currentbodyv22roughbumps25 || "$terrain" == currentbodyv22stairs || "$terrain" == currentbodyv22variedlift ]]; then
   [[ "${SIMPLE_DOG_SIMULATION_FIT:-}" == /workspace/projects/training/fits/*.json ]] || {
-    printf 'CurrentV3 simulation fit is outside the training fits directory: %s\n' \
+    printf 'Current-aware simulation fit is outside the training fits directory: %s\n' \
       "${SIMPLE_DOG_SIMULATION_FIT:-missing}" >&2
     exit 2
   }
   [[ -f "$SIMPLE_DOG_SIMULATION_FIT" ]] || {
-    printf 'CurrentV3 simulation fit does not exist: %s\n' "$SIMPLE_DOG_SIMULATION_FIT" >&2
+    printf 'Current-aware simulation fit does not exist: %s\n' "$SIMPLE_DOG_SIMULATION_FIT" >&2
     exit 2
   }
   cp "$SIMPLE_DOG_SIMULATION_FIT" "${run_dir}/simulation-fit.json"
@@ -135,12 +340,30 @@ on_signal() {
 trap on_signal INT TERM
 
 if [[ -n "${SIMPLE_DOG_CHECKPOINT:-}" ]]; then
+  if [[ "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands ]]; then
+    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || exit 2
+  else
+    [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ]] || exit 2
+  fi
+  if [[ "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 || "$terrain" == currentbodyv22roughbumps25 || "$terrain" == currentbodyv22stairs || "$terrain" == currentbodyv22variedlift ]]; then
+    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v22_*/*.pth ]] || exit 2
+  else
+    [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v22_*/*.pth ]] || exit 2
+  fi
+  if [[ "$terrain" == currentbodyv20train ]]; then
+    [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || exit 2
+  else
+    [[ "$SIMPLE_DOG_CHECKPOINT" != /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || exit 2
+  fi
   [[ "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_velocity_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_rough_velocity_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
      "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
-     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ]] || {
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v21_*/*.pth ||
+     "$SIMPLE_DOG_CHECKPOINT" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v22_*/*.pth ]] || {
     printf 'Checkpoint is outside the simple-dog log directory: %s\n' "$SIMPLE_DOG_CHECKPOINT" >&2
     exit 2
   }
@@ -199,16 +422,31 @@ if [[ "${SIMPLE_DOG_RECORD_VIDEO:-0}" == 1 ]]; then
   )
 fi
 
+source_root="$TRAINING_ROOT"
+visualization_args=(--viz=none)
+if [[ "$terrain" == currentbodyv20train || "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 || "$terrain" == currentbodyv22roughbumps25 || "$terrain" == currentbodyv22stairs || "$terrain" == currentbodyv22variedlift ]]; then
+  # Keep NumPy/OpenBLAS workers out of Kit's startup fork. Scope this to the
+  # delivery process; do not change the host or preserved policy families.
+  export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+  if [[ "$terrain" == currentbodyv21acquire || "$terrain" == currentbodyv21commands || "$terrain" == currentbodyv22acquire || "$terrain" == currentbodyv22commands || "$terrain" == currentbodyv22speed || "$terrain" == currentbodyv22rough125 || "$terrain" == currentbodyv22roughbumps25 || "$terrain" == currentbodyv22stairs || "$terrain" == currentbodyv22variedlift ]]; then
+    # Process-local startup workaround validated in bounded diagnostics.
+    export OMNI_CRASHREPORTER_ENABLED=0
+    visualization_args=(--headless --device=cuda:0)
+  fi
+  /workspace/isaaclab/_isaac_sim/kit/python/bin/python3 "${TRAINING_ROOT}/snapshot_delivery_run.py" "$TRAINING_ROOT" "$run_dir"
+  source_root="${run_dir}/source"
+fi
+
 set +e
 PYTHONUNBUFFERED=1 \
-PYTHONPATH="$TRAINING_ROOT" \
+PYTHONPATH="$source_root" \
   /workspace/isaaclab/isaaclab.sh -p \
-  "${TRAINING_ROOT}/train_simple_dog.py" \
+  "${source_root}/train_simple_dog.py" \
   --task="$TASK_NAME" \
   --num_envs="$num_envs" \
   --max_iterations="$max_iterations" \
   "${video_args[@]}" \
-  --viz=none \
+  "${visualization_args[@]}" \
   >"${run_dir}/console.log" 2>&1
 exit_code=$?
 set -e

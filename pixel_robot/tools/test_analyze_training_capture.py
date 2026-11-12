@@ -42,6 +42,7 @@ class AnalyzeTrainingCaptureTest(unittest.TestCase):
                                 "feedback_us": 7_000,
                                 "current_us": 3_000,
                                 "frame_us": 11_000,
+                                "missed_feedback_periods": 0,
                                 "accel_mg": [0.0, 0.0, 1_000.0],
                                 "gyro_dps": [0.0, 0.0, 0.0],
                             },

@@ -9,6 +9,126 @@ import simple_dog_task  # noqa: F401
 import simple_dog_task_v2  # noqa: F401
 if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_v3":
     import simple_dog_task_current  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v4":
+    import simple_dog_task_current_body_v4  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v5":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v6":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v6  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v7":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v8":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v8  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v9":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v9  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v10":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v11":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v12":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v13":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v14":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v15":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+    import simple_dog_task_current_body_v15  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v16":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+    import simple_dog_task_current_body_v15  # noqa: F401
+    import simple_dog_task_current_body_v16  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v17":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+    import simple_dog_task_current_body_v15  # noqa: F401
+    import simple_dog_task_current_body_v16  # noqa: F401
+    import simple_dog_task_current_body_v17  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v18":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+    import simple_dog_task_current_body_v15  # noqa: F401
+    import simple_dog_task_current_body_v16  # noqa: F401
+    import simple_dog_task_current_body_v17  # noqa: F401
+    import simple_dog_task_current_body_v18  # noqa: F401
+elif os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v19":
+    import simple_dog_task_current_body_v4  # noqa: F401
+    import simple_dog_task_current_body_v5  # noqa: F401
+    import simple_dog_task_current_body_v7  # noqa: F401
+    import simple_dog_task_current_body_v10  # noqa: F401
+    import simple_dog_task_current_body_v11  # noqa: F401
+    import simple_dog_task_current_body_v12  # noqa: F401
+    import simple_dog_task_current_body_v13  # noqa: F401
+    import simple_dog_task_current_body_v14  # noqa: F401
+    import simple_dog_task_current_body_v15  # noqa: F401
+    import simple_dog_task_current_body_v16  # noqa: F401
+    import simple_dog_task_current_body_v17  # noqa: F401
+    import simple_dog_task_current_body_v18  # noqa: F401
+    import simple_dog_task_current_body_v19  # noqa: F401
+if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_body_v20":
+    import simple_dog_task_current_body_v20  # noqa: F401
 from robot_control_profile import apply_agent_profile, load_control_profile
 
 import isaaclab_tasks.utils as isaac_task_utils
@@ -20,7 +140,14 @@ original_resolve_task_config = isaac_task_utils.resolve_task_config
 
 def resolve_task_config_with_profile(*args, **kwargs):
     env_cfg, agent_cfg = original_resolve_task_config(*args, **kwargs)
-    return env_cfg, apply_agent_profile(agent_cfg, control_profile)
+    agent_cfg = apply_agent_profile(agent_cfg, control_profile)
+    evidence = os.environ.get("SIMPLE_DOG_EVALUATION_EVIDENCE")
+    if evidence:
+        from pathlib import Path
+        from isaaclab.utils.io import dump_yaml
+        dump_yaml(str(Path(evidence) / "resolved_env.yaml"), env_cfg)
+        dump_yaml(str(Path(evidence) / "resolved_agent.yaml"), agent_cfg)
+    return env_cfg, agent_cfg
 
 
 isaac_task_utils.resolve_task_config = resolve_task_config_with_profile

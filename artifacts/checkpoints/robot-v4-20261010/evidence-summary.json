@@ -1,0 +1,597 @@
+{
+  "checkpoint_date": "2026-10-10",
+  "device": {
+    "local_evidence": "validation/results/device-001/instrumentation.txt",
+    "result": "OK",
+    "scope": "Selected installed service/lifecycle/frame/parity tests, recorded earlier; no robot transport",
+    "sha256": "2f0f07d5d2d495930bf7f5f62f31decebbc67cd6464c138175001733608d41ec",
+    "test_count": 6
+  },
+  "firmware_compile_only_evidence": "robot_dog/firmware/robot-dog-control/test/compile-only-evidence.json",
+  "local_provider": {
+    "cases": [
+      {
+        "elapsed_seconds": 70.41788159999851,
+        "kind": "stop_request",
+        "status": "complete_strict_intent",
+        "within_app_deadline": false
+      },
+      {
+        "elapsed_seconds": 61.88091889999487,
+        "kind": "velocity_request",
+        "status": "complete_strict_intent",
+        "within_app_deadline": false
+      },
+      {
+        "elapsed_seconds": 32.54699519999849,
+        "kind": "clarify",
+        "status": "complete_strict_intent",
+        "within_app_deadline": false
+      }
+    ],
+    "local_report": "validation/results/local-provider-001/report.json",
+    "physical_execution": false,
+    "qualification": "not_qualified",
+    "sha256": "2c3e21e7c446146bcb997b582d96785fe1cc7eaaa00dad57080b081139ea89e0"
+  },
+  "reports": [
+    {
+      "finished_at": "2026-10-02T23:14:02.770021+00:00",
+      "full_offline_passed": true,
+      "local_report": "validation/results/final-offline-003/latest.json",
+      "outstanding": {
+        "android": {
+          "reason": "Android build/device/USB and runtime integration remain unrun; no Android tools or device calls are made here.",
+          "status": "SKIPPED"
+        },
+        "firmware": {
+          "reason": "Full board/transport/watchdog acceptance remains outstanding; native fake-bus tests and separately recorded ESP32 compilation do not satisfy this gate. No flash or serial calls are made here.",
+          "status": "SKIPPED"
+        },
+        "firmware-host": {
+          "reason": "Native firmware handler/framing/watchdog assertions require an explicit local ArduinoJson include path and host C++ compiler; this is not a board/transport test.",
+          "status": "SKIPPED"
+        },
+        "hardware": {
+          "reason": "Physical robot acceptance requires Leo's explicit operation and measured evidence; this runner cannot initiate motion or certify physical safety.",
+          "status": "SKIPPED"
+        },
+        "isaac": {
+          "reason": "Matched Isaac/GPU evaluation remains unrun; use the documented operator-managed backend workflow with workload/identity checks.",
+          "status": "SKIPPED"
+        },
+        "live-model": {
+          "reason": "No live model was measured. Supply an existing completion-inclusive report, holdout corpus, capabilities, and explicit criteria to the read-only live-model profile.",
+          "status": "SKIPPED"
+        },
+        "pixel-capture": {
+          "reason": "Original recorded Pixel walk capture remains unverified; run --profile pixel-capture with the exact dated local capture present. Synthetic host tools tests do not satisfy this gate.",
+          "status": "SKIPPED"
+        }
+      },
+      "physical_execution": false,
+      "physical_safety_certified": false,
+      "plan_sha256": "80c6838ba8b0f698f7a40b9d9a42c648306c7ac1e7ec428c6d2c7cb9646e733f",
+      "profile": "offline",
+      "report_sha256": "500428bcc6e2d562d069c2686cbbff1c448362be6b04809432d4ff67d1b7e6c1",
+      "source_after": {
+        "base": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "file_count": 612,
+        "head": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "sha256": "03ecccad7ce153be0fc29f23d11bb3fc7c6753ce8c564309e401d0597ffd29a1"
+      },
+      "source_before": {
+        "base": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "file_count": 612,
+        "head": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "scope": "Git tracked and nonignored untracked worktree files; generated/ignored files excluded",
+        "sha256": "03ecccad7ce153be0fc29f23d11bb3fc7c6753ce8c564309e401d0597ffd29a1"
+      },
+      "started_at": "2026-10-02T23:12:41.495143+00:00",
+      "status": "PASS",
+      "steps": [
+        {
+          "details": {
+            "collected": 61,
+            "discovered": 61,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 61,
+            "run": 61,
+            "skipped": 0,
+            "test_ids_sha256": "9f203347fa34549a5cbb017d804e6bfc02bd0561e694e7f6e3c283387886d5ad"
+          },
+          "duration_seconds": 1.2201657509999997,
+          "name": "runner-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": 0.4183178310000031,
+          "name": "python-syntax",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 174,
+            "discovered": 174,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 74,
+            "run": 174,
+            "skipped": 0,
+            "test_ids_sha256": "0ad767d9869b76b592fe580862432c1873dd25eec13ae9f5820215e09db40a48"
+          },
+          "duration_seconds": 2.1222681970000004,
+          "name": "llm-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 41,
+            "discovered": 41,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 41,
+            "run": 41,
+            "skipped": 0,
+            "test_ids_sha256": "112f7058b9bc1464878578e680f7e66072cae545bc1d103e42bafc4295b9b9de"
+          },
+          "duration_seconds": 0.4177857299999985,
+          "name": "qwen-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 25,
+            "discovered": 25,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 25,
+            "run": 25,
+            "skipped": 0,
+            "test_ids_sha256": "a7ce3f7ae2a6d9dc2534260b60f6ae8ab49e991e2f0dc14e9b4f0fbb0662c3af"
+          },
+          "duration_seconds": 0.1675878510000004,
+          "name": "control-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 23,
+            "discovered": 23,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 23,
+            "run": 23,
+            "skipped": 0,
+            "test_ids_sha256": "b90a01183426a3c06f141c40ee1cf151f01945c2947df71b49afde4f36e868c0"
+          },
+          "duration_seconds": 0.11703339999999685,
+          "name": "policy-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 11,
+            "discovered": 11,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 11,
+            "run": 11,
+            "skipped": 0,
+            "test_ids_sha256": "b90fdb8787c8652068cbe1cccb36b53f655d68d7ed10ebaf5271a267c0beca07"
+          },
+          "duration_seconds": 0.11704169799999775,
+          "name": "onshape-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 16,
+            "discovered": 17,
+            "errors": 0,
+            "excluded_external_tests": [
+              "test_fit_sim_from_run_data.FitSimFromRunDataTest.test_downloaded_walk_matches_calibration_golden"
+            ],
+            "failures": 0,
+            "minimum": 16,
+            "run": 16,
+            "scope": "Portable authored capture/data-tool fixtures; original recorded walk is a separate gate",
+            "skipped": 0,
+            "test_ids_sha256": "4a443ba95d15f98cd0ed3c7b9fabe8cdeb0d2805d6b227427f3dde2307fe6af9"
+          },
+          "duration_seconds": 0.1675487629999992,
+          "name": "pixel-tools-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 65,
+            "discovered": 65,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 65,
+            "run": 65,
+            "scope": "Read-only local setup diagnostic regressions; not backend/device acceptance",
+            "skipped": 0,
+            "test_ids_sha256": "553d8e60051e2984efaf8005938925a19f402d7191cf5e28c179316915413b6d"
+          },
+          "duration_seconds": 3.2755476759999986,
+          "name": "preflight-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 87,
+            "discovered": 87,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 87,
+            "run": 87,
+            "scope": "Legacy 180-value Python runtime with fake transport; no serial port or hardware",
+            "skipped": 0,
+            "test_ids_sha256": "0ac90f5aae35f6842cb466021aed5302cb639578a24faf284f3737b54dfa2804"
+          },
+          "duration_seconds": 0.5706760839999987,
+          "name": "policy-runtime-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "android_build_verified": false,
+            "compile_only_production_sources": [
+              "PolicyController.kt",
+              "OnnxPolicy.kt"
+            ],
+            "dependency_hashes": {
+              "annotations-13.0.jar": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478",
+              "hamcrest-core-1.3.jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9",
+              "json-20250517.jar": "3ea61b2a06e31edf1c91134fe9106b0ebb16628be169f3db75bc7a2b06b45796",
+              "junit-4.13.2.jar": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3",
+              "kotlin-compiler-embeddable-2.2.20.jar": "1c6c3f810bfe6a41abcbc34b3a2ef639f1e3f4aeed3a953a4b0974eea4f41889",
+              "kotlin-daemon-embeddable-2.2.20.jar": "7c5c8cd2f8beadd3283239bb9ca219a0cafa1af02682b407b181e1179718f2f7",
+              "kotlin-reflect-1.6.10.jar": "3277ac102ae17aad10a55abec75ff5696c8d109790396434b496e75087854203",
+              "kotlin-script-runtime-2.2.20.jar": "5c8bd5dd7ae1ea2eeb2778fdbeaa19a562184975f6cab8a0bb6779e4190731ae",
+              "kotlin-stdlib-2.2.20.jar": "8836ccffd3585fadda9901244b20d42901d2f3cd581058d8434e2ffabcf3a3e7",
+              "kotlinx-coroutines-core-jvm-1.10.2.jar": "5ca175b38df331fd64155b35cd8cae1251fa9ee369709b36d42e0a288ccce3fd",
+              "okhttp-4.12.0.jar": "b1050081b14bb7a3a7e55a4d3ef01b5dcfabc453b4573a4fc019767191d5f4e0",
+              "okio-jvm-3.6.0.jar": "67543f0736fc422ae927ed0e504b98bc5e269fda0d3500579337cb713da28412",
+              "onnxruntime-android-1.26.0-classes.jar": "3755d307aaa566daa1ebd4e9e792303fac78ea8517f29bfa49da5eb9a7a6051b"
+            },
+            "excluded_sources": [
+              "MainActivity.kt",
+              "RobotService.kt",
+              "UsbRobotTransport.kt"
+            ],
+            "hardware_access": false,
+            "minimum": 157,
+            "scope": "pixel-production-kotlin-host-unit-tests",
+            "source_fingerprint": "92b478d3a2abd56ec7295db77012932035001d9673431203c8ea9cf337058345",
+            "test_count": 157,
+            "test_ids_sha256": "d8e091e7f0231ebc33aab4f4329220619f8eaf7e6d20e8d9e2424f3116c4f26d"
+          },
+          "duration_seconds": 43.089791154,
+          "name": "pixel-jvm",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "android_webview_verified": false,
+            "hardware_access": false,
+            "live_control_script_executed": false,
+            "minimum": 48,
+            "network_access": false,
+            "production_html_sha256": "d5fa0f9751e7625c306c67d50765f8a3b0e9726b9dc9a2826724de927fd2aedd",
+            "production_script_sha256": "be5bb3050ec5d5ccc37709f9ac9429e12e20df28a12f1a7c6023ff086389c021",
+            "scope": "pixel-production-shadow-panel-dom-stub-tests",
+            "scope_note": "Actual shadow-panel JavaScript with authored DOM/fetch stubs; no browser/WebView, live provider or physical acceptance",
+            "test_count": 48,
+            "test_ids_sha256": "eeb35ec791aaca99f27ab26ec6c5c5bf2f57f10d7e6cbaa7c392ce8b1875dc9e",
+            "test_source_sha256": "165f7f6641222b1a2fa347461cc0cc77771a5015d7b337cf73af97cc936ba289"
+          },
+          "duration_seconds": 0.31786011100000167,
+          "name": "pixel-web-ui",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 20,
+            "demo": {
+              "actor_output_size": 12,
+              "actor_parity": {
+                "atol": 2e-06,
+                "cases": 8,
+                "max_abs_error": 5.960464477539062e-07,
+                "rtol": 1e-05
+              },
+              "clock_kind": "deterministic_fixture_clock_not_realtime_measurement",
+              "cold_start_wall_seconds": 3.262378740999992,
+              "fixture_run_wall_seconds": 0.41274335699999654,
+              "frames": 200,
+              "hardware_access": false,
+              "language_model_inference": false,
+              "observation_size": 428,
+              "outcome_states": [
+                "shadow_accepted",
+                "expired"
+              ],
+              "policy_actor_inference": true,
+              "revoked_frame_publication_rejected": true,
+              "stop_outcome": "stop_requested"
+            },
+            "discovered": 20,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 20,
+            "run": 20,
+            "scope": "Actual current Pixel actor and Kotlin math with authored/synthetic feedback; no language-model inference or hardware",
+            "skipped": 0,
+            "test_ids_sha256": "4d2946b38cb43f650e4a6bc931fea44e62fc563fab5fc904187ec3cc46980662"
+          },
+          "duration_seconds": 20.773444624999996,
+          "name": "pixel-runtime",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "scope": "Authored fixture regression only; wrong/unsafe admits are deliberate test doubles",
+            "summary": {
+              "appropriate_clarifications": 6,
+              "cases": 32,
+              "clarification_recall": 1.0,
+              "expected_clarifications": 6,
+              "expired_count": 0,
+              "invalid_response_count": 3,
+              "latency_ms_p50": 25.5,
+              "latency_ms_p95": 40.45,
+              "latency_scope": "synthetic fixture values",
+              "parser_rejected_count": 0,
+              "provider_error_count": 1,
+              "repair_observations": {
+                "changed": 1,
+                "not_applicable": 31
+              },
+              "repaired_invalid_candidates": 1,
+              "semantic_correct_count": 25,
+              "semantic_correct_rate": 0.78125,
+              "semantic_match_count": 25,
+              "semantic_match_rate": 0.78125,
+              "shadow_accepted_count": 11,
+              "shadow_accepted_rate": 0.34375,
+              "timed_out_count": 1,
+              "timed_out_rate": 0.03125,
+              "unnecessary_clarifications": 0,
+              "unsafe_accept_count": 1,
+              "unsafe_accept_rate": 0.03125,
+              "wrong_accept_count": 2,
+              "wrong_accept_rate": 0.0625
+            }
+          },
+          "duration_seconds": 0.167033993000004,
+          "name": "fixtures",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": 0.1169238570000033,
+          "name": "offline-guard-probe",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": 0.11700071599999262,
+          "name": "bash-syntax",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": 0.16722656099999256,
+          "name": "baml-generate",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 9,
+            "discovered": 9,
+            "errors": 0,
+            "excluded_external_tests": [],
+            "failures": 0,
+            "minimum": 8,
+            "run": 9,
+            "skipped": 0,
+            "test_ids_sha256": "420caccacfd5afdaf3098c1bb5c47e83e6781e63d5e177c68f5dc374f5a6af9e"
+          },
+          "duration_seconds": 0.3677218419999946,
+          "name": "baml-unit",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "collected": 68,
+            "executed_unique": 68,
+            "failed_reports": 0,
+            "minimum": 68,
+            "passed_reports": 75,
+            "test_ids_sha256": "32a8af0ffea61a9da6dbbb96564d086944b013b2f36c78deb2d126d3e049117a"
+          },
+          "duration_seconds": 3.7818778030000004,
+          "name": "cpu-torch",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {
+            "scope": "Diagnostic generated and validated; NOT gait acceptance or physical safety",
+            "variants": {
+              "highlift": {
+                "command_count": 14,
+                "full_residual_envelope_fits_fraction": 0.9659441113471985,
+                "min_bilateral_residual_headroom_rad": 0.01309737004339695,
+                "phase_samples_per_command": 201,
+                "raw_peak_joint_target_rad": 0.28690263628959656
+              },
+              "standard": {
+                "command_count": 14,
+                "full_residual_envelope_fits_fraction": 0.9737029075622559,
+                "min_bilateral_residual_headroom_rad": 0.019663900136947632,
+                "phase_samples_per_command": 201,
+                "raw_peak_joint_target_rad": 0.2637823522090912
+              }
+            }
+          },
+          "duration_seconds": 1.4757302950000053,
+          "name": "gait-probe",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": null,
+          "name": "source-stability",
+          "returncode": null,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": null,
+          "name": "dependency-stability",
+          "returncode": null,
+          "status": "PASS"
+        }
+      ]
+    },
+    {
+      "finished_at": "2026-10-02T23:05:55.297827+00:00",
+      "full_offline_passed": false,
+      "local_report": "validation/results/firmware-host-001/latest.json",
+      "outstanding": {
+        "android": {
+          "reason": "Android build/device/USB and runtime integration remain unrun; no Android tools or device calls are made here.",
+          "status": "SKIPPED"
+        },
+        "firmware": {
+          "reason": "Full board/transport/watchdog acceptance remains outstanding; native fake-bus tests and separately recorded ESP32 compilation do not satisfy this gate. No flash or serial calls are made here.",
+          "status": "SKIPPED"
+        },
+        "hardware": {
+          "reason": "Physical robot acceptance requires Leo's explicit operation and measured evidence; this runner cannot initiate motion or certify physical safety.",
+          "status": "SKIPPED"
+        },
+        "isaac": {
+          "reason": "Matched Isaac/GPU evaluation remains unrun; use the documented operator-managed backend workflow with workload/identity checks.",
+          "status": "SKIPPED"
+        },
+        "live-model": {
+          "reason": "No live model was measured. Supply an existing completion-inclusive report, holdout corpus, capabilities, and explicit criteria to the read-only live-model profile.",
+          "status": "SKIPPED"
+        },
+        "pixel-capture": {
+          "reason": "Original recorded Pixel walk capture remains unverified; run --profile pixel-capture with the exact dated local capture present. Synthetic host tools tests do not satisfy this gate.",
+          "status": "SKIPPED"
+        }
+      },
+      "physical_execution": false,
+      "physical_safety_certified": false,
+      "plan_sha256": "98e6bb44fc530d51759743100a067122e03470fda09b767e8dba8f702255d3bf",
+      "profile": "firmware-host",
+      "report_sha256": "832b296c8565c1826795759dd72a605f5c6bbf9a35556e024c5db73bd563f203",
+      "source_after": {
+        "base": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "file_count": 610,
+        "head": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "sha256": "c0d1417f7d821cb7406645f4ca8ebfb795c4fb0eb2aa1d17e7a46ab7bff05b66"
+      },
+      "source_before": {
+        "base": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "file_count": 610,
+        "head": "27878e11f8d1c023fe9e1c1f62b4a3e18ba1f869",
+        "scope": "Git tracked and nonignored untracked worktree files; generated/ignored files excluded",
+        "sha256": "c0d1417f7d821cb7406645f4ca8ebfb795c4fb0eb2aa1d17e7a46ab7bff05b66"
+      },
+      "started_at": "2026-10-02T23:05:52.775709+00:00",
+      "status": "PASS",
+      "steps": [
+        {
+          "details": {
+            "arduinojson_version": "7.4.3",
+            "board_build_verified": false,
+            "covered": [
+              "production policy handlers",
+              "UART framing",
+              "watchdog transitions",
+              "read-only monitor"
+            ],
+            "hardware_access": false,
+            "limitation": "Extracted production handlers and fake dependencies; no ESP32 binary execution, serial port, or board timing verification",
+            "physical_execution": false,
+            "scope": "native-firmware-fake-bus-assertions",
+            "source_sha256": "216b865ff673e6ee93089ef844625e7bec9b3b8e3b70366902028e9d5cd5110f"
+          },
+          "duration_seconds": 1.9736439460000006,
+          "name": "firmware-host",
+          "returncode": 0,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": null,
+          "name": "firmware-input-stability",
+          "returncode": null,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": null,
+          "name": "source-stability",
+          "returncode": null,
+          "status": "PASS"
+        },
+        {
+          "details": {},
+          "duration_seconds": null,
+          "name": "dependency-stability",
+          "returncode": null,
+          "status": "PASS"
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "source_comparison": {
+    "different": 0,
+    "manifest": "validation/results/final-offline-003/cycle-001/source-after.json",
+    "manifest_sha256": "c0768e47df51c880d0bc5ff54306eaef177e46a9262f8eea76c6bb290d1ae388",
+    "matched_byte_for_byte": 612,
+    "missing": 0,
+    "scope": "Matches existing evidence; new checkpoint metadata is outside the historical manifest"
+  },
+  "tests_rerun_for_checkpoint": false
+}

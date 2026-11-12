@@ -9,8 +9,9 @@ readonly EVIDENCE="/workspace/projects/training/diagnostics/control-profile-robo
   printf 'Invalid or missing deployed control profile: %s\n' "$PROFILE" >&2
   exit 2
 }
-[[ "$TASK" == Isaac-Locomotion-V2-*-Simple-Dog-Direct-v0 ]] || {
-  printf 'Invalid V2 validation task: %s\n' "$TASK" >&2
+[[ "$TASK" == Isaac-Locomotion-V2-*-Simple-Dog-Direct-v0 ||
+   "$TASK" == Isaac-Locomotion-CurrentV3-Rough-Simple-Dog-Direct-v0 ]] || {
+  printf 'Invalid V2/CurrentV3 validation task: %s\n' "$TASK" >&2
   exit 2
 }
 

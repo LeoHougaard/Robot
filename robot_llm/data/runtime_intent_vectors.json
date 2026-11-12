@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "description": "Shared authored intent admission examples, current Pixel metadata, fresh host envelope and explicit unqualified shadow grant; not language-model evidence.",
+  "cases": [
+    {
+      "name": "valid-forward",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "shadow_accepted"
+    },
+    {
+      "name": "valid-three-axes",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": -0.03, \"lateral_m_s\": 0.01, \"yaw_rate_rad_s\": -0.08, \"duration_ms\": 100}",
+      "expected": "shadow_accepted"
+    },
+    {
+      "name": "exact-upper-bounds",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.04, \"lateral_m_s\": 0.02, \"yaw_rate_rad_s\": 0.1, \"duration_ms\": 100}",
+      "expected": "shadow_accepted"
+    },
+    {
+      "name": "duration-upper-bound",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 1000}",
+      "expected": "shadow_accepted"
+    },
+    {
+      "name": "too-long-capability",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 1001}",
+      "expected": "rejected"
+    },
+    {
+      "name": "over-forward",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.0400000001, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "wrong-frame",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"world\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "numeric-string",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": \".02\", \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "bool-number",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": true, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "floating-duration",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100.0}",
+      "expected": "rejected"
+    },
+    {
+      "name": "nan",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": NaN, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "infinite-exponent",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 1e999, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "negative-duration",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": -1}",
+      "expected": "rejected"
+    },
+    {
+      "name": "unknown-grant-field",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100, \"authorization\": true}",
+      "expected": "rejected"
+    },
+    {
+      "name": "duplicate-kind",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100,\"kind\":\"stop_request\"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "escaped-duplicate-kind",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100,\"\\u006bind\":\"stop_request\"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "trailing-object",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}{}",
+      "expected": "rejected"
+    },
+    {
+      "name": "fenced-json",
+      "raw": "```json\n{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}\n```",
+      "expected": "rejected"
+    },
+    {
+      "name": "nested-plan",
+      "raw": "{\"schema_version\":1,\"kind\":\"velocity_request\",\"plan\":[]}",
+      "expected": "rejected"
+    },
+    {
+      "name": "leading-zero",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 00.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "exponent-duration",
+      "raw": "{\"schema_version\": 1, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 1e2}",
+      "expected": "rejected"
+    },
+    {
+      "name": "clarification",
+      "raw": "{\"schema_version\":1,\"kind\":\"clarify\",\"question\":\"Which speed?\"}",
+      "expected": "clarify"
+    },
+    {
+      "name": "unsupported",
+      "raw": "{\"schema_version\":1,\"kind\":\"unsupported\",\"reason\":\"No world localization.\"}",
+      "expected": "unsupported"
+    },
+    {
+      "name": "model-stop",
+      "raw": "{\"schema_version\":1,\"kind\":\"stop_request\"}",
+      "expected": "stop_requested"
+    },
+    {
+      "name": "empty-text",
+      "raw": "{\"schema_version\":1,\"kind\":\"clarify\",\"question\":\" \"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "unpaired-unicode",
+      "raw": "{\"schema_version\":1,\"kind\":\"clarify\",\"question\":\"\\ud800\"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "valid-unicode",
+      "raw": "{\"schema_version\":1,\"kind\":\"clarify\",\"question\":\"\\ud83d\\udc3e?\"}",
+      "expected": "clarify"
+    },
+    {
+      "name": "decimal-schema",
+      "raw": "{\"schema_version\": 1.0, \"kind\": \"velocity_request\", \"frame\": \"body\", \"forward_m_s\": 0.02, \"lateral_m_s\": 0, \"yaw_rate_rad_s\": 0, \"duration_ms\": 100}",
+      "expected": "rejected"
+    },
+    {
+      "name": "python-next-line-blank",
+      "raw": "{\"schema_version\": 1, \"kind\": \"clarify\", \"question\": \"\\u0085\"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "python-record-separator-blank",
+      "raw": "{\"schema_version\": 1, \"kind\": \"clarify\", \"question\": \"\\u001e\"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "python-ideographic-blank",
+      "raw": "{\"schema_version\": 1, \"kind\": \"clarify\", \"question\": \"\\u3000\"}",
+      "expected": "rejected"
+    },
+    {
+      "name": "zero-width-is-content",
+      "raw": "{\"schema_version\": 1, \"kind\": \"clarify\", \"question\": \"\\u200b\"}",
+      "expected": "clarify"
+    }
+  ]
+}

@@ -6,7 +6,10 @@ param(
     [ValidateRange(1, 100000)]
     [int]$MaxIterations = 500,
 
-    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")]
+    [ValidateRange(0, 2147483647)]
+    [Nullable[int]]$Seed = $null,
+
+    [ValidateSet("Flat", "Rough", "V2Core", "V2Robust", "V2Goal", "V2Rough", "CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough", "CurrentBodyV4Hard", "CurrentBodyV5Hard", "CurrentBodyV6Hard", "CurrentBodyV7Hard", "CurrentBodyV8Hard", "CurrentBodyV9Hard", "CurrentBodyV10Hard", "CurrentBodyV11Hard", "CurrentBodyV12Hard", "CurrentBodyV13Hard", "CurrentBodyV14Hard", "CurrentBodyV15Hard", "CurrentBodyV16Hard", "CurrentBodyV17Hard", "CurrentBodyV18Hard", "CurrentBodyV19Hard", "CurrentBodyV20Train", "CurrentBodyV21Acquire", "CurrentBodyV21Commands", "CurrentBodyV22Acquire", "CurrentBodyV22Commands", "CurrentBodyV22Speed", "CurrentBodyV22Rough125", "CurrentBodyV22RoughBumps25", "CurrentBodyV22Stairs", "CurrentBodyV22VariedLift")]
     [string]$Terrain = "Flat",
 
     [string]$Checkpoint = "",
@@ -63,6 +66,9 @@ $sshOptions = @(
     "-o", "IdentitiesOnly=yes",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
+    "-o", "ConnectionAttempts=1",
+    "-o", "ServerAliveInterval=5",
+    "-o", "ServerAliveCountMax=2",
     "-o", "StrictHostKeyChecking=yes",
     "-o", "HostKeyAlias=gx10-ddb2.local"
 )
@@ -73,22 +79,76 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $localTraining -PathType Container)) {
     throw "Local simple-dog training package was not found: $localTraining"
 }
-if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$') {
+if ($Checkpoint -and $Checkpoint -notmatch '^/workspace/projects/training/logs/rl_games/(simple_dog_(rough_)?velocity_direct|simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+|simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+|quadruped_current_body_v2[012]_[A-Za-z0-9_-]+)/[A-Za-z0-9_./-]+\.pth$') {
     throw "Checkpoint must be a .pth file below a supported simple-dog training log directory."
 }
 $isV2Terrain = $Terrain -in @("V2Core", "V2Robust", "V2Goal", "V2Rough")
 $isV2Checkpoint = $Checkpoint -match '^/workspace/projects/training/logs/rl_games/(simple_dog_v2_locomotion_direct|quadruped_v2_[A-Za-z0-9_-]+)/'
-$currentTerrains = @("CurrentV3Core", "CurrentV3Reverse", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")
+$currentTerrains = @("CurrentV3Core", "CurrentV3Reverse", "CurrentV3ForwardSpecialist", "CurrentV3ReverseSpecialist", "CurrentV3Strafe", "CurrentV3Turn", "CurrentV3Goal", "CurrentV3Posture", "CurrentV3Rough")
 $isCurrentTerrain = $Terrain -in $currentTerrains
 $isCurrentCheckpoint = $Checkpoint -match '^/workspace/projects/training/logs/rl_games/(simple_dog_current_v3_rough_direct|quadruped_current_v3_[A-Za-z0-9_-]+)/'
-if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
-    throw "V1, V2, and CurrentV3 checkpoints are not interchangeable because their policy observations differ."
+$v4Terrains = @("CurrentBodyV4Hard")
+$isV4Terrain = $Terrain -in $v4Terrains
+$v5Terrains = @("CurrentBodyV5Hard")
+$isV5Terrain = $Terrain -in $v5Terrains
+$v6Terrains = @("CurrentBodyV6Hard")
+$isV6Terrain = $Terrain -in $v6Terrains
+$v7Terrains = @("CurrentBodyV7Hard")
+$isV7Terrain = $Terrain -in $v7Terrains
+$v8Terrains = @("CurrentBodyV8Hard")
+$isV8Terrain = $Terrain -in $v8Terrains
+$v9Terrains = @("CurrentBodyV9Hard")
+$isV9Terrain = $Terrain -in $v9Terrains
+$v10Terrains = @("CurrentBodyV10Hard")
+$isV10Terrain = $Terrain -in $v10Terrains
+$v11Terrains = @("CurrentBodyV11Hard")
+$isV11Terrain = $Terrain -in $v11Terrains
+$v12Terrains = @("CurrentBodyV12Hard")
+$isV12Terrain = $Terrain -in $v12Terrains
+$v13Terrains = @("CurrentBodyV13Hard")
+$isV13Terrain = $Terrain -in $v13Terrains
+$v14Terrains = @("CurrentBodyV14Hard")
+$isV14Terrain = $Terrain -in $v14Terrains
+$v15Terrains = @("CurrentBodyV15Hard")
+$isV15Terrain = $Terrain -in $v15Terrains
+$v16Terrains = @("CurrentBodyV16Hard")
+$isV16Terrain = $Terrain -in $v16Terrains
+$v17Terrains = @("CurrentBodyV17Hard")
+$isV17Terrain = $Terrain -in $v17Terrains
+$v18Terrains = @("CurrentBodyV18Hard")
+$isV18Terrain = $Terrain -in $v18Terrains
+$v19Terrains = @("CurrentBodyV19Hard")
+$isV19Terrain = $Terrain -in $v19Terrains
+$v20Terrains = @("CurrentBodyV20Train")
+$isV20Terrain = $Terrain -in $v20Terrains
+$v22Terrains = @("CurrentBodyV22Acquire", "CurrentBodyV22Commands", "CurrentBodyV22Speed", "CurrentBodyV22Rough125", "CurrentBodyV22RoughBumps25", "CurrentBodyV22Stairs", "CurrentBodyV22VariedLift")
+$isV22Terrain = $Terrain -in $v22Terrains
+if ($Checkpoint -and (($isV22Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v22_"))) {
+    throw "CAD-drive checkpoints require a CurrentBodyV22 terrain; angle conventions differ from earlier families."
+}
+$v21Terrains = @("CurrentBodyV21Acquire", "CurrentBodyV21Commands")
+$isV21Terrain = $Terrain -in $v21Terrains
+if ($Checkpoint -and (($isV21Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v21_"))) {
+    throw "Stride checkpoints require a CurrentBodyV21 terrain and cannot initialize another policy family."
+}
+if ($Checkpoint -and (($isV20Terrain) -ne ($Checkpoint -match "/quadruped_current_body_v20_"))) {
+    throw "Delivery checkpoints require CurrentBodyV20Train and cannot initialize another policy family."
+}
+$currentBodyTerrains = $v4Terrains + $v5Terrains + $v6Terrains + $v7Terrains + $v8Terrains + $v9Terrains + $v10Terrains + $v11Terrains + $v12Terrains + $v13Terrains + $v14Terrains + $v15Terrains + $v16Terrains + $v17Terrains + $v18Terrains + $v19Terrains + $v20Terrains + $v21Terrains + $v22Terrains
+if (($isV4Terrain -or $isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain -or $isV12Terrain -or $isV13Terrain -or $isV14Terrain -or $isV15Terrain -or $isV16Terrain -or $isV17Terrain -or $isV18Terrain -or $isV19Terrain) -and $Checkpoint) {
+    throw "$Terrain requires a random actor and optimizer start; checkpoints are forbidden."
+}
+if ($Checkpoint -and (($isV2Terrain -and -not $isV2Checkpoint) -or ($isCurrentTerrain -and -not $isCurrentCheckpoint) -or (-not $isV2Terrain -and -not $isCurrentTerrain -and $Terrain -notin $currentBodyTerrains -and ($isV2Checkpoint -or $isCurrentCheckpoint)))) {
+    throw "V1, V2, CurrentV3, and CurrentBody checkpoints are not interchangeable because their policy observations differ."
 }
 if ($Terrain -in @("V2Robust", "V2Goal") -and -not $Checkpoint) {
     throw "$Terrain is a continuation stage and requires a passing V2 checkpoint."
 }
 if ($isCurrentTerrain -and $Terrain -notin @("CurrentV3Core", "CurrentV3Reverse") -and -not $Checkpoint) {
     throw "$Terrain is a continuation stage and requires a CurrentV3 checkpoint."
+}
+if ($Terrain -in @("CurrentBodyV22Rough125", "CurrentBodyV22RoughBumps25", "CurrentBodyV22Stairs", "CurrentBodyV22VariedLift") -and -not $Checkpoint) {
+    throw "$Terrain is a continuation stage and requires a CurrentBodyV22 checkpoint."
 }
 if ($TuningConfig -and $TuningConfig -notmatch '^/workspace/projects/autoresearch/[A-Za-z0-9_./-]+\.json$') {
     throw "TuningConfig must be a JSON file below /workspace/projects/autoresearch."
@@ -110,7 +170,7 @@ if ($ControlProfile) {
         throw "Control profile validation failed: $validationText"
     }
     $validated = $validationText | ConvertFrom-Json
-    if ($requestedTerrain -in $currentTerrains) {
+    if ($requestedTerrain -in ($currentTerrains + $currentBodyTerrains)) {
         $Terrain = $requestedTerrain
         $NumEnvs = $requestedNumEnvs
         $MaxIterations = $requestedMaxIterations
@@ -128,7 +188,7 @@ if ($ControlProfile) {
     $videoLength = $validated.video_length
     $remoteControlProfile = "/workspace/projects/training/control_profiles/$($validated.profile_id)-$($profileHash.Substring(0, 12)).json"
 }
-if ($Terrain -in $currentTerrains) {
+if ($Terrain -in ($currentTerrains + $currentBodyTerrains)) {
     if (-not $SimulationFit) {
         throw "$Terrain requires the provenance-bearing simulation-fit.json."
     }
@@ -141,10 +201,19 @@ if ($Terrain -in $currentTerrains) {
         throw "$Terrain fit does not contain complete current and critical feedback."
     }
     $simulationFitHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedSimulationFit).Hash.ToLowerInvariant()
-    $remoteSimulationFit = "/workspace/projects/training/fits/current-v3-$($simulationFitHash.Substring(0, 12)).json"
+    $fitFamily = if ($isV5Terrain -or $isV6Terrain -or $isV7Terrain -or $isV8Terrain -or $isV9Terrain -or $isV10Terrain -or $isV11Terrain -or $isV12Terrain -or $isV13Terrain -or $isV14Terrain -or $isV15Terrain -or $isV16Terrain -or $isV17Terrain -or $isV18Terrain -or $isV19Terrain) {
+        "current-body-v5"
+    }
+    elseif ($isV4Terrain) {
+        "current-body-v4"
+    }
+    else {
+        "current-v3"
+    }
+    $remoteSimulationFit = "/workspace/projects/training/fits/$fitFamily-$($simulationFitHash.Substring(0, 12)).json"
 }
 elseif ($SimulationFit) {
-    throw "SimulationFit is accepted only for CurrentV3 stages."
+    throw "SimulationFit is accepted only for CurrentV3 and CurrentBody stages."
 }
 
 $identity = (& ssh @sshOptions $sshTarget "whoami").Trim()
@@ -185,7 +254,7 @@ docker exec --user 0 isaac-lab-gb10 sh -c '
   fi
 '
 '@
-& ssh @sshOptions $sshTarget $clearStaleHubLock
+& ssh @sshOptions $sshTarget ($clearStaleHubLock -replace "`r", "")
 if ($LASTEXITCODE -ne 0) {
     throw "Could not check the stale Isaac Hub lock before training."
 }
@@ -200,6 +269,44 @@ $remoteDirectories = @(
     "$remoteTraining/simple_dog_task_v2/agents",
     "$remoteTraining/simple_dog_task_current",
     "$remoteTraining/simple_dog_task_current/agents",
+    "$remoteTraining/simple_dog_task_current_body_v4",
+    "$remoteTraining/simple_dog_task_current_body_v4/agents",
+    "$remoteTraining/simple_dog_task_current_body_v5",
+    "$remoteTraining/simple_dog_task_current_body_v5/agents",
+    "$remoteTraining/simple_dog_task_current_body_v6",
+    "$remoteTraining/simple_dog_task_current_body_v6/agents",
+    "$remoteTraining/simple_dog_task_current_body_v7",
+    "$remoteTraining/simple_dog_task_current_body_v7/agents",
+    "$remoteTraining/simple_dog_task_current_body_v8",
+    "$remoteTraining/simple_dog_task_current_body_v8/agents",
+    "$remoteTraining/simple_dog_task_current_body_v9",
+    "$remoteTraining/simple_dog_task_current_body_v9/agents",
+    "$remoteTraining/simple_dog_task_current_body_v10",
+    "$remoteTraining/simple_dog_task_current_body_v10/agents",
+    "$remoteTraining/simple_dog_task_current_body_v11",
+    "$remoteTraining/simple_dog_task_current_body_v11/agents",
+    "$remoteTraining/simple_dog_task_current_body_v12",
+    "$remoteTraining/simple_dog_task_current_body_v12/agents",
+    "$remoteTraining/simple_dog_task_current_body_v13",
+    "$remoteTraining/simple_dog_task_current_body_v13/agents",
+    "$remoteTraining/simple_dog_task_current_body_v14",
+    "$remoteTraining/simple_dog_task_current_body_v14/agents",
+    "$remoteTraining/simple_dog_task_current_body_v15",
+    "$remoteTraining/simple_dog_task_current_body_v15/agents",
+    "$remoteTraining/simple_dog_task_current_body_v16",
+    "$remoteTraining/simple_dog_task_current_body_v16/agents",
+    "$remoteTraining/simple_dog_task_current_body_v17",
+    "$remoteTraining/simple_dog_task_current_body_v17/agents",
+    "$remoteTraining/simple_dog_task_current_body_v18",
+    "$remoteTraining/simple_dog_task_current_body_v18/agents",
+    "$remoteTraining/simple_dog_task_current_body_v19",
+    "$remoteTraining/simple_dog_task_current_body_v19/agents",
+    "$remoteTraining/simple_dog_task_current_body_v20",
+    "$remoteTraining/simple_dog_task_current_body_v20/agents",
+    "$remoteTraining/simple_dog_task_current_body_v22",
+    "$remoteTraining/simple_dog_task_current_body_v22/agents",
+    "$remoteTraining/simple_dog_task_current_body_v21",
+    "$remoteTraining/simple_dog_task_current_body_v21/agents",
     "$remoteTraining/control_profiles",
     "$remoteTraining/fits"
 )
@@ -222,11 +329,15 @@ $copies = @(
     @{ Local = Join-Path $localTraining "current_policy_fit.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "terrain_curriculum.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "video_camera.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "v4_difficulty_ramp.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "robot_control_profile.py"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "delivery_contract.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.py"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "validate_control_profile_robot.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "run_simple_dog.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "simple-dog-gb10.sh"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "render_simple_dog_playback.sh"; Remote = $remoteTraining },
+    @{ Local = Join-Path $localTraining "run_simple_dog_scratch_seed_queue.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "ensure_simple_dog_meshes.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "prepare_control_profile_asset.sh"; Remote = $remoteTraining },
     @{ Local = Join-Path $localTraining "convert_onshape_gltf_to_usd.py"; Remote = $remoteTraining },
@@ -248,7 +359,124 @@ $copies = @(
     @{ Local = Join-Path $localTraining "simple_dog_task_current\simple_dog_current_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current/agents" },
     @{ Local = Join-Path $localTraining "simple_dog_task_current\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current/agents" }
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\simple_dog_current_body_v4_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\simple_dog_current_body_v4_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v4\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v4/agents" }
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v5\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v5\simple_dog_current_body_v5_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v5\simple_dog_current_body_v5_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v5\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v5/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v5\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v5/agents" }
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v6\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v6" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v6\simple_dog_current_body_v6_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v6" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v6\simple_dog_current_body_v6_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v6" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v6\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v6/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v6\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v6/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v7\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v7\simple_dog_current_body_v7_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v7\simple_dog_current_body_v7_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v7\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v7/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v7\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v7/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v8\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v8\simple_dog_current_body_v8_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v8\simple_dog_current_body_v8_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v8\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v8/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v8\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v8/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v9\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v9\simple_dog_current_body_v9_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v9\simple_dog_current_body_v9_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v9\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v9\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v9/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v10\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v10\simple_dog_current_body_v10_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v10\simple_dog_current_body_v10_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v10\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v10/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v10\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v10/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\simple_dog_current_body_v11_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\simple_dog_current_body_v11_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v11/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v11\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v11/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\simple_dog_current_body_v12_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\simple_dog_current_body_v12_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v12\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v12/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v13\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v13\simple_dog_current_body_v13_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v13\simple_dog_current_body_v13_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v13\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v13/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v13\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v13/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v14\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v14" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v14\simple_dog_current_body_v14_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v14" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v14\simple_dog_current_body_v14_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v14" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v14\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v14/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v14\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v14/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v15\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v15" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v15\simple_dog_current_body_v15_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v15" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v15\simple_dog_current_body_v15_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v15" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v15\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v15/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v15\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v15/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v16\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v16" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v16\simple_dog_current_body_v16_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v16" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v16\simple_dog_current_body_v16_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v16" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v16\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v16/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v16\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v16/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v17\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v17" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v17\simple_dog_current_body_v17_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v17" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v17\simple_dog_current_body_v17_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v17" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v17\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v17/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v17\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v17/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v18\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v18" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v18\simple_dog_current_body_v18_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v18" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v18\simple_dog_current_body_v18_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v18" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v18\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v18/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v18\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v18/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v19" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\simple_dog_current_body_v19_env.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v19" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\simple_dog_current_body_v19_env_cfg.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v19" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\agents\__init__.py"; Remote = "$remoteTraining/simple_dog_task_current_body_v19/agents" },
+    @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v19\agents\rl_games_ppo_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v19/agents" }
 )
+if ($isV20Terrain -or $isV21Terrain -or $isV22Terrain) {
+    foreach ($name in @("deployable_dynamics.py", "delivery_contract.py", "delivery_checkpointing.py", "snapshot_delivery_run.py")) {
+        $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
+    }
+    $copies += @{ Local = Join-Path $localTraining "fits\servo-response-20260829.json"; Remote = "$remoteTraining/fits" }
+    foreach ($name in @("__init__.py", "env.py", "env_cfg.py", "agents\__init__.py", "agents\rl_games_ppo_cfg.yaml")) {
+        $subdir = if ($name.StartsWith("agents")) { "/agents" } else { "" }
+        $copies += @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v20\$name"; Remote = "$remoteTraining/simple_dog_task_current_body_v20$subdir" }
+    }
+}
+
+
+if ($isV21Terrain -or $isV22Terrain) {
+    foreach ($name in @("delivery_gait.py", "delivery_sole_geometry.py", "delivery_terrain.py", "initialize_delivery_stride.py", "evaluate_delivery_stride.py", "verify_delivery_terrain.py", "train_delivery_stride.py")) {
+        $copies += @{ Local = Join-Path $localTraining $name; Remote = $remoteTraining }
+    }
+    $copies += @{ Local = Join-Path $localTraining "verify_delivery_stairs.py"; Remote = $remoteTraining }
+    $copies += @{ Local = Join-Path $localTraining "verify_delivery_varied.py"; Remote = $remoteTraining }
+    $copies += @{ Local = Join-Path $localTraining "fork_delivery_stride.py"; Remote = $remoteTraining }
+    $copies += @{ Local = Join-Path $localTraining "fits\stride-reference-cad-highlift-20260906.json"; Remote = "$remoteTraining/fits" }
+    $copies += @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v22\agents\rl_games_ppo_highlift_cfg.yaml"; Remote = "$remoteTraining/simple_dog_task_current_body_v22/agents" }
+    $copies += @{ Local = Join-Path $localTraining "fits\stride-reference-20260905.json"; Remote = "$remoteTraining/fits" }
+    foreach ($name in @("__init__.py", "env.py", "env_cfg.py", "agents\__init__.py", "agents\rl_games_ppo_cfg.yaml")) {
+        $subdir = if ($name.StartsWith("agents")) { "/agents" } else { "" }
+        $copies += @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v21\$name"; Remote = "$remoteTraining/simple_dog_task_current_body_v21$subdir" }
+    }
+}
+
+if ($isV22Terrain) {
+    $copies += @{ Local = Join-Path $localTraining "verify_delivery_coordinates.py"; Remote = $remoteTraining }
+    $copies += @{ Local = Join-Path $localTraining "fits\stride-reference-cad-20260906.json"; Remote = "$remoteTraining/fits" }
+    foreach ($name in @("__init__.py", "env_cfg.py", "agents\__init__.py", "agents\rl_games_ppo_cfg.yaml")) {
+        $subdir = if ($name.StartsWith("agents")) { "/agents" } else { "" }
+        $copies += @{ Local = Join-Path $localTraining "simple_dog_task_current_body_v22\$name"; Remote = "$remoteTraining/simple_dog_task_current_body_v22$subdir" }
+    }
+}
+
 foreach ($copy in $copies) {
     if (-not (Test-Path -LiteralPath $copy.Local -PathType Leaf)) {
         throw "Required training file was not found: $($copy.Local)"
@@ -272,7 +500,7 @@ if ($SimulationFit) {
     }
 }
 
-& ssh @sshOptions $sshTarget "sed -i 's/\r$//' $remoteTraining/run_simple_dog.sh $remoteTraining/simple-dog-gb10.sh $remoteTraining/ensure_simple_dog_meshes.sh $remoteTraining/prepare_control_profile_asset.sh $remoteTraining/validate_control_profile_robot.sh $remoteTraining/evaluate_simple_dog_policy.sh && chmod 0755 $remoteTraining/run_simple_dog.sh $remoteTraining/simple-dog-gb10.sh $remoteTraining/ensure_simple_dog_meshes.sh $remoteTraining/prepare_control_profile_asset.sh $remoteTraining/validate_control_profile_robot.sh $remoteTraining/evaluate_simple_dog_policy.sh"
+& ssh @sshOptions $sshTarget "sed -i 's/\r$//' $remoteTraining/run_simple_dog.sh $remoteTraining/simple-dog-gb10.sh $remoteTraining/run_simple_dog_scratch_seed_queue.sh $remoteTraining/ensure_simple_dog_meshes.sh $remoteTraining/prepare_control_profile_asset.sh $remoteTraining/validate_control_profile_robot.sh $remoteTraining/evaluate_simple_dog_policy.sh && chmod 0755 $remoteTraining/run_simple_dog.sh $remoteTraining/simple-dog-gb10.sh $remoteTraining/run_simple_dog_scratch_seed_queue.sh $remoteTraining/ensure_simple_dog_meshes.sh $remoteTraining/prepare_control_profile_asset.sh $remoteTraining/validate_control_profile_robot.sh $remoteTraining/evaluate_simple_dog_policy.sh"
 if ($LASTEXITCODE -ne 0) {
     throw "Could not prepare the remote training launcher."
 }
@@ -294,12 +522,40 @@ if ($ControlProfile) {
             # the following smoke/training launch resolves CurrentV3 itself.
             "CurrentV3Core" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
             "CurrentV3Reverse" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
+            "CurrentV3ForwardSpecialist" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentV3ReverseSpecialist" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Strafe" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Turn" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Goal" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Posture" { "Isaac-Locomotion-V2-Goal-Simple-Dog-Direct-v0" }
             "CurrentV3Rough" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
-            default { throw "Control profiles require a V2 or CurrentV3 training stage." }
+            "CurrentBodyV4Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV5Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV6Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV7Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV8Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV9Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV10Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV11Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV12Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV13Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV14Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV15Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV16Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV17Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV18Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV19Hard" { "Isaac-Locomotion-V2-Rough-Simple-Dog-Direct-v0" }
+            "CurrentBodyV20Train" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Commands" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Speed" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Rough125" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22RoughBumps25" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Stairs" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22VariedLift" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV22Acquire" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV21Commands" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            "CurrentBodyV21Acquire" { "Isaac-Locomotion-V2-Core-Simple-Dog-Direct-v0" }
+            default { throw "Control profiles require a V2, CurrentV3, or CurrentBody training stage." }
         }
         & ssh @sshOptions $sshTarget "docker exec --workdir /workspace/projects/training isaac-lab-gb10 bash /workspace/projects/training/validate_control_profile_robot.sh '$remoteControlProfile' '$validationTask'"
         if ($LASTEXITCODE -ne 0) {
@@ -319,9 +575,11 @@ else {
 
 $checkpointArg = if ($Checkpoint) { $Checkpoint } else { "''" }
 $tuningArg = if ($TuningConfig) { $TuningConfig } else { "''" }
-$runDirectory = (& ssh @sshOptions $sshTarget `
-    "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength' '$remoteSimulationFit'" |
-    Select-Object -Last 1).Trim()
+$seedArg = if ($null -ne $Seed) { [string]$Seed } else { "''" }
+$runDirectory = [string](& ssh @sshOptions $sshTarget `
+    "$remoteTraining/simple-dog-gb10.sh start $NumEnvs $MaxIterations $checkpointArg $tuningArg $($Terrain.ToLowerInvariant()) '$remoteControlProfile' '$profileHash' '$recordVideo' '$videoInterval' '$videoLength' '$remoteSimulationFit' $seedArg" |
+    Select-Object -Last 1)
+$runDirectory = $runDirectory.Trim()
 if ($LASTEXITCODE -ne 0 -or -not $runDirectory) {
     throw "The detached training process did not create a run directory."
 }
@@ -330,6 +588,9 @@ Write-Host "Simple-dog training started."
 Write-Host "Environments: $NumEnvs"
 Write-Host "Iterations:   $MaxIterations"
 Write-Host "Terrain:      $Terrain"
+if ($null -ne $Seed) {
+    Write-Host "Seed:         $Seed"
+}
 if ($Checkpoint) {
     Write-Host "Checkpoint:   $Checkpoint"
 }

@@ -6,9 +6,16 @@ import kotlin.math.abs
 class PolicyObservationBuilder(private val contract: PolicyContract) {
     private val heldCurrent = FloatArray(12)
 
-    fun frame(baseFrame: FloatArray, currentRawByPolicyJoint: Array<Int?>): FloatArray {
+    fun reset() { heldCurrent.fill(0f) }
+
+    fun frame(
+        baseFrame: FloatArray,
+        currentRawByPolicyJoint: Array<Int?>,
+        timingRatio: Float = 1f,
+    ): FloatArray {
         require(baseFrame.size == 45 && baseFrame.all(Float::isFinite))
         if (contract.observationBuilder == "v2_180") return baseFrame.copyOf()
+        require(timingRatio.isFinite() && timingRatio > 0f)
         require(currentRawByPolicyJoint.size == 12)
         val current = FloatArray(12)
         val validity = FloatArray(12)
@@ -24,17 +31,30 @@ class PolicyObservationBuilder(private val contract: PolicyContract) {
             }
             current[index] = heldCurrent[index]
         }
-        return baseFrame + current + validity
+        val currentFrame = baseFrame + current + validity
+        return if (contract.usesSelectedHistory) {
+            currentFrame + timingRatio
+        } else {
+            currentFrame
+        }
     }
 
-    fun observation(history: Array<FloatArray>, posture: FloatArray): FloatArray {
+    fun observation(history: Array<FloatArray>, posture: FloatArray, strideClock: FloatArray = FloatArray(0)): FloatArray {
         require(history.size == contract.observationHistory)
-        val flat = history.flatMap { it.asIterable() }.toFloatArray()
-        return if (contract.observationBuilder == "current_v3_279") {
-            require(posture.size == 3 && posture.all(Float::isFinite))
-            flat + posture
-        } else {
-            flat
-        }.also { require(it.size == contract.observationSize) }
+        require(history.all { frame -> frame.all(Float::isFinite) })
+        require(posture.size == 3 && posture.all(Float::isFinite))
+        require(strideClock.size == if (contract.usesStrideReference) 2 else 0)
+        require(strideClock.all(Float::isFinite))
+        val observation = when (contract.observationBuilder) {
+            "current_v3_279" -> history.flatMap { it.asIterable() }.toFloatArray() + posture
+            "current_body_v14_426", "current_body_v20_426", "current_body_v21_428", "current_body_v22_428" -> {
+                require(history.all { it.size == 70 })
+                val selected = contract.selectedHistoryIndices.flatMap { history[it].asIterable() }.toFloatArray()
+                val latestCommand = history.last().copyOfRange(6, 9)
+                selected + latestCommand + posture + strideClock
+            }
+            else -> history.flatMap { it.asIterable() }.toFloatArray()
+        }
+        return observation.also { require(it.size == contract.observationSize) }
     }
 }

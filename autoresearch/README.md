@@ -120,3 +120,59 @@ controller/training failure. The current executable adapter is deliberately limi
 This is the boundary that prevents ten heterogeneous robot descriptions from
 silently being treated as if they shared the same joints, rewards, or success
 criteria.
+
+## Qwen output contract and evidence
+
+The supervisor accepts one complete JSON object from a single finished assistant
+`content` string. Markdown/log wrappers, multiple objects, duplicate keys,
+non-finite numbers, missing/unknown decision fields, unknown actions, wrong
+value types, and more than two tuning proposals are rejected. Reasoning fields,
+tool calls, refusals, and truncated completions never supply a decision. Invalid
+provider envelopes and request failures use the same advisory path as invalid
+model content; they do not shorten the requested PPO duration.
+
+`qwen_decision_schema()` in the deployed supervisor is the structural source of
+truth for the prompt, local validator, and optional native schema request. The
+local gate also checks the `codex_request`/action relationship and blank text.
+`bounded_tuning` remains the authority for safe ranges, maximum per-cycle steps,
+and relationships between parameters. Conflicting proposals preserve the prior
+tuning and produce an advisory. Only `continue` can apply changes. Confidence and
+model claims never decide checkpoint promotion.
+
+Existing manifests keep `qwen_response_format: "json_object"` by default. A
+reviewed manifest may explicitly select `"json_schema"` to send:
+
+```python
+response_format = {
+    "type": "json_schema",
+    "json_schema": {"name": "robot_evolution", "schema": qwen_decision_schema()},
+}
+```
+
+This uses the [documented vLLM response-format API](https://docs.vllm.ai/en/stable/features/structured_outputs/).
+The deployed vLLM version and decoding backend must support this schema; they
+have not been inferred or upgraded by this change. There is no silent fallback
+if a server rejects it. Native schema mode is optional; both modes always pass
+through the same local validator and numeric safety gates. Neither JSON mode,
+native constrained decoding, nor parsing proves that the model's analysis is
+correct. Responses are non-streaming and capped at 1 MiB; decision content is
+capped at 64 KiB.
+
+Every requested cycle saves `cycle-N-qwen.json` before sending, then records the
+request/validation outcome. It includes the exact prompt text and structural
+schema, requested model and generation settings, request SHA-256, current tuning,
+metrics and checkpoint references, and the supplied contact-sheet path, byte
+count and SHA-256. Only sampled contact-sheet images are sent, not the entire
+video. Bounded raw provider output is retained even after rejection; no decision
+is taken from stored reasoning. Hashes identify supplied bytes, not the truth or
+quality of evidence. `cycle-N-evolution.json` records proposals, actual tuning
+before/after, and rejection notes, including cycles after the Qwen call cap.
+
+Run offline contract/provider regressions and existing deterministic gates with:
+
+```sh
+python -m unittest discover -s autoresearch -p 'test_*.py' -v
+```
+
+These tests mock all model, Docker, and training interactions. They do not claim
+compatibility with a live deployment or evaluate Qwen's semantic accuracy.

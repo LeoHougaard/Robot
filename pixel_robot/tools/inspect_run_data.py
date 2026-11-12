@@ -36,6 +36,10 @@ def _stats(values: list[float]) -> dict[str, float | int | None]:
     }
 
 
+MIN_AGGREGATE_RATE_HZ = 49.5
+MAX_AGGREGATE_RATE_HZ = 50.5
+
+
 def _idle_servo_telemetry(records: list[dict[str, Any]]) -> dict[str, Any]:
     grouped: dict[int, list[dict[str, Any]]] = {}
     for record in records:
@@ -100,6 +104,16 @@ def summarize_run(path: Path) -> dict[str, Any]:
     counts = Counter(str(record.get("type")) for record in records)
     frames = [record for record in records if record.get("type") == "derived_policy_frame"]
     frame_data = [record.get("data", {}) for record in frames]
+    missed_feedback_periods = [
+        data.get("input_robot_state", {}).get("missed_feedback_periods")
+        if isinstance(data, dict) and isinstance(data.get("input_robot_state"), dict)
+        else None
+        for data in frame_data
+    ]
+    valid_missed_feedback_periods = [
+        value for value in missed_feedback_periods
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    ]
     frame_times = [
         int(record["host_monotonic_ns"])
         for record in frames
@@ -259,6 +273,28 @@ def summarize_run(path: Path) -> dict[str, Any]:
     start_data = records[0].get("data", {})
     end_data = records[-1].get("data", {}) if records[-1].get("type") == "session_end" else {}
     gate_reasons: list[str] = []
+    if len(frame_times) != len(frames):
+        gate_reasons.append("host frame timing evidence is incomplete")
+    if len(firmware_intervals) != len(frames) - 1:
+        gate_reasons.append("firmware sample interval evidence is incomplete")
+    if record_write_rate_hz is None:
+        gate_reasons.append("aggregate host frame rate is absent")
+    elif not MIN_AGGREGATE_RATE_HZ <= record_write_rate_hz <= MAX_AGGREGATE_RATE_HZ:
+        gate_reasons.append("aggregate host frame rate is outside 49.5-50.5 Hz")
+    firmware_rate_hz = (
+        1_000.0 / (sum(firmware_intervals) / len(firmware_intervals))
+        if firmware_intervals else None
+    )
+    if firmware_rate_hz is None:
+        gate_reasons.append("aggregate firmware sample rate is absent")
+    elif not MIN_AGGREGATE_RATE_HZ <= firmware_rate_hz <= MAX_AGGREGATE_RATE_HZ:
+        gate_reasons.append("aggregate firmware sample rate is outside 49.5-50.5 Hz")
+    if any(value is None for value in missed_feedback_periods):
+        gate_reasons.append("firmware missed-feedback counter evidence is incomplete")
+    elif any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in missed_feedback_periods):
+        gate_reasons.append("firmware missed-feedback counter evidence is invalid")
+    elif max(missed_feedback_periods, default=0) > 0:
+        gate_reasons.append("firmware missed-feedback periods are nonzero")
     if len(feedback_ticks) < 2:
         gate_reasons.append("firmware feedback ticks are absent")
     if not firmware_intervals:
@@ -294,6 +330,7 @@ def summarize_run(path: Path) -> dict[str, Any]:
         "incomplete_feedback_frames": incomplete_feedback,
         "current_complete_frames": current_complete_frames,
         "incomplete_current_frames": incomplete_current,
+        "max_missed_feedback_periods": max(valid_missed_feedback_periods, default=None),
         "firmware_feedback_read_ms": _stats(feedback_us),
         "firmware_current_read_ms": _stats(current_us),
         "firmware_frame_ms": _stats(firmware_frame_us),

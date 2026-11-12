@@ -1,0 +1,73 @@
+params:
+  seed: 42
+  env: {clip_actions: 1.0}
+  algo: {name: a2c_continuous}
+  model: {name: continuous_a2c_logstd}
+  network:
+    name: actor_critic
+    separate: true
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init: {name: const_initializer, val: 0.0}
+        sigma_init: {name: const_initializer, val: -1.6094379124341003}
+        fixed_sigma: true
+    mlp: {units: [128, 128, 128], activation: elu, d2rl: false, initializer: {name: default}, regularizer: {name: None}}
+  load_checkpoint: false
+  load_path: ""
+  config:
+    name: quadruped_current_body_v22_highlift
+    delivery_policy_contract: {"policy_family": "current_body_v22", "joint_coordinate_convention": "cad_drives_v1", "reference_sha256": "fdd438e622be74527ba792bb2ef64b8268099cb3fe54550f5229b26c339ece70", "profile_sha256": "2e249f1a8efc7df0fca72dfaf2e50712a2b108874bdf7a883cbd69f02b25ca0d", "asset_sha256": "5f6b9a4d4123722928343a86ac5463763bdab1b50332274cfb54b9244078a55c", "servo_fit_sha256": "fe55216db066b854df8780f645b7a2f93212c030bb735d6b64faf1015ff6854e"}
+    env_name: rlgpu
+    device: cuda:0
+    device_name: cuda:0
+    multi_gpu: false
+    ppo: true
+    mixed_precision: true
+    normalize_input: true
+    normalize_value: true
+    value_bootstrap: true
+    num_actors: -1
+    reward_shaper: {scale_value: 1.0}
+    normalize_advantage: true
+    gamma: 0.995
+    tau: 0.95
+    learning_rate: 1.5e-4
+    lr_schedule: constant
+    schedule_type: legacy
+    kl_threshold: 0.01
+    score_to_win: 1000
+    max_epochs: 100
+    save_best_after: 2
+    save_frequency: 25
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    # Fixed residual std 0.2, applied scale 0.15, prevents runaway exploration.
+    freeze_exploration_std: true
+    truncate_grads: true
+    e_clip: 0.2
+    horizon_length: 64
+    minibatch_size: 4096
+    mini_epochs: 4
+    critic_coef: 2.0
+    clip_value: true
+    seq_length: 4
+    bounds_loss_coef: 0.001
+    central_value_config:
+      minibatch_size: 4096
+      mini_epochs: 4
+      learning_rate: 1.5e-4
+      lr_schedule: constant
+      clip_value: true
+      normalize_input: true
+      truncate_grads: true
+      grad_norm: 1.0
+      e_clip: 0.2
+      model: {name: central_value}
+      network:
+        name: actor_critic
+        central_value: true
+        mlp: {units: [128, 128, 128], activation: elu, d2rl: false, initializer: {name: default}, regularizer: {name: None}}
+
+

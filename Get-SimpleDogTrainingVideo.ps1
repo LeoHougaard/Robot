@@ -1,18 +1,28 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string]$Destination
+    [string]$Destination,
+
+    [string]$ExpectedExperiment = "",
+
+    [ValidateRange(0, [long]::MaxValue)]
+    [long]$NotOlderThanUnixTime = 0
 )
 
 $ErrorActionPreference = "Stop"
-$sshTarget = "leo@gx10-ddb2.local"
+$sshHost = if ($env:ROBOT_GB10_HOST) { $env:ROBOT_GB10_HOST.Trim() } else { "gx10-ddb2.local" }
+if ($sshHost -notmatch '^[A-Za-z0-9.-]+$') {
+    throw "ROBOT_GB10_HOST must be a hostname or IPv4 address."
+}
+$sshTarget = "leo@$sshHost"
 $keyPath = Join-Path $env:LOCALAPPDATA "NVIDIA Corporation\Sync\config\nvsync.key"
 $sshOptions = @(
     "-i", $keyPath,
     "-o", "IdentitiesOnly=yes",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
-    "-o", "StrictHostKeyChecking=yes"
+    "-o", "StrictHostKeyChecking=yes",
+    "-o", "HostKeyAlias=gx10-ddb2.local"
 )
 if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
     throw "NVIDIA Sync SSH key was not found."
@@ -32,6 +42,24 @@ if (-not $remoteVideo) {
 if ($remoteVideo -notmatch '^/home/leo/isaac-workspace/projects/training/logs/rl_games/[A-Za-z0-9_./-]+\.mp4$') {
     throw "The remote video path was outside the training log directory."
 }
+if ($ExpectedExperiment) {
+    if ($ExpectedExperiment -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$') {
+        throw "ExpectedExperiment was not a valid training experiment name."
+    }
+    if ($remoteVideo -notmatch "/$([regex]::Escape($ExpectedExperiment))/") {
+        throw "The active run has not completed its first rollout video yet."
+    }
+}
+if ($NotOlderThanUnixTime -gt 0) {
+    $remoteMtimeText = ((& ssh -n @sshOptions $sshTarget "stat -c %Y -- '$remoteVideo'") -join "").Trim()
+    if ($LASTEXITCODE -ne 0 -or $remoteMtimeText -notmatch '^\d+$') {
+        throw "Could not inspect the newest training video's modification time."
+    }
+    $remoteMtime = [long]$remoteMtimeText
+    if ($remoteMtime -lt $NotOlderThanUnixTime) {
+        throw "The active run did not produce a new rollout video for this fetch."
+    }
+}
 $destinationPath = [System.IO.Path]::GetFullPath($Destination)
 $destinationParent = Split-Path -Parent $destinationPath
 New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
@@ -39,4 +67,5 @@ New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "Could not copy the latest training video."
 }
-Write-Output $destinationPath
+Write-Output "Copied video: $destinationPath"
+Write-Output "Source video: $remoteVideo"

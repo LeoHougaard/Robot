@@ -39,12 +39,40 @@ class RobotServiceLifecycleTest {
             check(status.getBoolean("ok"))
             check(!status.getBoolean("policy_armed"))
 
+            // Every mutation uses the per-server loopback operator token, including manual controls.
+            val pageConnection = URL("http://127.0.0.1:8767/").openConnection() as HttpURLConnection
+            pageConnection.connectTimeout = 500
+            pageConnection.readTimeout = 500
+            val operatorToken = try {
+                check(pageConnection.responseCode == 200)
+                val html = pageConnection.inputStream.bufferedReader().use { it.readText() }
+                checkNotNull(Regex("const operatorToken = \"([0-9a-f]{64})\";").find(html)).groupValues[1]
+            } finally { pageConnection.disconnect() }
+
+            // Setting all six commands must work without starting motion.
+            // An invalid posture must be rejected by the installed contract.
+            for ((roll, expectedCode) in listOf(0.0 to 200, 1e10 to 400)) {
+                val command = URL("http://127.0.0.1:8767/api/command").openConnection() as HttpURLConnection
+                command.connectTimeout = 500
+                command.readTimeout = 500
+                command.requestMethod = "POST"
+                command.doOutput = true
+                command.setRequestProperty("X-Pixel-Shadow-Token", operatorToken)
+                try {
+                    val body = JSONObject().put("forward", 0).put("lateral", 0).put("yaw_rate", 0)
+                        .put("height_offset", 0).put("roll", roll).put("pitch", 0).toString()
+                    command.outputStream.use { it.write(body.toByteArray()) }
+                    check(command.responseCode == expectedCode)
+                } finally { command.disconnect() }
+            }
+
             val stopConnection = URL("http://127.0.0.1:8767/api/stop").openConnection() as HttpURLConnection
             stopConnection.connectTimeout = 500
             stopConnection.readTimeout = 500
             stopConnection.requestMethod = "POST"
             stopConnection.doOutput = true
             stopConnection.setRequestProperty("Content-Type", "application/json")
+            stopConnection.setRequestProperty("X-Pixel-Shadow-Token", operatorToken)
             val stopped = try {
                 stopConnection.outputStream.use { it.write("{}".toByteArray()) }
                 check(stopConnection.responseCode == 200)

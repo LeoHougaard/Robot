@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "scope": "Local ESP32 compile only; no upload, device or physical qualification",
+  "binary_generation": "PASS",
+  "platformio_wrapper_exit_not_used_as_pass": true,
+  "post_build_error": "Network-disabled guard rejected PlatformIO update check after SUCCESS and binary generation",
+  "platformio_core": "6.1.19",
+  "platform": "espressif32@7.0.1",
+  "framework": "3.20017.241212+sha.dcc1105b",
+  "toolchain": "8.4.0+2021r2-patch5",
+  "arduinojson": "7.4.3 from existing cache",
+  "firmware": "0.1.18-transportguard",
+  "firmware_bin_bytes": 958800,
+  "firmware_bin_sha256": "aa41353614d8e68102b717013f244936dd107b1607874d8d08295bc261c94dbf",
+  "source_sha256": {
+    "src/AK09918.cpp": "eb90bcce7c88e4201c726bbfe1ff162b6f9bf7258dff2d1271f5ad4e09b1903e",
+    "src/AK09918.h": "3a67c9ce2dcb28d43e177d178a26771de1a758e82bb8029c75ced7f8809fbc66",
+    "src/main.cpp": "7cd837d9ea2ba4aed6fbeadb9218e4ab948a86c880b160cd26fb11a60c1d3d4a",
+    "src/QMI8658.cpp": "3b4674313f0c513478b985a59a0aa7e0637a706e4f226169a0f109554d91b227",
+    "src/QMI8658.h": "56296a0164929b89078c1511577988a90cb1eadc5ee50b20f846b630262107f2",
+    "src/QMI8658reg.h": "23099a4c0abf7a47f28691dca5efade003db2bd7537d301d1dec0bc0f967f8f8",
+    "include/JsonCommandBoundary.h": "0b9552885bdfdb1356059a4ad0fb3d122c95c8dc2eab538809a058001e9de4a2",
+    "include/PeriodicDeadline.h": "edeb96d891f78c1b1e7d4816b05f0a66fd4037bd4a4bab335f72e6cefb988893",
+    "include/SerialInputAbort.h": "ff498f1aa6fc94d5784bb22d48c6a53100d396ada47b2a35c70d96d573c35388"
+  },
+  "physical_execution": false,
+  "candidate_flashed": false,
+  "hardware_qualification": false,
+  "compile_config_sha256": "04b2b56ee0d300a612daef50c7824a9698cac601b0031bc060ce2d3466f9d71a"
+}

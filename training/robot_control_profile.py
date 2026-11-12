@@ -80,14 +80,57 @@ def apply_agent_profile(
     if profile is None:
         return agent_cfg
     config = agent_cfg["params"]["config"]
-    agent_cfg["params"]["seed"] = profile["training"]["seed"]
-    if os.environ.get("SIMPLE_DOG_POLICY_FAMILY") == "current_v3":
+    seed_override = os.environ.get("SIMPLE_DOG_SEED_OVERRIDE", "")
+    if seed_override:
+        if not seed_override.isdecimal():
+            raise ValueError("SIMPLE_DOG_SEED_OVERRIDE must be a non-negative integer.")
+        agent_cfg["params"]["seed"] = int(seed_override)
+    else:
+        agent_cfg["params"]["seed"] = profile["training"]["seed"]
+    policy_family = os.environ.get("SIMPLE_DOG_POLICY_FAMILY")
+    if policy_family in (
+        "current_v3", "current_body_v4", "current_body_v5",
+        "current_body_v6", "current_body_v7", "current_body_v8", "current_body_v9",
+        "current_body_v10",
+        "current_body_v11",
+        "current_body_v12",
+        "current_body_v13",
+        "current_body_v14",
+        "current_body_v15",
+        "current_body_v16",
+        "current_body_v17",
+        "current_body_v18",
+        "current_body_v19",
+        "current_body_v20",
+        "current_body_v21",
+        "current_body_v22",
+    ):
         # The selected profile owns robot geometry and hardware limits, but its
         # PPO block was tuned for the 180-input V2 family. Keep CurrentV3's
         # separately reviewed optimizer/network contract and namespace.
-        config["name"] = (
-            "quadruped_current_v3_" + profile["profile_id"].replace("-", "_")
-        )
+        prefix = {
+            "current_v3": "quadruped_current_v3_",
+            "current_body_v4": "quadruped_current_body_v4_",
+            "current_body_v5": "quadruped_current_body_v5_",
+            "current_body_v6": "quadruped_current_body_v6_",
+            "current_body_v7": "quadruped_current_body_v7_",
+            "current_body_v8": "quadruped_current_body_v8_",
+            "current_body_v9": "quadruped_current_body_v9_",
+            "current_body_v10": "quadruped_current_body_v10_",
+            "current_body_v11": "quadruped_current_body_v11_",
+            "current_body_v12": "quadruped_current_body_v12_",
+            "current_body_v13": "quadruped_current_body_v13_",
+            "current_body_v14": "quadruped_current_body_v14_",
+            "current_body_v15": "quadruped_current_body_v15_",
+            "current_body_v16": "quadruped_current_body_v16_",
+            "current_body_v17": "quadruped_current_body_v17_",
+            "current_body_v18": "quadruped_current_body_v18_",
+            "current_body_v19": "quadruped_current_body_v19_",
+            "current_body_v20": "quadruped_current_body_v20_",
+            "current_body_v21": "quadruped_current_body_v21_",
+            "current_body_v22": "quadruped_current_body_v22_",
+        }[policy_family]
+        config["name"] = prefix + profile["profile_id"].replace("-", "_")
         return agent_cfg
     ppo = profile["ppo"]
     config["name"] = "quadruped_v2_" + profile["profile_id"].replace("-", "_")

@@ -10,6 +10,7 @@ from export_v2_policy import (
     deployment_contract,
     validate_goal_evaluation,
     validate_current_evaluation,
+    validate_current_body_evaluation,
     validate_robust_test_evaluation,
 )
 
@@ -134,6 +135,29 @@ class DeploymentContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete"):
             validate_current_evaluation(
                 {"stage": "current", "passed": True, "segments": {"forward": {}}}
+            )
+
+    def test_current_body_export_requires_complete_locomotion_evidence(self):
+        from evaluate_simple_dog_policy import EXPECTED
+
+        validate_current_body_evaluation(
+            {
+                "stage": "currentbody",
+                "passed": True,
+                "segments": {name: {} for name in EXPECTED["currentbody"]},
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            validate_current_body_evaluation(
+                {"stage": "currentbody", "passed": True, "segments": {"forward": {}}}
+            )
+        with self.assertRaisesRegex(ValueError, "currentbody evaluation stage"):
+            validate_current_body_evaluation(
+                {
+                    "stage": "current",
+                    "passed": True,
+                    "segments": {name: {} for name in EXPECTED["currentbody"]},
+                }
             )
 
 

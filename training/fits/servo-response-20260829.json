@@ -1,0 +1,580 @@
+{
+  "schema_version": 1,
+  "capture_sha256": "b1389bf17ee37737674b0bb57c477ceb4b517eeb6038bdee88c77536fc799254",
+  "firmware_speed_steps_s": 1200,
+  "firmware_acceleration_register": 30,
+  "fit_window_s": [
+    2,
+    31.997
+  ],
+  "held_out_window_s": [
+    36.997,
+    51.997
+  ],
+  "calibration": {
+    "schema_version": 1,
+    "robot": "assembly-four-leg-linkage-12dof",
+    "calibrated": true,
+    "control_hz": 50,
+    "action_scale_rad": 0.3,
+    "imu": {
+      "calibrated": true,
+      "body_axis_from_sensor_axis": [
+        [
+          6.123233995736766e-17,
+          1,
+          0
+        ],
+        [
+          -1,
+          6.123233995736766e-17,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "gyro_bias_dps": [
+        -0.0125,
+        0.06458,
+        -0.24958
+      ],
+      "gravity_sign": -1
+    },
+    "joints": [
+      {
+        "policy_index": 0,
+        "semantic": "front_right_hip_abduction",
+        "servo_id": 7,
+        "zero_deg": 178.54949951171875,
+        "servo_degrees_per_policy_radian": -57.2957795,
+        "min_deg": 158.54949951171875,
+        "max_deg": 198.54949951171875
+      },
+      {
+        "policy_index": 1,
+        "semantic": "front_right_hip_flexion",
+        "servo_id": 8,
+        "zero_deg": 173.09890747070312,
+        "servo_degrees_per_policy_radian": -57.2957795,
+        "min_deg": 153.09890747070312,
+        "max_deg": 193.09890747070312
+      },
+      {
+        "policy_index": 2,
+        "semantic": "front_right_knee_flexion",
+        "servo_id": 9,
+        "zero_deg": 145.23080444335938,
+        "servo_degrees_per_policy_radian": -57.2957795,
+        "min_deg": 110.2308120727539,
+        "max_deg": 180.23080444335938,
+        "linkage": {
+          "type": "four_bar_follow",
+          "parent_policy_index": 1,
+          "parent_ratio": 1
+        }
+      },
+      {
+        "policy_index": 3,
+        "semantic": "front_left_hip_abduction",
+        "servo_id": 1,
+        "zero_deg": 253.01100158691406,
+        "servo_degrees_per_policy_radian": 57.2957795,
+        "min_deg": 233.01100158691406,
+        "max_deg": 273.010986328125
+      },
+      {
+        "policy_index": 4,
+        "semantic": "front_left_hip_flexion",
+        "servo_id": 2,
+        "zero_deg": 162.81320190429688,
+        "servo_degrees_per_policy_radian": 57.2957795,
+        "min_deg": 142.81320190429688,
+        "max_deg": 182.81320190429688
+      },
+      {
+        "policy_index": 5,
+        "semantic": "front_left_knee_flexion",
+        "servo_id": 3,
+        "zero_deg": 35.86812973022461,
+        "servo_degrees_per_policy_radian": 57.2957795,
+        "min_deg": 0.8681282997131348,
+        "max_deg": 70.86812591552734,
+        "linkage": {
+          "type": "four_bar_follow",
+          "parent_policy_index": 4,
+          "parent_ratio": 1
+        }
+      },
+      {
+        "policy_index": 6,
+        "semantic": "back_right_hip_abduction",
+        "servo_id": 4,
+        "zero_deg": 179.3406982421875,
+        "servo_degrees_per_policy_radian": 57.2957795,
+        "min_deg": 159.3406982421875,
+        "max_deg": 199.3406982421875
+      },
+      {
+        "policy_index": 7,
+        "semantic": "back_right_hip_flexion",
+        "servo_id": 5,
+        "zero_deg": 181.3625946044922,
+        "servo_degrees_per_policy_radian": 57.2957795,
+        "min_deg": 161.3625946044922,
+        "max_deg": 201.3625946044922
+      },
+      {
+        "policy_index": 8,
+        "semantic": "back_right_knee_flexion",
+        "servo_id": 6,
+        "zero_deg": 219.95599365234375,
+        "servo_degrees_per_policy_radian": 57.2957795,
+        "min_deg": 184.95599365234375,
+        "max_deg": 254.95599365234375,
+        "linkage": {
+          "type": "four_bar_follow",
+          "parent_policy_index": 7,
+          "parent_ratio": 1
+        }
+      },
+      {
+        "policy_index": 9,
+        "semantic": "back_left_hip_abduction",
+        "servo_id": 10,
+        "zero_deg": 189.01100158691406,
+        "servo_degrees_per_policy_radian": -57.2957795,
+        "min_deg": 169.01100158691406,
+        "max_deg": 209.01100158691406
+      },
+      {
+        "policy_index": 10,
+        "semantic": "back_left_hip_flexion",
+        "servo_id": 11,
+        "zero_deg": 179.51649475097656,
+        "servo_degrees_per_policy_radian": -57.2957795,
+        "min_deg": 159.51649475097656,
+        "max_deg": 199.51649475097656
+      },
+      {
+        "policy_index": 11,
+        "semantic": "back_left_knee_flexion",
+        "servo_id": 12,
+        "zero_deg": 130.54949951171875,
+        "servo_degrees_per_policy_radian": -57.2957795,
+        "min_deg": 95.54950714111328,
+        "max_deg": 165.54949951171875,
+        "linkage": {
+          "type": "four_bar_follow",
+          "parent_policy_index": 10,
+          "parent_ratio": 1
+        }
+      }
+    ]
+  },
+  "joints": [
+    {
+      "servo_id": 7,
+      "semantic": "front_right_hip_abduction",
+      "policy_index": 0,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 263.671875,
+        "delay_s": 0.02
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 0.6058128678002809,
+      "held_out_rmse_deg": 0.7128201797953322,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 263.671875,
+            "delay_s": 0.02
+          },
+          "fit_rmse_deg": 0.6058128678002809,
+          "held_out_rmse_deg": 0.7128201797953322
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.06,
+            "delay_s": 0.12
+          },
+          "fit_rmse_deg": 1.4863623508561952,
+          "held_out_rmse_deg": 1.3144599111695787
+        }
+      }
+    },
+    {
+      "servo_id": 8,
+      "semantic": "front_right_hip_flexion",
+      "policy_index": 1,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 360.0,
+        "delay_s": 0.0
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 1.508550981604822,
+      "held_out_rmse_deg": 1.4276399768396757,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 360.0,
+            "delay_s": 0.0
+          },
+          "fit_rmse_deg": 1.508550981604822,
+          "held_out_rmse_deg": 1.4276399768396757
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.06,
+            "delay_s": 0.12
+          },
+          "fit_rmse_deg": 3.8650254069294006,
+          "held_out_rmse_deg": 3.798521081584718
+        }
+      }
+    },
+    {
+      "servo_id": 9,
+      "semantic": "front_right_knee_flexion",
+      "policy_index": 2,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 263.671875,
+        "delay_s": 0.0
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 1.6842357802013748,
+      "held_out_rmse_deg": 2.4411421119185,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 263.671875,
+            "delay_s": 0.0
+          },
+          "fit_rmse_deg": 1.6842357802013748,
+          "held_out_rmse_deg": 2.4411421119185
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.25,
+            "delay_s": 0.12
+          },
+          "fit_rmse_deg": 7.315828932749084,
+          "held_out_rmse_deg": 7.880187330416415
+        }
+      }
+    },
+    {
+      "servo_id": 1,
+      "semantic": "front_left_hip_abduction",
+      "policy_index": 3,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 1.023549574358721,
+      "held_out_rmse_deg": 0.8481867893342655,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 1.023549574358721,
+          "held_out_rmse_deg": 0.8481867893342655
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.06,
+            "delay_s": 0.08
+          },
+          "fit_rmse_deg": 1.7177289585006879,
+          "held_out_rmse_deg": 1.7896810579317564
+        }
+      }
+    },
+    {
+      "servo_id": 2,
+      "semantic": "front_left_hip_flexion",
+      "policy_index": 4,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 1.1184235612342324,
+      "held_out_rmse_deg": 1.0598731882515715,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 1.1184235612342324,
+          "held_out_rmse_deg": 1.0598731882515715
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.06,
+            "delay_s": 0.12
+          },
+          "fit_rmse_deg": 2.9797314100833394,
+          "held_out_rmse_deg": 1.9765979868658385
+        }
+      }
+    },
+    {
+      "servo_id": 3,
+      "semantic": "front_left_knee_flexion",
+      "policy_index": 5,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 3.2199385063870554,
+      "held_out_rmse_deg": 2.360826904763846,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 3.2199385063870554,
+          "held_out_rmse_deg": 2.360826904763846
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.15,
+            "delay_s": 0.12
+          },
+          "fit_rmse_deg": 6.952671460588468,
+          "held_out_rmse_deg": 6.5750971239419576
+        }
+      }
+    },
+    {
+      "servo_id": 4,
+      "semantic": "back_right_hip_abduction",
+      "policy_index": 6,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 0.5343455205763272,
+      "held_out_rmse_deg": 0.5080917000444285,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 0.5343455205763272,
+          "held_out_rmse_deg": 0.5080917000444285
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.06,
+            "delay_s": 0.08
+          },
+          "fit_rmse_deg": 0.8032436295972639,
+          "held_out_rmse_deg": 0.735042723529879
+        }
+      }
+    },
+    {
+      "servo_id": 5,
+      "semantic": "back_right_hip_flexion",
+      "policy_index": 7,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 0.9883663833671796,
+      "held_out_rmse_deg": 0.9869519400963908,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 0.9883663833671796,
+          "held_out_rmse_deg": 0.9869519400963908
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.1,
+            "delay_s": 0.08
+          },
+          "fit_rmse_deg": 1.718466246378526,
+          "held_out_rmse_deg": 1.549169120261795
+        }
+      }
+    },
+    {
+      "servo_id": 6,
+      "semantic": "back_right_knee_flexion",
+      "policy_index": 8,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 1.4786984592737333,
+      "held_out_rmse_deg": 1.846017497498631,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 1.4786984592737333,
+          "held_out_rmse_deg": 1.846017497498631
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.1,
+            "delay_s": 0.08
+          },
+          "fit_rmse_deg": 3.6844256477869117,
+          "held_out_rmse_deg": 5.467002076653601
+        }
+      }
+    },
+    {
+      "servo_id": 10,
+      "semantic": "back_left_hip_abduction",
+      "policy_index": 9,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 0.4848513565217711,
+      "held_out_rmse_deg": 0.46749906926604146,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 0.4848513565217711,
+          "held_out_rmse_deg": 0.46749906926604146
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.03,
+            "delay_s": 0.08
+          },
+          "fit_rmse_deg": 0.7822980391822085,
+          "held_out_rmse_deg": 0.8054056467085976
+        }
+      }
+    },
+    {
+      "servo_id": 11,
+      "semantic": "back_left_hip_flexion",
+      "policy_index": 10,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 540.0,
+        "delay_s": 0.04
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 1.0427411029541516,
+      "held_out_rmse_deg": 0.9446031755890992,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 540.0,
+            "delay_s": 0.04
+          },
+          "fit_rmse_deg": 1.0427411029541516,
+          "held_out_rmse_deg": 0.9446031755890992
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.1,
+            "delay_s": 0.08
+          },
+          "fit_rmse_deg": 1.293515960462407,
+          "held_out_rmse_deg": 1.4239411247625893
+        }
+      }
+    },
+    {
+      "servo_id": 12,
+      "semantic": "back_left_knee_flexion",
+      "policy_index": 11,
+      "model": {
+        "kind": "acceleration_limited",
+        "acceleration_deg_s2": 263.671875,
+        "delay_s": 0.0
+      },
+      "speed_limit_deg_s": 105.46875,
+      "fit_rmse_deg": 5.037299619128618,
+      "held_out_rmse_deg": 4.026017014935938,
+      "family_comparison": {
+        "acceleration_limited": {
+          "model": {
+            "kind": "acceleration_limited",
+            "acceleration_deg_s2": 263.671875,
+            "delay_s": 0.0
+          },
+          "fit_rmse_deg": 5.037299619128618,
+          "held_out_rmse_deg": 4.026017014935938
+        },
+        "first_order": {
+          "model": {
+            "kind": "first_order",
+            "tau_s": 0.25,
+            "delay_s": 0.12
+          },
+          "fit_rmse_deg": 7.205662781268436,
+          "held_out_rmse_deg": 7.131074770243843
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "One closed-loop gait does not identify unloaded motor dynamics or force.",
+    "Held-out windows are from the same run and hardware conditions.",
+    "Do not combine this response model with another fit of the same lag."
+  ]
+}

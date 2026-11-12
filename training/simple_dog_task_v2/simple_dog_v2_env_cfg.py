@@ -200,6 +200,7 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
         CONTROL_PROFILE, "reset.large_tilt_fraction", 0.10
     )
     randomize_reset_yaw = profile_value(CONTROL_PROFILE, "reset.randomize_yaw", True)
+    reset_spawn_clearance_m = 0.0
 
     # Mild stumble recovery without turning locomotion into a get-up task.
     push_interval_s = (
@@ -229,6 +230,12 @@ class SimpleDogV2CoreEnvCfg(SimpleDogFlatEnvCfg):
 
     # One main locomotion objective and a small number of regularizers.
     locomotion_reward_scale = profile_value(CONTROL_PROFILE, "rewards.locomotion", 4.0)
+    # Zero preserves existing V1/V2 behavior. A positive value makes useful
+    # locomotion credit conditional on a level body without changing the actor
+    # observation or weakening negative task/safety terms.
+    level_locomotion_gate_std = 0.0
+    minimum_command_speed_fraction = 0.0
+    velocity_shortfall_penalty_scale = 0.0
     velocity_tracking_std = profile_value(
         CONTROL_PROFILE, "rewards.velocity_tracking_std", 0.20
     )

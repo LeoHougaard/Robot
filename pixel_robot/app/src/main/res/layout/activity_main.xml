@@ -126,9 +126,26 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:stepSize="0.01"
-            android:value="0.12"
+            android:value="0"
             android:valueFrom="0"
             android:valueTo="0.22" />
+
+        <TextView
+            android:id="@+id/lateralRequestLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/lateral_request"
+            android:textColor="@color/ink" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/lateralSlider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:stepSize="0.01"
+            android:value="0"
+            android:valueFrom="-0.01"
+            android:valueTo="0.01" />
 
         <TextView
             android:id="@+id/yawRequestLabel"

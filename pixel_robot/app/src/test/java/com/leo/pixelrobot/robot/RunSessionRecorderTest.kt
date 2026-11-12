@@ -9,6 +9,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunSessionRecorderTest {
+    @Test(timeout = 10000)
+    fun blockedStorageDoesNotBlockControlAndPreservesCaptureTime() {
+        val directory = Files.createTempDirectory("robot-recorder-blocked").toFile()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val clock = java.util.concurrent.atomic.AtomicLong(100)
+        val recorder = RunSessionRecorder(directory, { JSONObject() },
+            unixTimeMillis = { clock.get() }, monotonicNanos = { clock.get() * 1000 },
+            openWriter = { file ->
+                object : java.io.BufferedWriter(file.writer()) {
+                    override fun write(text: String, offset: Int, length: Int) {
+                        if (text.contains("robot_rx")) {
+                            entered.countDown()
+                            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        }
+                        super.write(text, offset, length)
+                    }
+                }
+            },
+        )
+        try {
+            recorder.start("test")
+            val message = JSONObject().put("sample", 1)
+            recorder.recordRobotRx(message)
+            assertTrue(entered.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            clock.set(200)
+            message.put("sample", 99)
+            // More than the bounded backlog: these calls must finish while
+            // storage remains blocked and must report incomplete evidence.
+            val producer = java.util.concurrent.Executors.newSingleThreadExecutor()
+            try {
+                producer.submit { repeat(300) { recorder.recordRobotTx("{}".toByteArray()) } }
+                    .get(1, java.util.concurrent.TimeUnit.SECONDS)
+            } finally { producer.shutdownNow() }
+            release.countDown()
+            val status = recorder.finish("stopped", "test")
+            assertTrue(status.error.orEmpty().contains("overflow"))
+            val records = requireNotNull(recorder.latestCompletedFile()).readLines().map(::JSONObject)
+            val rx = records.single { it.getString("type") == "robot_rx" }
+            assertEquals(100L, rx.getLong("host_unix_ms"))
+            assertEquals(100_000L, rx.getLong("host_monotonic_ns"))
+            assertEquals(1, rx.getJSONObject("data").getJSONObject("message").getInt("sample"))
+            assertTrue(records.last().getJSONObject("data").getLong("dropped_records") > 0)
+            assertFalse(records.last().getJSONObject("data").getBoolean("complete"))
+        } finally {
+            release.countDown()
+            recorder.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun sessionContainsContextRawTrafficDerivedFramesAndCleanEnd() {
         val directory = Files.createTempDirectory("robot-run-recorder-test").toFile()

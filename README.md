@@ -17,6 +17,42 @@ repository root so its existing launchers keep working.
 Each project retains its original Git history. Open this repository when a
 change crosses training, export, firmware, runtime, or Android boundaries.
 
+## Offline LLM command research
+
+[`robot_llm/`](robot_llm/README.md) provides a strict intent contract, a
+non-actuating shadow supervisor, and an offline-first comparison of JSON-object,
+native JSON-Schema, and optional pinned BAML output. It has no robot transport
+and cannot arm or move the robot. Fixture replay verifies the harness, not a
+language model's accuracy or physical safety. Live inference is explicitly
+opt-in and requires an endpoint and model selected by the operator.
+
+The existing training adviser remains in [`autoresearch/`](autoresearch/README.md).
+Its typed response validation does not grant it authority over physical motion
+or deterministic checkpoint promotion.
+
+After the isolated setup in [`validation/README.md`](validation/README.md), run
+`python -m validation` for the canonical offline checks and a machine-readable
+pass/fail/blocked report. A bounded watch mode reruns checks after fixes without
+editing code itself. CI uses the same runner. Missing live-model, simulator or
+hardware evidence cannot become a physical-readiness pass.
+
+Use [`robot_llm/SESSION.md`](robot_llm/SESSION.md) for the interactive shadow
+session and [`robot_llm/QUALIFICATION.md`](robot_llm/QUALIFICATION.md) for the
+offline gate on retained live-model benchmark evidence. The larger
+[`qualification corpus`](robot_llm/QUALIFICATION-CORPUS.md) contains authored
+test instructions, not measured model results.
+
+The [current Pixel compute-only bridge](robot_llm/RUNTIME-BRIDGE.md) joins the
+shadow command lease to the checked-in 428-input ONNX actor and production
+Kotlin observation/stride/calibration math. It uses synthetic feedback and has
+no USB, arming, or actuation path. See the
+[read-only setup preflight](deployment_readiness/README.md) for dependency and
+bundle diagnostics, and [Pixel host tests](pixel_robot/docs/HOST-TESTS.md) for
+what can be compiled and tested without an Android device.
+The app also includes a [shadow-only text preview](pixel_robot/docs/SHADOW-PREVIEW.md)
+with explicit provider consent and service-owned expiry; it never feeds accepted
+previews into the physical controller.
+
 ## Training system
 
 The reinforcement-learning infrastructure trains quadrupeds in NVIDIA Isaac

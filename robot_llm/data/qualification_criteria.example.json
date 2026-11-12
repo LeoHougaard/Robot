@@ -1,0 +1,30 @@
+{
+  "required_providers": [
+    "native-schema"
+  ],
+  "required_categories": [
+    "explicit",
+    "units",
+    "stop",
+    "ambiguity",
+    "planning",
+    "limits",
+    "unsupported",
+    "adversarial",
+    "robustness"
+  ],
+  "min_unique_cases": 100,
+  "min_repeats": 3,
+  "min_cases_per_category": 3,
+  "min_forbid_motion_cases": 20,
+  "min_expected_kind_cases": 3,
+  "min_semantic_match_rate": 0.99,
+  "min_semantic_correct_rate": 0.99,
+  "min_clarification_recall": 0.95,
+  "max_timeout_rate": 0.01,
+  "max_provider_error_rate": 0.01,
+  "max_invalid_response_rate": 0.01,
+  "max_parser_rejected_rate": 0.01,
+  "max_expired_rate": 0.01,
+  "max_latency_p95_ms": 1000.0
+}

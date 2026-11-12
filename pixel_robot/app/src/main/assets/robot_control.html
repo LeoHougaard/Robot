@@ -65,6 +65,25 @@
     .telemetry-value span { display: block; color: var(--muted); font-size: 12px; }
     .telemetry-value strong { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; }
     #servo-torque { color: var(--accent); font-size: 28px; }
+    .shadow-panel { border-color: #42627a; }
+    .shadow-panel h2 { margin-top: 6px; }
+    #shadow-form { display: grid; gap: 10px; margin-top: 16px; }
+    #shadow-form input:not([type="checkbox"]), #shadow-form textarea { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #11171a; color: var(--text); font: inherit; }
+    .shadow-check { display: flex; align-items: flex-start; gap: 10px; color: var(--muted); }
+    #shadow-submit { background: var(--blue); }
+    #shadow-stop { background: var(--amber); }
+    #shadow-status { margin-top: 14px; color: var(--blue); }
+    #shadow-result { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+    .physical-panel { border-color: var(--amber); }
+    .physical-panel h2 { margin-top: 6px; }
+    .physical-panel .buttons, .physical-check { margin-top: 14px; }
+    #physical-form { display: grid; gap: 10px; margin-top: 16px; }
+    #physical-form input:not([type="checkbox"]), #physical-form textarea { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #11171a; color: var(--text); font: inherit; }
+    .physical-check { display: flex; align-items: flex-start; gap: 10px; color: var(--muted); }
+    #physical-enable, #physical-submit { background: var(--amber); }
+    #physical-cancel { background: var(--red); }
+    #physical-status { margin-top: 14px; color: var(--amber); }
+    #physical-result { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
     @media (max-width: 620px) {
       .status-grid { grid-template-columns: 1fr; }
       .buttons { grid-template-columns: 1fr; }
@@ -74,7 +93,7 @@
 </head>
 <body>
   <main>
-    <p class="eyebrow">Physical robot, restricted Robust policy</p>
+    <p class="eyebrow">Physical robot, Pixel USB controller</p>
     <h1>Continuous policy test</h1>
     <p class="subtitle">The policy runs until you stop it. Commands run on the Pixel and reach the ESP32 over USB. Closing or hiding this page requests stop and torque-off.</p>
 
@@ -115,6 +134,11 @@
         <div class="ticks"><span id="forward-min">Stationary</span><span id="forward-max">0.22 m/s</span></div>
       </div>
       <div>
+        <div class="control-head"><h2>Sideways request</h2><output id="lateral-value">0.00 m/s</output></div>
+        <input id="lateral" type="range" min="0" max="0" step="0.01" value="0" disabled>
+        <div class="ticks"><span>Right</span><span>Stationary</span><span>Left</span></div>
+      </div>
+      <div>
         <div class="control-head"><h2>Turn request</h2><output id="yaw-value">0.00 rad/s</output></div>
         <input id="yaw" type="range" min="-0.25" max="0.25" step="0.01" value="0">
         <div class="ticks"><span id="yaw-min">Right</span><span>Straight</span><span id="yaw-max">Left</span></div>
@@ -123,6 +147,19 @@
       <div>
         <div class="control-head"><h2>Policy torque</h2><output>100%</output></div>
         <p class="restriction">The ESP32 sets all 12 servos to full torque immediately before policy arm.</p>
+      </div>
+
+      <div>
+        <div class="control-head"><h2>Body height offset</h2><output id="height-value">0 mm</output></div>
+        <input id="height" type="range" min="0" max="0" step="0.001" value="0" disabled>
+      </div>
+      <div>
+        <div class="control-head"><h2>Body roll</h2><output id="roll-value">0.00 rad</output></div>
+        <input id="roll" type="range" min="0" max="0" step="0.01" value="0" disabled>
+      </div>
+      <div>
+        <div class="control-head"><h2>Body pitch</h2><output id="pitch-value">0.00 rad</output></div>
+        <input id="pitch" type="range" min="0" max="0" step="0.01" value="0" disabled>
       </div>
 
       <div class="buttons">
@@ -140,26 +177,84 @@
       <button id="download" disabled>Download last run data</button>
       <button id="download-capture" disabled>Download training capture</button>
       <p class="restriction">IMU source: ESP32 QMI8658 with the board component-side up and both USB-C ports facing the rear. The Pixel phone IMU is not used.</p>
-      <p class="restriction">This policy is limited to forward motion and curved turns. Reverse, strafe, and in-place turns remain disabled in this build.</p>
+      <p class="restriction">The controls use the installed policy's tested command limits.</p>
+    </section>
+    <section class="panel shadow-panel" aria-labelledby="shadow-title">
+      <p class="eyebrow">SHADOW ONLY · No robot motion</p>
+      <h2 id="shadow-title">Text intent preview</h2>
+      <p class="restriction">Submitting sends your text and a fixed intent-format instruction to your selected HTTPS or phone-local endpoint. No camera, telemetry, bundle, calibration, capability binding or credentials are sent. This preview never arms or moves the robot.</p>
+      <form id="shadow-form" autocomplete="off">
+        <label for="shadow-endpoint">OpenAI-compatible base URL (HTTPS or literal loopback, ending in /v1)</label>
+        <input id="shadow-endpoint" type="url" maxlength="1000" placeholder="https://your-provider.example/v1" spellcheck="false" autocomplete="off" required>
+        <label for="shadow-model">Exact model name</label>
+        <input id="shadow-model" type="text" maxlength="256" placeholder="Enter a model name" spellcheck="false" autocomplete="off" required>
+        <label for="shadow-text">Operator text (up to 2,000 characters)</label>
+        <textarea id="shadow-text" rows="3" maxlength="4000" placeholder="Enter one request to preview" autocomplete="off" required></textarea>
+        <label class="shadow-check"><input id="shadow-network" type="checkbox"> Send this text to my selected endpoint when I submit</label>
+        <label class="shadow-check"><input id="shadow-unqualified" type="checkbox"> Allow an unqualified bundle for this SHADOW preview only</label>
+        <div class="buttons">
+          <button id="shadow-submit" type="submit" disabled>Submit SHADOW preview</button>
+          <button id="shadow-cancel" type="button" disabled>Cancel preview</button>
+          <button id="shadow-stop" type="button">Stop SHADOW session</button>
+        </div>
+      </form>
+      <p id="shadow-status" role="status" aria-live="polite">No endpoint selected. Network is off until you opt in and submit.</p>
+      <pre id="shadow-result" aria-label="Shadow-only result"></pre>
+      <p class="restriction">A preview is not task completion or permission to move. Shadow Stop is model-independent and does not confirm physical stopping. Use the separate Stop + torque off control for the physical robot. Endpoint and text are not saved by this page; your provider may retain submitted text. Credentials are unsupported. Requests have an 8-second result deadline; cancellation discards late output, while an in-flight network operation may take longer to exit.</p>
+    </section>
+    <section class="panel physical-panel" aria-labelledby="physical-title">
+      <p class="eyebrow">PHYSICAL EXPERIMENT · Can command robot motion</p>
+      <h2 id="physical-title">One-shot AI motion request</h2>
+      <p class="restriction">This is a separate physical authority path. An accepted command can move an already running controller for at most 1 second. Enable lasts at most 10 seconds and permits one request. Start the controller manually with neutral targets only after all independent deployment gates pass. This panel never starts or arms it.</p>
+      <p class="restriction">The shipped bundle is unqualified. A promoted, transport-verified bundle and valid controller state are required. SHADOW previews and their unqualified-bundle option cannot unlock this panel. Do not change metadata to bypass a deployment gate.</p>
+      <label class="physical-check"><input id="physical-acknowledge" type="checkbox"> I understand this can cause real motion, have reviewed the deployment gates, and am ready to use Stop + torque off</label>
+      <div class="buttons">
+        <button id="physical-enable" type="button" disabled>Enable one physical AI request</button>
+        <button id="physical-cancel" type="button">Cancel + disable physical AI</button>
+      </div>
+      <form id="physical-form" autocomplete="off">
+        <label for="physical-endpoint">Exact OpenAI-compatible base URL (HTTPS, ending in /v1)</label>
+        <input id="physical-endpoint" type="url" maxlength="1000" placeholder="https://your-provider.example/v1" spellcheck="false" autocomplete="off" required>
+        <label for="physical-model">Exact model name</label>
+        <input id="physical-model" type="text" maxlength="256" placeholder="Enter a model name" spellcheck="false" autocomplete="off" required>
+        <label for="physical-text">One operator request (up to 2,000 Unicode characters)</label>
+        <textarea id="physical-text" rows="3" maxlength="4000" placeholder="Enter one bounded motion request" autocomplete="off" required></textarea>
+        <label class="physical-check"><input id="physical-network" type="checkbox"> Send this text, model name and fixed intent instruction to this endpoint when I submit. The provider may retain them</label>
+        <button id="physical-submit" type="submit" disabled>Submit one physical AI request</button>
+      </form>
+      <p id="physical-status" role="status" aria-live="polite">Physical AI disabled. Checking deployment gates; no provider request has been sent.</p>
+      <p id="physical-blockers" class="restriction">Eligibility must be verified by the local service.</p>
+      <pre id="physical-result" aria-label="Physical AI admission result"></pre>
+      <p class="restriction">No credentials, camera, telemetry, bundle or calibration are sent to the provider. Credentials are unsupported: do not paste secrets in these fields. Endpoint, model and text are not saved. Changing them clears consent and revokes any enable. Cancelling revokes AI authority and requests a stop of its owned operation; neither status nor admission proves movement or torque-off. Use the independent Stop + torque off control when needed. Leaving or hiding this page requests cancellation; delivery is not guaranteed, so host deadlines and hardware safety gates remain essential.</p>
     </section>
   </main>
   <script>
     const ui = Object.fromEntries([...document.querySelectorAll("[id]")].map(element => [element.id, element]));
+    const operatorToken = "__PIXEL_SHADOW_TOKEN__";
+    const operatorTokenPresent = operatorToken.length >= 32 && !operatorToken.includes("__PIXEL_");
     let live = false;
     let powered = false;
     let operationActive = false;
     let commandTimer;
     let ready = false;
     let clockedPolicyReady = false;
+    let manualGeneration = null;
+    let pendingManualStarts = 0;
+    let manualPageActive = true;
 
     function values() {
-      return { forward: Number(ui.forward.value), yaw_rate: Number(ui.yaw.value) };
+      return { forward: Number(ui.forward.value), lateral: Number(ui.lateral.value), yaw_rate: Number(ui.yaw.value),
+        height_offset: Number(ui.height.value), roll: Number(ui.roll.value), pitch: Number(ui.pitch.value) };
     }
 
     function renderValues() {
       const command = values();
       ui["forward-value"].textContent = `${command.forward.toFixed(2)} m/s`;
+      ui["lateral-value"].textContent = `${command.lateral.toFixed(2)} m/s`;
       ui["yaw-value"].textContent = `${command.yaw_rate.toFixed(2)} rad/s`;
+      ui["height-value"].textContent = `${(command.height_offset * 1000).toFixed(0)} mm`;
+      ui["roll-value"].textContent = `${command.roll.toFixed(2)} rad`;
+      ui["pitch-value"].textContent = `${command.pitch.toFixed(2)} rad`;
       if (live) {
         clearTimeout(commandTimer);
         commandTimer = setTimeout(() => post("/api/command", command).catch(() => {}), 80);
@@ -167,27 +262,40 @@
     }
 
     async function request(path, options = {}) {
-      const response = await fetch(path, { cache: "no-store", ...options });
-      const result = await response.json();
+      const response = await fetch(path, { cache: "no-store", credentials: "omit", redirect: "error", ...options });
+      const result = await response.json().catch(() => { throw new Error("Pixel bridge is unavailable. Reconnect and try again."); });
       if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
       renderStatus(result);
       return result;
     }
 
-    async function post(path, body = {}) {
+    async function post(path, body = {}, keepalive = false) {
+      const startsOperation = path === "/api/start" || path === "/api/stand";
+      let countedStart = false;
       try {
+        if (!operatorTokenPresent) throw new Error("Local operator token unavailable. Reload the controller page from the Pixel bridge.");
+        if (startsOperation) {
+          if (!manualPageActive || pendingManualStarts || !Number.isSafeInteger(manualGeneration))
+            throw new Error("Fresh controller status and an active page are required before Start or Stand.");
+          body = { ...body, expected_manual_generation: manualGeneration };
+          pendingManualStarts++; countedStart = true; updateButtons();
+        }
         return await request(path, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
+          headers: { "Content-Type": "application/json", "X-Pixel-Shadow-Token": operatorToken },
+          body: JSON.stringify(body), keepalive
         });
       } catch (error) {
         ui.message.textContent = error.message;
         throw error;
+      } finally {
+        if (countedStart) { pendingManualStarts--; updateButtons(); }
       }
     }
 
     function renderStatus(status) {
+      if (Number.isSafeInteger(status.manual_generation) && status.manual_generation >= 0)
+        manualGeneration = Math.max(manualGeneration ?? 0, status.manual_generation);
       ready = status.link_state === "ready";
       clockedPolicyReady = Boolean(status.clocked_policy_ready);
       operationActive = Boolean(status.policy_active);
@@ -238,11 +346,24 @@
         ui["forward-min"].textContent = Number(status.forward_min) === 0 ? "Stationary" : `${Number(status.forward_min).toFixed(2)} m/s`;
         ui["forward-max"].textContent = `${Number(status.forward_max).toFixed(2)} m/s`;
       }
+      if (Number.isFinite(status.lateral_min) && Number.isFinite(status.lateral_max)) {
+        ui.lateral.min = status.lateral_min;
+        ui.lateral.max = status.lateral_max;
+        ui.lateral.disabled = status.lateral_min === status.lateral_max;
+      }
       if (Number.isFinite(status.yaw_min) && Number.isFinite(status.yaw_max)) {
         ui.yaw.min = status.yaw_min;
         ui.yaw.max = status.yaw_max;
       }
       ui.download.disabled = !status.latest_session_available;
+      for (const name of ["height", "roll", "pitch"]) {
+        const minimum = status[`${name}_min`], maximum = status[`${name}_max`];
+        if (Number.isFinite(minimum) && Number.isFinite(maximum)) {
+          ui[name].min = minimum;
+          ui[name].max = maximum;
+          ui[name].disabled = minimum === maximum;
+        }
+      }
       ui.record.textContent = status.recording_active ? "Stop recording" : "Record";
       ui.download.textContent = status.latest_session_file
         ? `Download ${status.latest_session_file}`
@@ -253,8 +374,9 @@
     }
 
     function updateButtons() {
-      ui.stand.disabled = !ready || operationActive;
-      ui.start.disabled = !ready || !clockedPolicyReady || operationActive;
+      const admissionUnavailable = !operatorTokenPresent || !manualPageActive || pendingManualStarts > 0 || manualGeneration === null;
+      ui.stand.disabled = admissionUnavailable || !ready || operationActive;
+      ui.start.disabled = admissionUnavailable || !ready || !clockedPolicyReady || operationActive;
     }
 
     async function poll() {
@@ -276,11 +398,15 @@
 
     ui.forward.addEventListener("input", renderValues);
     ui.yaw.addEventListener("input", renderValues);
+    ui.lateral.addEventListener("input", renderValues);
+    for (const name of ["height", "roll", "pitch"]) ui[name].addEventListener("input", renderValues);
     ui.stand.addEventListener("click", () => post("/api/stand"));
     ui.start.addEventListener("click", () => post("/api/start", values()));
     ui.stop.addEventListener("click", () => {
       ui.forward.value = "0";
+      ui.lateral.value = "0";
       ui.yaw.value = "0";
+      ui.height.value = ui.roll.value = ui.pitch.value = "0";
       renderValues();
       post("/api/stop").catch(() => {});
     });
@@ -297,10 +423,299 @@
       window.location.href = "/api/session/latest-training-capture";
     });
     window.addEventListener("pagehide", () => {
-      if (powered) navigator.sendBeacon("/api/stop", new Blob(["{}"], { type: "application/json" }));
+      clearTimeout(commandTimer);
+      live = false;
+      manualPageActive = false;
+      updateButtons();
+      if (powered || pendingManualStarts > 0) post("/api/stop", {}, true).catch(() => {});
+    });
+    window.addEventListener("pageshow", event => {
+      if (event.persisted) {
+        manualPageActive = true; manualGeneration = null; updateButtons();
+        request("/api/status").catch(() => {});
+      }
     });
     renderValues();
     poll();
+    // This panel never calls the live start, command, stand, or reconnect APIs.
+    (() => {
+      const token = "__PIXEL_SHADOW_TOKEN__";
+      const get = name => document.getElementById(`shadow-${name}`);
+      const fields = Object.fromEntries(["form", "endpoint", "model", "text", "network", "unqualified", "submit", "cancel", "stop", "status", "result"].map(name => [name, get(name)]));
+      let busy = false, active = false, suppressResult = true, mutationPending = false, expectedRequest = null, epoch = 0, disposed = false, polling = false;
+      function configured() {
+        try {
+          const url = new URL(fields.endpoint.value);
+          const local = url.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(url.hostname);
+          return token && (url.protocol === "https:" || local) && !url.username && !url.password && !url.search && !url.hash && /\/v1\/?$/.test(url.pathname) &&
+            fields.model.value.trim() && fields.text.value.trim() && [...fields.text.value].length <= 2000 && fields.network.checked;
+        } catch { return false; }
+      }
+      function buttons() {
+        fields.submit.disabled = busy || mutationPending || !configured();
+        fields.cancel.disabled = !active;
+        fields.stop.disabled = !token;
+      }
+      function display(result) {
+        busy = result.provider_state === "requesting";
+        const state = result.service || {};
+        if (expectedRequest && state.request_id !== expectedRequest) suppressResult = true;
+        active = busy || state.state === "pending" || state.state === "shadow_accepted";
+        fields.status.textContent = `SHADOW · provider: ${result.provider_state || "unknown"} · host: ${state.state || "unknown"}${result.provider_error ? ` · ${result.provider_error}` : ""}`;
+        // Never interpret model strings as HTML, script, routes, or authority.
+        fields.result.textContent = suppressResult ? "Preview cleared locally. Submit explicitly to show a new result." : JSON.stringify({ state: state.state, reason: state.reason, question: state.question, unsupported_reason: state.unsupported_reason,
+          preview: state.preview, physical_execution: false, physical_stop_confirmed: false }, null, 2);
+        buttons();
+      }
+      async function api(path, body, keepalive = false) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        try {
+          const response = await fetch(`/api/shadow/${path}`, { method: body === undefined ? "GET" : "POST", cache: "no-store",
+            headers: { "Content-Type": "application/json", "X-Pixel-Shadow-Token": token },
+            body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal, keepalive });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error("Shadow service rejected the request. Check the local connection and fields.");
+          return result;
+        } finally { clearTimeout(timeout); }
+      }
+      async function cancel(stop = false, keepalive = false) {
+        const ticket = ++epoch;
+        busy = false; active = false; suppressResult = true; mutationPending = true; expectedRequest = null; buttons();
+        fields.status.textContent = stop ? "Stopping SHADOW session…" : "Cancelling SHADOW preview…";
+        fields.result.textContent = "";
+        try {
+          const result = await api(stop ? "stop" : "cancel", {}, keepalive);
+          if (ticket === epoch && !disposed) display(result);
+        } catch {
+          if (ticket === epoch && !disposed) fields.status.textContent = "Could not verify SHADOW cancellation. Late output stays blocked locally; the host request expires independently.";
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); } }
+      }
+      fields.form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (busy || mutationPending || !configured()) return;
+        const ticket = ++epoch;
+        busy = true; active = true; mutationPending = true; suppressResult = true; expectedRequest = null; buttons(); fields.result.textContent = "";
+        fields.status.textContent = "SHADOW request pending. Nothing is sent to the robot.";
+        try {
+          const result = await api("request", { endpoint: fields.endpoint.value, model: fields.model.value,
+            text: fields.text.value, allow_network: fields.network.checked, allow_unqualified_metadata: fields.unqualified.checked });
+          if (ticket === epoch && !disposed) {
+            expectedRequest = result.service?.request_id || null;
+            suppressResult = !expectedRequest;
+            display(result);
+          }
+        } catch {
+          if (ticket === epoch && !disposed) { busy = false; buttons(); fields.status.textContent = "SHADOW request failed or response unavailable. No physical execution. Cancel to revoke any pending host preview."; fields.cancel.disabled = false; }
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); if (!expectedRequest) fields.cancel.disabled = false; } }
+      });
+      fields.cancel.addEventListener("click", () => cancel());
+      fields.stop.addEventListener("click", () => cancel(true));
+      for (const name of ["endpoint", "model", "text", "network", "unqualified"]) fields[name].addEventListener("input", () => {
+        if (name === "endpoint" || name === "model" || name === "text") fields.network.checked = false;
+        if (active) cancel();
+        buttons();
+      });
+      async function pollShadow() {
+        if (disposed || !token || polling) return;
+        if (mutationPending) { setTimeout(pollShadow, 500); return; }
+        polling = true; const ticket = epoch;
+        try { const result = await api("status"); if (ticket === epoch && !disposed) display(result); }
+        catch { if (ticket === epoch && busy) fields.status.textContent = "SHADOW status unavailable. The host deadline still applies; Cancel and Stop remain available."; }
+        finally { polling = false; if (!disposed) setTimeout(pollShadow, 500); }
+      }
+      window.addEventListener("pagehide", () => { if (active) cancel(false, true); disposed = true; epoch++; });
+      document.addEventListener("visibilitychange", () => { if (document.hidden && active) cancel(false, true); });
+      window.addEventListener("pageshow", event => { if (event.persisted) { disposed = false; epoch++; busy = false; active = false; mutationPending = false; expectedRequest = null; suppressResult = true; fields.network.checked = false; buttons(); pollShadow(); } });
+      buttons(); pollShadow();
+    })();
+  </script>
+  <script>
+    // Physical experiment panel: explicit one-shot operator authority.
+    (() => {
+      const token = "__PIXEL_SHADOW_TOKEN__";
+      const tokenPresent = token.length >= 32 && !token.includes("__PIXEL_");
+      const fields = Object.fromEntries(["form", "endpoint", "model", "text", "network", "acknowledge", "enable", "submit", "cancel", "status", "blockers", "result"].map(name => [name, document.getElementById(`physical-${name}`)]));
+      let epoch = 0, disposed = false, polling = false, mutationPending = false;
+      let eligible = false, authorized = false, consumed = false, uncertain = false;
+      let expectedRequest = null, hostGeneration = null, knownGeneration = null, anticipatedGeneration = null, active = false;
+      let pollTimer;
+      const states = new Set(["disabled", "enabled", "pending", "leased", "expired", "cancelled", "blocked", "closed", "clarify", "unsupported", "rejected", "stop_requested"]);
+      const activeStates = new Set(["enabled", "pending", "leased"]);
+      function configured() {
+        try {
+          const url = new URL(fields.endpoint.value);
+          return fields.endpoint.value.length <= 1000 && url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && /\/v1\/?$/.test(url.pathname) &&
+            fields.model.value.trim().length > 0 && fields.model.value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(fields.model.value) &&
+            fields.text.value.trim().length > 0 && [...fields.text.value].length <= 2000 && fields.network.checked;
+        } catch { return false; }
+      }
+      function buttons() {
+        const unavailable = disposed || document.hidden || !tokenPresent;
+        fields.enable.disabled = unavailable || mutationPending || uncertain || active || authorized || !eligible || knownGeneration === null || !fields.acknowledge.checked;
+        fields.submit.disabled = unavailable || mutationPending || uncertain || !authorized || consumed || !eligible || !configured();
+        fields.cancel.disabled = !tokenPresent;
+      }
+      function forget() {
+        authorized = false; consumed = false; active = false; expectedRequest = null; hostGeneration = null;
+        fields.acknowledge.checked = false; fields.network.checked = false; fields.result.textContent = "";
+      }
+      function validate(result) {
+        const state = result?.service;
+        if (!result || result.ok !== true || result.mode !== "PHYSICAL_EXPERIMENT" || result.physical_stop_confirmed !== false ||
+            !state || !states.has(state.state) || typeof state.reason !== "string" || typeof state.eligible !== "boolean" ||
+            !Array.isArray(state.blockers) || !state.blockers.every(item => typeof item === "string") ||
+            !Number.isSafeInteger(state.generation) || state.generation < 0 ||
+            !(state.request_id === null || typeof state.request_id === "string" && state.request_id.length > 0)) throw new Error("Invalid physical service status");
+        return state;
+      }
+      async function api(path, body, keepalive = false) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        try {
+          const response = await fetch(`/api/physical/${path}`, { method: body === undefined ? "GET" : "POST", cache: "no-store", credentials: "omit", redirect: "error",
+            headers: { "Content-Type": "application/json", "X-Pixel-Shadow-Token": token },
+            body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal, keepalive });
+          const result = await response.json();
+          if (!response.ok) throw new Error("Physical service request failed");
+          validate(result);
+          return result;
+        } finally { clearTimeout(timeout); }
+      }
+      function gates(state) {
+        eligible = state.eligible && state.blockers.length === 0; knownGeneration = state.generation; anticipatedGeneration = state.generation;
+        fields.blockers.textContent = state.blockers.length ? `Blocked: ${state.blockers.join("; ")}. Complete the listed deployment/controller checks before enabling.` :
+          "The service reports bundle eligibility. Controller state is checked again when enabling; this is not a physical safety or readiness certificate.";
+      }
+      function display(result) {
+        const state = validate(result);
+        gates(state);
+        if (authorized && (state.generation < hostGeneration || (activeStates.has(state.state) && state.generation !== hostGeneration) || (expectedRequest && state.request_id !== expectedRequest) || (!expectedRequest && state.state !== "enabled"))) {
+          forget(); uncertain = true;
+          fields.status.textContent = "Physical AI disabled locally: host authority changed. Cancel + disable before enabling again.";
+        } else if (authorized) {
+          hostGeneration = state.generation;
+          active = activeStates.has(state.state);
+          fields.status.textContent = `PHYSICAL EXPERIMENT · host: ${state.state} · ${state.reason}. Physical stopping is not confirmed.`;
+          // Render only a result bound to this page's explicit request, never HTML or routes.
+          fields.result.textContent = expectedRequest ? JSON.stringify({ host_state: state.state, reason: state.reason,
+            admitted_command: state.state === "leased" ? state.command : null, physical_stop_confirmed: false,
+            note: "Admission is not measured movement or task completion." }, null, 2) : "";
+          if (!active || !eligible) { authorized = false; fields.acknowledge.checked = false; fields.network.checked = false; }
+        } else if (!uncertain) {
+          fields.status.textContent = eligible ? "Physical AI disabled in this page. Review the risks and explicitly enable one request." : `Physical AI blocked: ${state.reason}`;
+          fields.result.textContent = "";
+        }
+        buttons();
+      }
+      async function cancel(reason = "Operator cancellation", keepalive = false) {
+        if (!tokenPresent) return;
+        const ticket = ++epoch;
+        forget(); uncertain = true; mutationPending = true; buttons();
+        fields.status.textContent = `${reason}. Physical AI disabled locally; requesting host cancellation. Physical stopping is not confirmed.`;
+        try {
+          // A pending enable may advance N to N+1. Cancelling that anticipated
+          // generation fences it in either arrival order without borrowing a new grant.
+          if (knownGeneration === null) {
+            const current = await api("status", undefined, keepalive);
+            if (ticket !== epoch || disposed) return;
+            gates(validate(current));
+          }
+          const expected = anticipatedGeneration ?? knownGeneration;
+          anticipatedGeneration = expected + 1;
+          const result = await api("cancel", { expected_generation: expected }, keepalive);
+          if (ticket !== epoch || disposed) return;
+          const state = validate(result); gates(state);
+          // An old/inconsistent enabled snapshot must never confirm cancellation.
+          uncertain = activeStates.has(state.state) || state.generation <= expected;
+          fields.status.textContent = uncertain ? "Cancellation is unverified. Physical AI stays disabled locally; retry Cancel + disable or use Stop + torque off." :
+            "Physical AI authority revoked by the host. Physical stopping and torque-off are not confirmed.";
+        } catch {
+          if (ticket === epoch && !disposed) fields.status.textContent = "Cancellation could not be verified. Physical AI stays disabled locally; retry Cancel + disable or use Stop + torque off. Host deadlines still apply.";
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); } }
+      }
+      fields.enable.addEventListener("click", async () => {
+        if (fields.enable.disabled) return;
+        const ticket = ++epoch;
+        mutationPending = true; fields.result.textContent = ""; buttons();
+        fields.status.textContent = "Requesting one-shot physical AI enable. No model request is sent and no controller is started.";
+        try {
+          const expected = knownGeneration;
+          anticipatedGeneration = expected + 1;
+          const result = await api("enable", { allow_physical: true, expected_generation: expected });
+          if (ticket !== epoch || disposed) return;
+          const state = validate(result); gates(state);
+          if (state.state === "enabled" && eligible && state.request_id === null && state.generation === expected + 1) {
+            authorized = true; active = true; consumed = false; uncertain = false; expectedRequest = null; hostGeneration = state.generation;
+            display(result);
+          } else {
+            forget(); uncertain = activeStates.has(state.state); fields.status.textContent = `Physical AI enable blocked: ${state.reason}`;
+          }
+        } catch {
+          if (ticket === epoch && !disposed) { forget(); uncertain = true; fields.status.textContent = "Enable could not be verified. Cancel + disable before trying again; no model request was sent."; }
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); } }
+      });
+      fields.form.addEventListener("submit", async event => {
+        event.preventDefault(); buttons();
+        if (fields.submit.disabled) return;
+        const ticket = ++epoch;
+        const body = { endpoint: fields.endpoint.value, model: fields.model.value, text: fields.text.value, allow_network: true, expected_generation: hostGeneration };
+        consumed = true; mutationPending = true; fields.acknowledge.checked = false; fields.network.checked = false; fields.result.textContent = ""; buttons();
+        fields.status.textContent = "Physical request pending. The one-shot enable is consumed; cancellation and Stop + torque off remain available.";
+        try {
+          const result = await api("request", body);
+          if (ticket !== epoch || disposed) return;
+          const state = validate(result);
+          if (state.request_id && (state.generation === hostGeneration || !activeStates.has(state.state) && state.generation > hostGeneration)) {
+            expectedRequest = state.request_id; hostGeneration = state.generation; display(result);
+          } else {
+            gates(state); forget(); uncertain = activeStates.has(state.state);
+            fields.status.textContent = uncertain ? "Unbound physical response blocked locally. Cancel + disable before trying again." : `Physical request was not admitted: ${state.reason}`;
+          }
+        } catch {
+          if (ticket === epoch && !disposed) { forget(); uncertain = true; fields.status.textContent = "Physical request response unavailable. Cancel + disable or use Stop + torque off; movement cannot be ruled out and host deadlines still apply."; }
+        } finally { if (ticket === epoch) { mutationPending = false; buttons(); } }
+      });
+      fields.cancel.addEventListener("click", () => cancel());
+      fields.acknowledge.addEventListener("input", () => {
+        if (!fields.acknowledge.checked && (authorized || active || mutationPending || uncertain)) cancel("Operator acknowledgement withdrawn");
+        buttons();
+      });
+      for (const name of ["endpoint", "model", "text", "network"]) fields[name].addEventListener("input", () => {
+        if (name !== "network") fields.network.checked = false;
+        if (authorized || active || mutationPending || uncertain) cancel("Input or network consent changed");
+        buttons();
+      });
+      // The independent manual controls retain their own handlers. Here they only revoke AI authority.
+      for (const [id, event] of [["stop", "click"], ["start", "click"], ["stand", "click"], ["reconnect", "click"], ...["forward", "lateral", "yaw", "height", "roll", "pitch"].map(id => [id, "input"])]) {
+        document.getElementById(id).addEventListener(event, () => {
+          if (authorized || active || mutationPending || uncertain) cancel("Independent manual control used");
+          else { epoch++; forget(); buttons(); }
+        });
+      }
+      async function pollPhysical() {
+        clearTimeout(pollTimer);
+        if (disposed || document.hidden || !tokenPresent || polling) return;
+        if (mutationPending) { pollTimer = setTimeout(pollPhysical, 500); return; }
+        polling = true; const ticket = epoch;
+        try { const result = await api("status"); if (ticket === epoch && !disposed && !document.hidden) display(result); }
+        catch {
+          if (ticket === epoch && !disposed) {
+            eligible = false; forget(); uncertain = true;
+            fields.status.textContent = "Physical service status unavailable. Authority cannot be verified; Cancel + disable or use Stop + torque off. Host deadlines still apply."; buttons();
+          }
+        } finally { polling = false; if (!disposed && !document.hidden) pollTimer = setTimeout(pollPhysical, 500); }
+      }
+      window.addEventListener("pagehide", () => { cancel("Page closed or left", true); disposed = true; epoch++; clearTimeout(pollTimer); forget(); buttons(); });
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) { cancel("Page hidden", true); clearTimeout(pollTimer); }
+        else { buttons(); pollPhysical(); }
+      });
+      window.addEventListener("pageshow", event => {
+        if (event.persisted) { disposed = false; epoch++; mutationPending = false; forget(); uncertain = true; fields.status.textContent = "Page restored with physical AI disabled. Cancel + disable before a fresh enable."; buttons(); pollPhysical(); }
+      });
+      buttons(); pollPhysical();
+    })();
   </script>
 </body>
 </html>

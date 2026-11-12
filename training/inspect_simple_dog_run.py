@@ -61,13 +61,19 @@ def main() -> None:
         "Episode/Episode_Reward/foot_slip",
         "Episode/Episode_Reward/undesired_contact",
         "Episode/Episode_Reward/locomotion",
+        "Episode/Episode_Reward/velocity_shortfall",
+        "Episode/Episode_Reward/body_tracking",
+        "Episode/Episode_Reward/body_motion_shortfall",
         "Episode/Episode_Reward/diagonal_gait",
         "Episode/Episode_Reward/complete_gait_cycle",
         "Episode/Episode_Reward/reference_trot",
+        "Episode/Episode_Reward/clocked_trot",
         "Episode/Episode_Reward/foot_clearance",
         "Episode/Episode_Reward/uncommanded_motion",
         "Episode/Episode_Reward/prolonged_foot_air",
         "Episode/Episode_Reward/stability",
+        "Episode/Episode_Reward/posture_tracking",
+        "Episode/Episode_Reward/posture_attitude_error",
         "Episode/Episode_Reward/action_rate",
         "Episode/Episode_Reward/hip_abduction",
         "Episode/Episode_Reward/foot_spread",
@@ -114,7 +120,9 @@ def main() -> None:
         if not args.as_json:
             print(
                 f"{tag}: first={first.value:.6g} at {first.step}, "
-                f"last={last.value:.6g} at {last.step}, samples={len(values)}"
+                f"last={last.value:.6g} at {last.step}, "
+                f"tail_mean={records[tag]['tail_mean']:.6g}, "
+                f"samples={len(values)}"
             )
     if args.as_json:
         print(json.dumps(records, indent=2, sort_keys=True))

@@ -10,8 +10,8 @@ android {
         applicationId = "com.leo.pixelrobot"
         minSdk = 31
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.2.7"
+        versionCode = 13
+        versionName = "0.2.11-ai-test"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -20,6 +20,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (providers.gradleProperty("robotReviewInstall").orNull == "true") {
+                applicationIdSuffix = ".review"
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -66,6 +71,7 @@ dependencies {
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")
     implementation("com.google.android.material:material:1.14.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.26.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     testImplementation("junit:junit:4.13.2")

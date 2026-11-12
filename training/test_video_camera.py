@@ -1,8 +1,13 @@
 """Tests for deterministic multi-robot rollout camera selection."""
 
+import math
 import unittest
 
-from video_camera import select_video_camera_sample, stratified_env_indices
+from video_camera import (
+    CAMERA_OFFSETS,
+    select_video_camera_sample,
+    stratified_env_indices,
+)
 
 
 class VideoCameraTests(unittest.TestCase):
@@ -20,6 +25,13 @@ class VideoCameraTests(unittest.TestCase):
     def test_wraps_without_out_of_range_index(self):
         sample = select_video_camera_sample(10_000, 2000, 3)
         self.assertEqual(sample.env_index, 2)
+
+    def test_views_leave_room_for_the_complete_linkage_robot(self):
+        distances = [
+            math.sqrt(sum(component * component for component in offset))
+            for offset in CAMERA_OFFSETS
+        ]
+        self.assertTrue(all(0.70 <= distance <= 0.85 for distance in distances))
 
     def test_rejects_invalid_ranges(self):
         with self.assertRaises(ValueError):

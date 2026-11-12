@@ -12,8 +12,12 @@ simulation_fit="${6:-}"
 [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_v2_*/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_v2_locomotion_direct/*.pth ||
    "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_v3_*/*.pth ||
-   "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ]] || {
-  printf 'Checkpoint must be a V2 or CurrentV3 checkpoint below the simple-dog log directory.\n' >&2
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/simple_dog_current_v3_rough_direct/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v17_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v18_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v19_*/*.pth ||
+   "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || {
+  printf 'Checkpoint must be a supported V2, CurrentV3, or CurrentBody checkpoint.\n' >&2
   exit 2
 }
 [[ -f "$checkpoint" ]] || { printf 'Checkpoint does not exist: %s\n' "$checkpoint" >&2; exit 2; }
@@ -25,6 +29,7 @@ if [[ -n "$control_profile" ]]; then
   export SIMPLE_DOG_CONTROL_PROFILE="$control_profile"
 fi
 
+evaluation_stage="$stage"
 case "$stage" in
   core)
     task="Isaac-Locomotion-V2-Core-Simple-Dog-Direct-Eval-v0"
@@ -88,11 +93,54 @@ case "$stage" in
     export SIMPLE_DOG_POLICY_FAMILY="current_v3"
     export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
     ;;
-  *) printf 'Stage must be core, robust, goal, rough, currentflat, current, or currentstress.\n' >&2; exit 2 ;;
+  delivery|deliveryflat)
+    task="Isaac-Locomotion-CurrentBodyV20-Eval-Simple-Dog-Direct-v0"
+    [[ "$stage" != deliveryflat ]] || task="Isaac-Locomotion-CurrentBodyV20-Flat-Eval-Simple-Dog-Direct-v0"
+    video_length=5150
+    expected_segments=21
+    screen_timeout=600s
+    [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v20_*/*.pth ]] || exit 2
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || exit 2
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v20"
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    ;;
+  currentbodyv17|currentbodyv18|currentbodyv19|currentbodyv17push|currentbodyv18push|currentbodyv19push)
+    version="${stage#currentbodyv}"
+    if [[ "$version" == *push ]]; then
+      version="${version%push}"
+      task="Isaac-Locomotion-CurrentBodyV${version}-Simple-Dog-Direct-Push-Eval-v0"
+    else
+      task="Isaac-Locomotion-CurrentBodyV${version}-Simple-Dog-Direct-Eval-v0"
+    fi
+    # 2600 commanded steps plus the 100-step reset hold and a closing margin.
+    video_length=2800
+    expected_segments=14
+    # CurrentBody startup can spend several minutes loading the large custom
+    # articulation and checkpoint on the Spark. Keep evaluation bounded while
+    # allowing the complete 52-second deterministic command screen to run.
+    screen_timeout=600s
+    [[ "$checkpoint" == /workspace/projects/training/logs/rl_games/quadruped_current_body_v${version}_*/*.pth ]] || {
+      printf 'CurrentBodyV%s evaluation requires a matching checkpoint.\n' "$version" >&2
+      exit 2
+    }
+    [[ "$simulation_fit" == /workspace/projects/training/fits/*.json && -f "$simulation_fit" ]] || {
+      printf 'CurrentBody evaluation requires its simulation fit below training/fits.\n' >&2
+      exit 2
+    }
+    export SIMPLE_DOG_POLICY_FAMILY="current_body_v${version}"
+    export SIMPLE_DOG_SIMULATION_FIT="$simulation_fit"
+    evaluation_stage="currentbody"
+    ;;
+  *) printf 'Unsupported evaluation stage: %s\n' "$stage" >&2; exit 2 ;;
 esac
 
-if [[ "$stage" != current && "$stage" != currentflat && "$stage" != currentstress && -n "$simulation_fit" ]]; then
-  printf 'A simulation fit may be supplied only for CurrentV3 evaluation.\n' >&2
+if [[ "$stage" != current && "$stage" != currentflat && "$stage" != currentstress &&
+      "$stage" != currentbodyv17 && "$stage" != currentbodyv18 &&
+      "$stage" != currentbodyv19 && "$stage" != currentbodyv17push &&
+      "$stage" != currentbodyv18push && "$stage" != currentbodyv19push &&
+      "$stage" != delivery && "$stage" != deliveryflat &&
+      -n "$simulation_fit" ]]; then
+  printf 'A simulation fit may be supplied only for current-aware evaluation.\n' >&2
   exit 2
 fi
 
@@ -159,9 +207,9 @@ if [[ "$require_gait_quality" != "0" && "$require_gait_quality" != "1" ]]; then
   exit 2
 fi
 quality_args=()
-if [[ "$stage" == "rough" || "$stage" == current* || "$require_gait_quality" == "1" ]]; then
+if [[ "$stage" == "rough" || "$stage" == current* || "$stage" == delivery* || "$require_gait_quality" == "1" ]]; then
   quality_args+=(--require-gait-quality)
 fi
 /workspace/isaaclab/isaaclab.sh -p "${ROOT}/evaluate_simple_dog_policy.py" \
-  "$output_dir/console.log" --stage "$stage" --output "$output_dir/result.json" \
+  "$output_dir/console.log" --stage "$evaluation_stage" --output "$output_dir/result.json" \
   "${quality_args[@]}"

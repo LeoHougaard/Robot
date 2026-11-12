@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-10-10T05:55:52.550995+00:00",
+  "firmware_candidate": "0.1.18-transportguard",
+  "scope": "Offline production-code native replay only; compile-only is separately BLOCKED",
+  "physical_execution": false,
+  "hardware_qualification": false,
+  "candidate_flashed": false,
+  "production_source_sha256": {
+    "platformio.ini": "63e295d1a98919694ac8726795f29f9bc89c12b345700594bad267213e48f569",
+    "test/platformio.compile-only.ini": "457b794d1b5c02c2ff1f06988ae1e5024e49b02ab5fa2fe8e7e20c6bc5fa94b4",
+    "src/AK09918.cpp": "2028929d4f68b9fd871b1116e2eefc9633e2fcf21df36a6b46f35acea099b505",
+    "src/AK09918.h": "038293ed4a5dd887fbc4837376b2a6371525294c70146728c1aafb33fb902c68",
+    "src/QMI8658.cpp": "c041a325453386a2bfcb389d852fb27aa8ccf7b1658e1c97459e706b7c5d48f6",
+    "src/QMI8658.h": "5df31dea40c71c3a1c0df2f42aa682c80e3e288e644a838c69ee7b2a9e129f4c",
+    "src/QMI8658reg.h": "23750102c81eb3d78c48c71e87b202b43168829bf62250b5a7736e2985036b93",
+    "src/main.cpp": "7cd837d9ea2ba4aed6fbeadb9218e4ab948a86c880b160cd26fb11a60c1d3d4a",
+    "include/JsonCommandBoundary.h": "0b9552885bdfdb1356059a4ad0fb3d122c95c8dc2eab538809a058001e9de4a2",
+    "include/PeriodicDeadline.h": "0bbdd035cdc4685de89b671d3212334a5a147552b5fb156f985051c1a5428ba1",
+    "include/SerialInputAbort.h": "ff498f1aa6fc94d5784bb22d48c6a53100d396ada47b2a35c70d96d573c35388"
+  },
+  "harness_sha256": {
+    "test/test_transport_replay.py": "b9dc948ea823a61f8c5b36fcb3c6ea8c2cb47020c617c93b4fe91478cfeab5ff",
+    "test/test_policy_commands.py": "d85fa841b2adc3f783cbe75fcfb4639371fe9b7b40e62425e4c1a41bfc274ea4",
+    "test/test_periodic_deadline/test_main.cpp": "e3e210fad5f115d1d4c85a8329b0631fb1b8f86e32555f9bbc72c61bd74ad140"
+  },
+  "runs": {
+    "arduinojson_7_4_3": {
+      "schema_version": 1,
+      "generated_utc": "2026-10-10T05:54:52.247657+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "scenario_count": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "scenarios": [
+        {
+          "name": "boot_and_arm_gates",
+          "status": "passed"
+        },
+        {
+          "name": "fragmentation_and_coalescing",
+          "status": "passed"
+        },
+        {
+          "name": "stale_reordered_and_wrap_sequences",
+          "status": "passed"
+        },
+        {
+          "name": "watchdog_before_late_frame",
+          "status": "passed"
+        },
+        {
+          "name": "loss_and_watchdog",
+          "status": "passed"
+        },
+        {
+          "name": "lost_delimiter_and_trailing_bytes",
+          "status": "passed"
+        },
+        {
+          "name": "json_strings_and_malformed_syntax",
+          "status": "passed"
+        },
+        {
+          "name": "oversized_line_and_resync",
+          "status": "passed"
+        },
+        {
+          "name": "safety_batch_and_queued_frames",
+          "status": "passed"
+        },
+        {
+          "name": "reconnect_requires_explicit_arm",
+          "status": "passed"
+        },
+        {
+          "name": "abort_discards_complete_old_commands",
+          "status": "passed"
+        },
+        {
+          "name": "abort_nonce_is_bounded",
+          "status": "passed"
+        },
+        {
+          "name": "delimiter_free_probe_never_executes",
+          "status": "passed"
+        },
+        {
+          "name": "monitor_and_feedback_loss",
+          "status": "passed"
+        }
+      ],
+      "physical_execution": false,
+      "hardware_qualification": false,
+      "sanitized": false,
+      "sanitizers": [],
+      "leak_check_disabled": false,
+      "compiler": "g++",
+      "scope": "Production command parser/dispatcher, arm admission, policy frames, feedback watchdog, stop, torque-off and boot-disarm against fake I/O; no UART timing/electrical/actuator validation"
+    },
+    "arduinojson_7_0_4": {
+      "schema_version": 1,
+      "generated_utc": "2026-10-10T05:54:55.754732+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "scenario_count": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "scenarios": [
+        {
+          "name": "boot_and_arm_gates",
+          "status": "passed"
+        },
+        {
+          "name": "fragmentation_and_coalescing",
+          "status": "passed"
+        },
+        {
+          "name": "stale_reordered_and_wrap_sequences",
+          "status": "passed"
+        },
+        {
+          "name": "watchdog_before_late_frame",
+          "status": "passed"
+        },
+        {
+          "name": "loss_and_watchdog",
+          "status": "passed"
+        },
+        {
+          "name": "lost_delimiter_and_trailing_bytes",
+          "status": "passed"
+        },
+        {
+          "name": "json_strings_and_malformed_syntax",
+          "status": "passed"
+        },
+        {
+          "name": "oversized_line_and_resync",
+          "status": "passed"
+        },
+        {
+          "name": "safety_batch_and_queued_frames",
+          "status": "passed"
+        },
+        {
+          "name": "reconnect_requires_explicit_arm",
+          "status": "passed"
+        },
+        {
+          "name": "abort_discards_complete_old_commands",
+          "status": "passed"
+        },
+        {
+          "name": "abort_nonce_is_bounded",
+          "status": "passed"
+        },
+        {
+          "name": "delimiter_free_probe_never_executes",
+          "status": "passed"
+        },
+        {
+          "name": "monitor_and_feedback_loss",
+          "status": "passed"
+        }
+      ],
+      "physical_execution": false,
+      "hardware_qualification": false,
+      "sanitized": false,
+      "sanitizers": [],
+      "leak_check_disabled": false,
+      "compiler": "g++",
+      "scope": "Production command parser/dispatcher, arm admission, policy frames, feedback watchdog, stop, torque-off and boot-disarm against fake I/O; no UART timing/electrical/actuator validation"
+    },
+    "address_undefined_sanitizers": {
+      "schema_version": 1,
+      "generated_utc": "2026-10-10T05:54:59.118272+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "scenario_count": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "scenarios": [
+        {
+          "name": "boot_and_arm_gates",
+          "status": "passed"
+        },
+        {
+          "name": "fragmentation_and_coalescing",
+          "status": "passed"
+        },
+        {
+          "name": "stale_reordered_and_wrap_sequences",
+          "status": "passed"
+        },
+        {
+          "name": "watchdog_before_late_frame",
+          "status": "passed"
+        },
+        {
+          "name": "loss_and_watchdog",
+          "status": "passed"
+        },
+        {
+          "name": "lost_delimiter_and_trailing_bytes",
+          "status": "passed"
+        },
+        {
+          "name": "json_strings_and_malformed_syntax",
+          "status": "passed"
+        },
+        {
+          "name": "oversized_line_and_resync",
+          "status": "passed"
+        },
+        {
+          "name": "safety_batch_and_queued_frames",
+          "status": "passed"
+        },
+        {
+          "name": "reconnect_requires_explicit_arm",
+          "status": "passed"
+        },
+        {
+          "name": "abort_discards_complete_old_commands",
+          "status": "passed"
+        },
+        {
+          "name": "abort_nonce_is_bounded",
+          "status": "passed"
+        },
+        {
+          "name": "delimiter_free_probe_never_executes",
+          "status": "passed"
+        },
+        {
+          "name": "monitor_and_feedback_loss",
+          "status": "passed"
+        }
+      ],
+      "physical_execution": false,
+      "hardware_qualification": false,
+      "sanitized": true,
+      "sanitizers": [
+        "address",
+        "undefined"
+      ],
+      "leak_check_disabled": true,
+      "compiler": "g++",
+      "scope": "Production command parser/dispatcher, arm admission, policy frames, feedback watchdog, stop, torque-off and boot-disarm against fake I/O; no UART timing/electrical/actuator validation"
+    }
+  },
+  "native_policy_handlers": {
+    "arduinojson_7_4_3": "passed",
+    "arduinojson_7_0_4": "passed"
+  },
+  "periodic_deadline": "passed",
+  "regression_baseline": {
+    "source_sha256": "a17bb15e3634035f1c75e73b204cc3d00433218038686da493f62eb7a4ab9677",
+    "passed": 10,
+    "expected_failures": [
+      "watchdog_before_late_frame",
+      "lost_delimiter_and_trailing_bytes",
+      "abort_discards_complete_old_commands",
+      "abort_nonce_is_bounded"
+    ],
+    "note": "Four failing groups represent three defect classes: expired frame admission, trailing-prefix acceptance, and absent nonce-bound reconnect abort. The separate no-delimiter probe passed on this legacy source."
+  },
+  "esp32_compile": "BLOCKED; see compile-only-evidence.json",
+  "limitations": [
+    "Fake I/O does not prove USB/UART timing, electrical reliability, powered torque-off or physical safety",
+    "Only address and undefined-behavior sanitizers ran; LeakSanitizer is unavailable under ptrace and was explicitly disabled",
+    "A matching nonce acknowledgment proves parser resynchronization only, not a safe held pose or physical torque-off",
+    "The installed firmware reported as 0.1.17-rxdiag was not changed; the new host and candidate firmware must be paired"
+  ]
+}

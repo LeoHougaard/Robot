@@ -13,7 +13,14 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
-import serial
+try:
+    import serial
+except ModuleNotFoundError as error:
+    if error.name != "serial":
+        raise
+    serial = None  # Portable actor/math validation does not require a USB driver.
+
+SERIAL_CONNECTION_ERRORS = (OSError,) if serial is None else (OSError, serial.SerialException)
 
 
 CONTROL_HZ = 50
@@ -32,6 +39,10 @@ DEFAULT_POLICY_TORQUE_PERCENT = 100.0
 MIN_POLICY_TORQUE_PERCENT = 1.0
 MAX_POLICY_TORQUE_PERCENT = 100.0
 REMOTE_COMMAND_TIMEOUT_S = 2.0
+# Six 20 ms feedback periods, matching the firmware command-loss watchdog.
+# This independent host limit also catches one-way RX loss while TX still works.
+POLICY_FEEDBACK_TIMEOUT_S = 0.12
+SERIAL_MAX_LINE_BYTES = 16384
 EXPECTED_ACTION_DELTA_LIMIT = 0.30
 EXPECTED_COMMAND_SMOOTHING_S = 0.40
 GRAVITY_CORRECTION_TIME_S = 0.25
@@ -70,6 +81,12 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def protocol_uint32(value: object, name: str) -> int:
+    if type(value) is not int or not 0 <= value <= 0xFFFFFFFF:
+        raise RuntimeError(f"policy {name} must be an unsigned 32-bit integer")
+    return value
 
 
 class NumpyPolicy:
@@ -133,11 +150,10 @@ class NumpyPolicy:
             value = self._elu(
                 self.arrays[f"w{index}"] @ value + self.arrays[f"b{index}"]
             )
-        action = np.clip(
-            self.arrays["wout"] @ value + self.arrays["bout"], -1.0, 1.0
-        ).astype(np.float32)
-        if not np.all(np.isfinite(action)):
+        raw_action = self.arrays["wout"] @ value + self.arrays["bout"]
+        if not np.all(np.isfinite(raw_action)):
             raise ValueError("policy action contains a non-finite value")
+        action = np.clip(raw_action, -1.0, 1.0).astype(np.float32)
         return action
 
 
@@ -241,6 +257,8 @@ class RobotCalibration:
 
 class PolicySerial:
     def __init__(self, port: str):
+        if serial is None:
+            raise RuntimeError("USB policy transport requires pyserial; install requirements.txt")
         # Configure modem-control lines before opening the CP210x port.  The
         # ESP32 auto-reset circuit treats the default DTR/RTS transition as a
         # reset, which would release torque during the policy handoff.
@@ -259,7 +277,7 @@ class PolicySerial:
             try:
                 self.serial.open()
                 break
-            except (OSError, serial.SerialException) as error:
+            except SERIAL_CONNECTION_ERRORS as error:
                 last_error = error
                 self.serial.close()
                 if attempt == 4:
@@ -269,8 +287,12 @@ class PolicySerial:
                 time.sleep(0.25)
         else:  # pragma: no cover - loop either opens or raises
             raise RuntimeError(f"could not open {port}: {last_error}")
-        self.serial.reset_input_buffer()
-        self._wait_until_controller_ready()
+        try:
+            self.serial.reset_input_buffer()
+            self._wait_until_controller_ready()
+        except BaseException:
+            self.serial.close()
+            raise
 
     def _wait_until_controller_ready(self) -> None:
         """Survive the ESP32 reset commonly caused by opening its USB UART."""
@@ -294,7 +316,9 @@ class PolicySerial:
 
     def send(self, payload: dict) -> None:
         line = json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n"
-        self.serial.write(line.encode("utf-8"))
+        data = line.encode("utf-8")
+        if self.serial.write(data) != len(data):
+            raise RuntimeError("serial write did not send the complete command")
         self.serial.flush()
 
     def receive(
@@ -320,58 +344,65 @@ class PolicySerial:
                 continue
             if command is not None and message.get("cmd") != command:
                 continue
-            if sequence is not None and int(message.get("seq", -1)) != sequence:
+            if sequence is not None and protocol_uint32(message.get("seq"), "sequence") != sequence:
                 continue
             return message
         raise TimeoutError(f"timed out waiting for {message_type}")
 
     def receive_available(self) -> list[dict]:
         """Return every complete message already delivered by the USB driver."""
-        while self.serial.in_waiting:
-            self._receive_buffer.extend(self.serial.read(self.serial.in_waiting))
-            if len(self._receive_buffer) > 16384:
-                self._receive_buffer.clear()
-                return []
-
         messages = []
+        while True:
+            message = self._pop_received_json()
+            if message is not None:
+                messages.append(message)
+                continue
+            waiting = self.serial.in_waiting
+            if not waiting:
+                return messages
+            chunk = self.serial.read(min(waiting, SERIAL_MAX_LINE_BYTES + 1))
+            if not chunk:
+                return messages
+            self._receive_buffer.extend(chunk)
+
+    def _pop_received_json(self) -> dict | None:
+        """Bound individual lines and discard an oversize line through its delimiter."""
         while True:
             newline = self._receive_buffer.find(b"\n")
             if newline < 0:
-                return messages
+                if len(self._receive_buffer) > SERIAL_MAX_LINE_BYTES:
+                    self._receive_buffer.clear()
+                    self._discard_receive_line = True
+                return None
             raw = bytes(self._receive_buffer[:newline])
             del self._receive_buffer[: newline + 1]
-            if not raw:
+            if getattr(self, "_discard_receive_line", False):
+                self._discard_receive_line = False
                 continue
+            if not raw or len(raw) > SERIAL_MAX_LINE_BYTES:
+                continue
+
+            def reject_constant(value: str) -> None:
+                raise ValueError(f"invalid JSON number: {value}")
+
             try:
-                message = json.loads(raw)
-            except (UnicodeDecodeError, json.JSONDecodeError):
+                message = json.loads(raw, parse_constant=reject_constant)
+            except (UnicodeDecodeError, ValueError, RecursionError):
                 continue
             if isinstance(message, dict):
-                messages.append(message)
+                return message
 
     def _receive_json(self, deadline: float) -> dict | None:
         """Return one JSON line without dropping fragments between USB reads."""
         while time.monotonic() < deadline:
-            newline = self._receive_buffer.find(b"\n")
-            if newline >= 0:
-                raw = bytes(self._receive_buffer[:newline])
-                del self._receive_buffer[: newline + 1]
-                if not raw:
-                    continue
-                try:
-                    message = json.loads(raw)
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if isinstance(message, dict):
-                    return message
-                continue
+            message = self._pop_received_json()
+            if message is not None:
+                return message
 
             waiting = self.serial.in_waiting
-            chunk = self.serial.read(waiting if waiting > 0 else 1)
+            chunk = self.serial.read(min(waiting, SERIAL_MAX_LINE_BYTES + 1) if waiting > 0 else 1)
             if chunk:
                 self._receive_buffer.extend(chunk)
-                if len(self._receive_buffer) > 16384:
-                    self._receive_buffer.clear()
         return None
 
     def close(self) -> None:
@@ -434,8 +465,14 @@ class GravityEstimator:
     ) -> np.ndarray:
         accel = np.asarray(accel_body_mg, dtype=np.float32)
         gyro = np.asarray(gyro_body_rad_s, dtype=np.float32)
+        if (
+            accel.shape != (3,) or gyro.shape != (3,)
+            or not np.all(np.isfinite(accel)) or not np.all(np.isfinite(gyro))
+            or not math.isfinite(dt) or dt <= 0
+        ):
+            raise RuntimeError("gravity estimation requires finite 3-axis feedback and positive dt")
         magnitude = float(np.linalg.norm(accel))
-        if magnitude < 50.0:
+        if not math.isfinite(magnitude) or magnitude < 50.0:
             raise RuntimeError(f"accelerometer vector is unusable: {magnitude:.1f} mg")
         accel_gravity = gravity_sign * accel / magnitude
 
@@ -456,7 +493,10 @@ class GravityEstimator:
             )
             estimate = (1.0 - correction) * estimate + correction * accel_gravity
 
-        estimate /= max(float(np.linalg.norm(estimate)), 1.0e-6)
+        norm = float(np.linalg.norm(estimate))
+        if not math.isfinite(norm) or norm < 1.0e-6:
+            raise RuntimeError("gravity estimate is not a finite nonzero vector")
+        estimate /= norm
         self.projected_gravity = estimate.astype(np.float32)
         return self.projected_gravity.copy()
 
@@ -493,26 +533,47 @@ def state_vectors(
 ) -> tuple[np.ndarray, np.ndarray]:
     feedback_complete = state.get("feedback_complete")
     if feedback_complete is None:
-        feedback_complete = all(state.get("feedback", []))
-    if not state.get("armed") or not feedback_complete:
+        feedback = state.get("feedback")
+        feedback_complete = (
+            isinstance(feedback, list) and len(feedback) == 12
+            and all(value is True for value in feedback)
+        )
+    if state.get("armed") is not True or feedback_complete is not True:
         raise RuntimeError("policy state is disarmed or has incomplete servo feedback")
-    ids = [int(value) for value in state["ids"]]
-    angles_by_id = dict(zip(ids, (float(value) for value in state["angles_deg"]), strict=True))
+    ids = state.get("ids")
+    angles = state.get("angles_deg")
+    if (
+        not isinstance(ids, list) or len(ids) != 12
+        or any(type(value) is not int for value in ids)
+        or set(ids) != set(calibration.servo_ids)
+        or not isinstance(angles, list) or len(angles) != 12
+        or any(type(value) not in (int, float) or not math.isfinite(value) for value in angles)
+    ):
+        raise RuntimeError("policy feedback requires 12 unique servo ids and finite numeric angles")
+    errors = state.get("status_errors")
+    if errors is not None and (
+        not isinstance(errors, list) or len(errors) != 12
+        or any(type(value) is not int or value != 0 for value in errors)
+    ):
+        raise RuntimeError("policy feedback contains a servo hardware status error")
+    angles_by_id = dict(zip(ids, angles, strict=True))
     joint_position = calibration.policy_positions(angles_by_id)
+    if not np.all(np.isfinite(joint_position)):
+        raise RuntimeError("joint feedback contains a non-finite value")
 
     gyro_sensor = np.asarray(state["gyro_dps"], dtype=np.float32)
-    if not np.all(np.isfinite(gyro_sensor)):
-        raise RuntimeError("gyroscope feedback contains a non-finite value")
+    if gyro_sensor.shape != (3,) or not np.all(np.isfinite(gyro_sensor)):
+        raise RuntimeError("gyroscope feedback must contain 3 finite values")
     gyro_body = calibration.imu_matrix @ (
         (gyro_sensor - calibration.gyro_bias_dps) * (math.pi / 180.0)
     )
     accel_sensor = np.asarray(state["accel_mg"], dtype=np.float32)
-    if not np.all(np.isfinite(accel_sensor)):
-        raise RuntimeError("accelerometer feedback contains a non-finite value")
+    if accel_sensor.shape != (3,) or not np.all(np.isfinite(accel_sensor)):
+        raise RuntimeError("accelerometer feedback must contain 3 finite values")
     accel_body = calibration.imu_matrix @ accel_sensor
     if gravity_estimator is None:
         magnitude = float(np.linalg.norm(accel_body))
-        if magnitude < 50.0:
+        if not math.isfinite(magnitude) or magnitude < 50.0:
             raise RuntimeError(f"accelerometer vector is unusable: {magnitude:.1f} mg")
         projected_gravity = calibration.gravity_sign * accel_body / magnitude
     else:
@@ -673,14 +734,19 @@ def stand_to_neutral(
     torque_percent: float,
     stop_event: threading.Event,
     report: Callable[[dict], None] | None = None,
+    torque_already_enabled: bool = False,
 ) -> str:
     """Move from the measured resting pose to saved neutral in small steps."""
     report = report or (lambda _status: None)
     torque_limit = policy_torque_limit(torque_percent)
+    if stop_event.is_set() and not torque_already_enabled:
+        return "stopped"
     transport = PolicySerial(port)
-    torque_enabled = False
+    torque_enabled = torque_already_enabled
     success = False
     try:
+        if stop_event.is_set():
+            return "stopped"
         transport.receive_available()
         transport.send({"cmd": "read", "all": True})
         state = transport.receive("state", sequence=None, timeout=4.0)
@@ -714,6 +780,8 @@ def stand_to_neutral(
                 "resting pose is more than 72 degrees from neutral; use manual positioning first"
             )
 
+        if stop_event.is_set():
+            return "stopped"
         transport.send(
             {"cmd": "servo_torque_limit", "all": True, "limit": torque_limit}
         )
@@ -723,11 +791,17 @@ def stand_to_neutral(
             timeout=2.0,
             command="servo_torque_limit",
         )
+        if stop_event.is_set():
+            return "stopped"
+        # An acknowledgement may be lost after the board enabled torque.
+        # Treat the enable attempt as live so every failure requests shutdown.
+        torque_enabled = True
         transport.send({"cmd": "servo_torque", "all": True, "enabled": True})
         transport.receive(
             "ok", sequence=None, timeout=2.0, command="servo_torque"
         )
-        torque_enabled = True
+        if stop_event.is_set():
+            return "stopped"
 
         steps = []
         for step_index in range(1, step_count + 1):
@@ -782,23 +856,30 @@ def stand_to_neutral(
             servo_id: abs(float(final_raw[str(servo_id)]) - target_by_id[servo_id])
             for servo_id in calibration.servo_ids
         }
+        if not all(math.isfinite(value) for value in deviations.values()):
+            raise RuntimeError("neutral verification received a non-finite servo angle")
         worst_id = max(deviations, key=deviations.get)
         if deviations[worst_id] > 3.0:
             raise RuntimeError(
                 f"neutral pose was not reached: servo {worst_id} is "
                 f"{deviations[worst_id]:.1f} degrees away"
             )
+        if stop_event.is_set():
+            return "stopped"
         success = True
         return "standing"
     finally:
-        if torque_enabled and not success:
-            try:
+        try:
+            if torque_enabled and not success:
                 disable_and_verify_servo_torque(
                     transport, tuple(int(value) for value in calibration.servo_ids)
                 )
-            except (OSError, RuntimeError, TimeoutError, serial.SerialException):
-                pass
-        transport.close()
+        except (*SERIAL_CONNECTION_ERRORS, RuntimeError, TimeoutError) as error:
+            raise RuntimeError(
+                f"stand shutdown could not verify physical torque-off: {error}"
+            ) from error
+        finally:
+            transport.close()
 
 
 def run_trial(
@@ -816,6 +897,7 @@ def run_trial(
     torque_off_on_exit: bool = False,
     command_provider: Callable[[], tuple[float, float, float]] | None = None,
     log_path: Path | None = None,
+    torque_already_enabled: bool = False,
 ) -> str:
     validate_trial_parameters(
         policy,
@@ -826,6 +908,8 @@ def run_trial(
     )
     stop_event = stop_event or threading.Event()
     report = report or (lambda _status: None)
+    if stop_event.is_set() and not torque_already_enabled:
+        return "stopped"
     transport = PolicySerial(port)
     previous_joint_position = None
     previous_sample_ms = None
@@ -839,6 +923,8 @@ def run_trial(
     log_stream = None
 
     try:
+        if stop_event.is_set():
+            return "stopped"
         if log_path is not None:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_stream = log_path.open("w", encoding="utf-8", buffering=1)
@@ -872,8 +958,29 @@ def run_trial(
                 timeout=2.0,
                 command="servo_torque_limit",
             )
+        if stop_event.is_set():
+            return "stopped"
         transport.send({"cmd": "policy_arm", "confirm": "CALIBRATED_AND_LIFTED"})
         state = transport.receive("policy_state", sequence=0, timeout=2.0)
+        # Current firmware captures tick 0 before configuration/torque writes.
+        # Wait for a genuinely newer periodic IMU sample before actor input.
+        # Older firmware lacks tick; retain its immediate sequence-0 contract.
+        if "tick" in state:
+            initial_sample_ms = protocol_uint32(state.get("sample_ms"), "sample timestamp")
+            fresh_deadline = time.monotonic() + POLICY_FEEDBACK_TIMEOUT_S
+            while True:
+                tick = protocol_uint32(state.get("tick"), "feedback tick")
+                elapsed_sample_ms = (
+                    protocol_uint32(state.get("sample_ms"), "sample timestamp") - initial_sample_ms
+                ) & 0xFFFFFFFF
+                if tick > 0 and 0 < elapsed_sample_ms < 0x80000000:
+                    break
+                if stop_event.is_set():
+                    return "stopped"
+                remaining = fresh_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("policy startup did not receive a fresh periodic sensor sample")
+                state = transport.receive("policy_state", sequence=0, timeout=remaining)
         sequence = 0
         state_sequence = 0
         actions_by_sequence = {0: np.zeros(12, dtype=np.float32)}
@@ -881,6 +988,8 @@ def run_trial(
         started = time.monotonic()
         next_tick = started
         last_report = started
+        freshest_sample_ms = protocol_uint32(state.get("sample_ms"), "sample timestamp")
+        last_fresh_feedback_at = started
         while (
             duration is None or time.monotonic() - started < duration
         ) and not stop_event.is_set():
@@ -911,14 +1020,25 @@ def run_trial(
                     )
                 if message.get("type") != "policy_state":
                     continue
-                received_sequence = int(message.get("seq", -1))
+                received_sequence = protocol_uint32(message.get("seq"), "sequence")
                 if received_sequence > sequence:
                     raise RuntimeError("policy feedback sequence is ahead of sent commands")
-                if received_sequence > state_sequence:
+                # Feedback cadence is independent of commands on current
+                # firmware: a newer sample can legitimately repeat a sequence.
+                if received_sequence >= state_sequence:
+                    received_sample_ms = protocol_uint32(message.get("sample_ms"), "sample timestamp")
+                    elapsed_sample_ms = (received_sample_ms - freshest_sample_ms) & 0xFFFFFFFF
+                    if elapsed_sample_ms >= 0x80000000:
+                        raise RuntimeError("policy feedback sample timestamp moved backwards")
+                    if elapsed_sample_ms:
+                        freshest_sample_ms = received_sample_ms
+                        last_fresh_feedback_at = time.monotonic()
                     state = message
                     state_sequence = received_sequence
 
-            sample_ms = int(state["sample_ms"])
+            if time.monotonic() - last_fresh_feedback_at >= POLICY_FEEDBACK_TIMEOUT_S:
+                raise RuntimeError("policy feedback is stale; no fresh sensor sample for 120 ms")
+            sample_ms = protocol_uint32(state.get("sample_ms"), "sample timestamp")
             if previous_joint_position is None:
                 dt = FRAME_DT
             else:
@@ -970,6 +1090,12 @@ def run_trial(
                 str(servo_id): round(float(applied_targets[index]), 4)
                 for index, servo_id in enumerate(calibration.servo_ids)
             }
+            if stop_event.is_set():
+                break
+            if time.monotonic() - last_fresh_feedback_at >= POLICY_FEEDBACK_TIMEOUT_S:
+                raise RuntimeError("policy feedback is stale after inference; refusing target frame")
+            if duration is not None and time.monotonic() - started >= duration:
+                break
             transport.send({"cmd": "policy_frame", "seq": sequence, "targets": targets})
             previous_joint_position = joint_position
             previous_sample_ms = sample_ms
@@ -1045,7 +1171,7 @@ def run_trial(
                 disable_and_verify_servo_torque(
                     transport, tuple(int(value) for value in calibration.servo_ids)
                 )
-        except (OSError, RuntimeError, TimeoutError, serial.SerialException) as error:
+        except (*SERIAL_CONNECTION_ERRORS, RuntimeError, TimeoutError) as error:
             shutdown_error = error
         finally:
             transport.close()
@@ -1065,6 +1191,8 @@ def run_policy_femur_mix_test(
     delta_deg: float,
     torque_percent: float,
     hold_s: float = 1.25,
+    stop_event: threading.Event | None = None,
+    torque_already_enabled: bool = False,
 ) -> dict:
     """Move one simulated femur coordinate and return through the real linkage map."""
     leg = str(policy_leg).upper()
@@ -1074,6 +1202,11 @@ def run_policy_femur_mix_test(
     if not math.isfinite(delta_deg) or not -20.0 <= delta_deg <= 20.0 or abs(delta_deg) < 0.1:
         raise ValueError("femur test delta must be between -20 and 20 degrees")
     torque_limit = policy_torque_limit(torque_percent)
+    if not math.isfinite(hold_s) or not 0 <= hold_s <= 30:
+        raise ValueError("femur test hold duration must be finite and from 0 to 30 seconds")
+    stop_event = stop_event or threading.Event()
+    if stop_event.is_set() and not torque_already_enabled:
+        return {"stopped": True}
     femur_index = POLICY_FEMUR_INDEX_BY_LEG[leg]
     knee_index = femur_index + 1
     femur_servo_id = int(calibration.servo_ids[femur_index])
@@ -1081,6 +1214,8 @@ def run_policy_femur_mix_test(
     test_servo_ids = (femur_servo_id, knee_servo_id)
     transport = PolicySerial(port)
     try:
+        if stop_event.is_set():
+            return {"stopped": True}
         transport.send({"cmd": "read", "all": True})
         state = transport.receive("state", sequence=None, timeout=4.0)
         measured = state.get("measured")
@@ -1099,16 +1234,22 @@ def run_policy_femur_mix_test(
         mixed_targets = calibration.servo_targets(target_policy)
 
         for servo_id in test_servo_ids:
+            if stop_event.is_set():
+                return {"stopped": True}
             transport.send(
                 {"cmd": "servo_torque_limit", "id": servo_id, "limit": torque_limit}
             )
             transport.receive(
                 "ok", sequence=None, timeout=2.0, command="servo_torque_limit"
             )
+            if stop_event.is_set():
+                return {"stopped": True}
             transport.send({"cmd": "servo_torque", "id": servo_id, "enabled": True})
             transport.receive("ok", sequence=None, timeout=2.0, command="servo_torque")
 
-        def send_pair(values: np.ndarray) -> None:
+        def send_pair(values: np.ndarray) -> bool:
+            if stop_event.is_set():
+                return False
             transport.send(
                 {
                     "cmd": "center_pose",
@@ -1121,11 +1262,12 @@ def run_policy_femur_mix_test(
                 }
             )
             transport.receive("ok", sequence=None, timeout=3.0, command="center_pose")
+            return True
 
-        send_pair(mixed_targets)
-        time.sleep(hold_s)
-        send_pair(baseline_targets)
-        time.sleep(0.35)
+        if not send_pair(mixed_targets) or stop_event.wait(hold_s):
+            return {"stopped": True}
+        if not send_pair(baseline_targets) or stop_event.wait(0.35):
+            return {"stopped": True}
         return {
             "policy_leg": leg,
             "policy_femur_delta_deg": delta_deg,
@@ -1538,7 +1680,9 @@ class PolicyRunner:
             if self._calibration is None:
                 raise ValueError(f"calibration is not ready: {self._calibration_error}")
             calibration = self._calibration
+            torque_already_enabled = self._holding_torque
             self._holding_torque = False
+            self._stop_event = threading.Event()
             self._trial_status = {
                 "state": "starting_femur_test",
                 "sequence": 0,
@@ -1553,6 +1697,7 @@ class PolicyRunner:
                     "policy_leg": leg,
                     "delta_deg": delta_deg,
                     "torque_percent": torque_percent,
+                    "torque_already_enabled": torque_already_enabled,
                 },
                 name="policy-femur-mix-test",
                 daemon=True,
@@ -1567,6 +1712,7 @@ class PolicyRunner:
         policy_leg: str,
         delta_deg: float,
         torque_percent: float,
+        torque_already_enabled: bool = False,
     ) -> None:
         try:
             result = run_policy_femur_mix_test(
@@ -1575,6 +1721,8 @@ class PolicyRunner:
                 policy_leg=policy_leg,
                 delta_deg=delta_deg,
                 torque_percent=torque_percent,
+                stop_event=self._stop_event,
+                torque_already_enabled=torque_already_enabled,
             )
         except Exception as error:
             with self._lock:
@@ -1585,6 +1733,11 @@ class PolicyRunner:
         else:
             with self._lock:
                 self._holding_torque = False
+                if result.get("stopped"):
+                    self._trial_status.update(
+                        state="stopped", message="Femur test stopped and torque disabled."
+                    )
+                    return
                 self._trial_status.update(
                     state="femur_test_completed",
                     result=result,
@@ -1611,6 +1764,7 @@ class PolicyRunner:
             if self._calibration is None:
                 raise ValueError(f"calibration is not ready: {self._calibration_error}")
             calibration = self._calibration
+            torque_already_enabled = self._holding_torque
             self._holding_torque = False
             self._stop_event = threading.Event()
             self._trial_status = {
@@ -1627,6 +1781,7 @@ class PolicyRunner:
                 kwargs={
                     "calibration": calibration,
                     "torque_percent": torque_percent,
+                    "torque_already_enabled": torque_already_enabled,
                 },
                 name="stand-to-neutral",
                 daemon=True,
@@ -1677,6 +1832,7 @@ class PolicyRunner:
                 stop_event=self._stop_event,
                 report=self._report,
                 torque_off_on_exit=True,
+                torque_already_enabled=True,
                 command_provider=self._remote_command_snapshot,
                 log_path=log_path,
             )
@@ -1745,8 +1901,8 @@ class PolicyRunner:
                     self._telemetry_message = "Feedback monitor is off."
 
     def stop_telemetry(self) -> dict:
-        self._telemetry_stop_event.set()
         with self._lock:
+            self._telemetry_stop_event.set()
             if self._telemetry_thread is not None and self._telemetry_thread.is_alive():
                 self._telemetry_message = "Stopping feedback monitor."
         return self.status()
@@ -1756,6 +1912,7 @@ class PolicyRunner:
         *,
         calibration: RobotCalibration,
         torque_percent: float,
+        torque_already_enabled: bool = False,
     ) -> None:
         try:
             result = stand_to_neutral(
@@ -1764,6 +1921,7 @@ class PolicyRunner:
                 torque_percent=torque_percent,
                 stop_event=self._stop_event,
                 report=self._report_stand,
+                torque_already_enabled=torque_already_enabled,
             )
         except Exception as error:
             with self._lock:
@@ -1773,16 +1931,22 @@ class PolicyRunner:
                 )
         else:
             with self._lock:
-                self._holding_torque = result == "standing"
-                self._trial_status.update(
-                    state=result,
-                    message=(
-                        f"Standing at neutral with {torque_percent:g}% torque. "
-                        "Set the drive command and start remote control."
-                        if result == "standing"
-                        else "Stand transition stopped and torque disabled."
-                    ),
-                )
+                cancelled_after_stand = result == "standing" and self._stop_event.is_set()
+                if cancelled_after_stand:
+                    self._trial_status.update(state="stopping", message="Disabling held neutral torque.")
+                else:
+                    self._holding_torque = result == "standing"
+                    self._trial_status.update(
+                        state=result,
+                        message=(
+                            f"Standing at neutral with {torque_percent:g}% torque. "
+                            "Set the drive command and start remote control."
+                            if result == "standing"
+                            else "Stand transition stopped and torque disabled."
+                        ),
+                    )
+            if cancelled_after_stand:
+                self._run_torque_off()
 
     def _run_torque_off(self) -> None:
         try:
@@ -1804,13 +1968,15 @@ class PolicyRunner:
                 )
 
     def stop(self) -> dict:
-        self._stop_event.set()
-        self._telemetry_stop_event.set()
         with self._lock:
-            if self._thread is not None and self._thread.is_alive():
-                self._trial_status["state"] = "stopping"
-                self._trial_status["message"] = "Stopping and disarming."
-            elif self._holding_torque:
+            # Start/stand replace these events under this same lock. Signaling
+            # outside it can cancel the previous session and miss the new one.
+            self._stop_event.set()
+            self._telemetry_stop_event.set()
+            if self._holding_torque:
+                # A stand worker may have published its held pose but not yet
+                # returned. The serial handoff is complete at that point.
+                self._holding_torque = False
                 self._trial_status["state"] = "stopping"
                 self._trial_status["message"] = "Disabling held neutral torque."
                 self._thread = threading.Thread(
@@ -1819,6 +1985,9 @@ class PolicyRunner:
                     daemon=True,
                 )
                 self._thread.start()
+            elif self._thread is not None and self._thread.is_alive():
+                self._trial_status["state"] = "stopping"
+                self._trial_status["message"] = "Stopping and disarming."
         return self.status()
 
     def join(self, timeout: float) -> None:

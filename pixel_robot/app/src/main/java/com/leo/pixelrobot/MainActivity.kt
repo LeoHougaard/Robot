@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.startPolicyButton.setOnClickListener {
             runCatching {
-                robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value)
+                robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value, binding.lateralSlider.value)
                 updatePostureRequest()
                 robotService?.startPolicy()
             }.onFailure { binding.runtimeStatus.text = it.message }
@@ -153,12 +153,17 @@ class MainActivity : AppCompatActivity() {
                 .onFailure { binding.runtimeStatus.text = it.message }
         }
         binding.forwardSlider.addOnChangeListener { _, value, _ ->
-            runCatching { robotService?.updateMotionRequest(value, binding.yawSlider.value) }
+            runCatching { robotService?.updateMotionRequest(value, binding.yawSlider.value, binding.lateralSlider.value) }
                 .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
         binding.yawSlider.addOnChangeListener { _, value, _ ->
-            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, value) }
+            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, value, binding.lateralSlider.value) }
+                .onFailure { binding.runtimeStatus.text = it.message }
+            renderMotionLabels()
+        }
+        binding.lateralSlider.addOnChangeListener { _, value, _ ->
+            runCatching { robotService?.updateMotionRequest(binding.forwardSlider.value, binding.yawSlider.value, value) }
                 .onFailure { binding.runtimeStatus.text = it.message }
             renderMotionLabels()
         }
@@ -178,6 +183,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        robotService?.onShadowOperatorBackgrounded()
         statusJob?.cancel()
         statusJob = null
         policyStatusJob?.cancel()
@@ -209,6 +215,10 @@ class MainActivity : AppCompatActivity() {
         )
         binding.telemetryStatus.text = buildString {
             append("device: ${status.deviceName ?: "none"}")
+            status.policyEpoch?.let { epoch ->
+                append("\npolicy: epoch $epoch, ${status.policyFamily ?: "unknown"}")
+                status.policyWeightsSha256?.let { hash -> append("\nweights: ${hash.take(12)}…") }
+            }
             status.lastSequence?.let { append("\nsequence: $it") }
             append("\n${servoBattery.message()}")
             status.feedbackComplete?.let { append(" • feedback: ${if (it) "complete" else "INCOMPLETE"}") }
@@ -318,9 +328,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateArmAvailability() {
         val ready = robotService?.status?.value?.linkState == LinkState.READY
-        val clockedPolicyReady = FirmwareCapabilities.supportsClockedPolicyFeedback(
+        val clockedPolicyReady = robotService?.firmwareSupportsInstalledPolicy(
             robotService?.status?.value?.firmwareVersion,
-        )
+        ) == true
         val idle = robotService?.policyStatus?.value?.active != true
         binding.startPolicyButton.isEnabled = ready && clockedPolicyReady && idle
         binding.standAtStartPoseButton.isEnabled =
@@ -338,17 +348,25 @@ class MainActivity : AppCompatActivity() {
         binding.yawSlider.valueFrom = service.yawMinimum
         binding.yawSlider.valueTo = service.yawMaximum
         binding.yawSlider.value = binding.yawSlider.value.coerceIn(service.yawMinimum, service.yawMaximum)
-        val postureEnabled = service.supportsPostureCommands
-        listOf(binding.heightSlider, binding.rollSlider, binding.pitchSlider).forEach {
-            it.isEnabled = postureEnabled
+        binding.lateralSlider.isEnabled = service.lateralMinimum < service.lateralMaximum
+        if (binding.lateralSlider.isEnabled) {
+            binding.lateralSlider.valueFrom = service.lateralMinimum
+            binding.lateralSlider.valueTo = service.lateralMaximum
+            binding.lateralSlider.value = binding.lateralSlider.value.coerceIn(service.lateralMinimum, service.lateralMaximum)
         }
-        if (postureEnabled) {
-            binding.heightSlider.valueFrom = service.postureHeightMinimum
-            binding.heightSlider.valueTo = service.postureHeightMaximum
-            binding.rollSlider.valueFrom = service.postureRollMinimum
-            binding.rollSlider.valueTo = service.postureRollMaximum
-            binding.pitchSlider.valueFrom = service.posturePitchMinimum
-            binding.pitchSlider.valueTo = service.posturePitchMaximum
+        listOf(
+            Triple(binding.heightSlider, service.postureHeightMinimum, service.postureHeightMaximum),
+            Triple(binding.rollSlider, service.postureRollMinimum, service.postureRollMaximum),
+            Triple(binding.pitchSlider, service.posturePitchMinimum, service.posturePitchMaximum),
+        ).forEach { (slider, minimum, maximum) ->
+            slider.isEnabled = minimum < maximum
+            // Disabled Material sliders still require a nonempty render range.
+            // Keep their valid XML range when this command is fixed by policy.
+            if (slider.isEnabled) {
+                slider.valueFrom = minimum
+                slider.valueTo = maximum
+            }
+            slider.value = slider.value.coerceIn(minimum, maximum)
         }
         renderMotionLabels()
     }
@@ -366,6 +384,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderMotionLabels() {
         binding.forwardRequestLabel.text = getString(R.string.forward_request, binding.forwardSlider.value)
         binding.yawRequestLabel.text = getString(R.string.yaw_request, binding.yawSlider.value)
+        binding.lateralRequestLabel.text = getString(R.string.lateral_request, binding.lateralSlider.value)
         binding.heightRequestLabel.text = getString(R.string.height_request, binding.heightSlider.value)
         binding.rollRequestLabel.text = getString(R.string.roll_request, binding.rollSlider.value)
         binding.pitchRequestLabel.text = getString(R.string.pitch_request, binding.pitchSlider.value)
