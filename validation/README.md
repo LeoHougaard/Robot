@@ -2,6 +2,11 @@
 
 From the repository root, after installing the pinned test environment:
 
+Use a checkout with repository history. The CPU reward parity regression reads
+the exact preserved `41677bd` source and verifies its SHA-256 before comparing
+behavior. CI fetches full history for this reason; a shallow clone must fetch
+the required history rather than skip the comparison.
+
 ```sh
 python -m validation
 ```
