@@ -785,7 +785,9 @@ time.sleep(60)
                 try:
                     fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
                     current_identity, state = ("proc-starttime", fields[19]), fields[0]
-                except FileNotFoundError:
+                except (FileNotFoundError, ProcessLookupError):
+                    # A task can disappear after procfs open but before read,
+                    # producing ESRCH rather than ENOENT. Both prove it is gone.
                     terminated = True
                     break
             else:
